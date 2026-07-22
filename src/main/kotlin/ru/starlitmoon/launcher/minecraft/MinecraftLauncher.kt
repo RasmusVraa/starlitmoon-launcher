@@ -29,9 +29,9 @@ class MinecraftLauncher(
     private val http = HttpClient(CIO) {
         install(ContentNegotiation) { json(json) }
         install(HttpTimeout) {
-            requestTimeoutMillis = 60_000
-            connectTimeoutMillis = 10_000
-            socketTimeoutMillis = 60_000
+            requestTimeoutMillis = 120_000
+            connectTimeoutMillis = 15_000
+            socketTimeoutMillis = 120_000
         }
     }
 
@@ -41,15 +41,30 @@ class MinecraftLauncher(
         val process: Process? = null,
     )
 
-    fun resolveClientVersion(displayVersion: String = ""): String =
-        config.minecraftVersionId.ifBlank { displayVersion.ifBlank { config.defaultMcVersion } }
+    suspend fun resolveClientVersion(preferred: String = ""): String {
+        val manifest = loadManifest()
+        val candidates = listOf(
+            preferred,
+            config.minecraftVersionId,
+            config.defaultMcVersion,
+            manifest.latest?.release.orEmpty(),
+        ).map { it.trim() }.filter { it.isNotEmpty() }.distinct()
 
-    suspend fun ensureVersion(versionId: String, onProgress: (String) -> Unit = {}): Result<Unit> = runCatching {
-        val id = resolveClientVersion(versionId)
+        for (id in candidates) {
+            if (manifest.versions.any { it.id == id }) return id
+        }
+        return manifest.versions.firstOrNull { it.type == "release" }?.id
+            ?: candidates.firstOrNull()
+            ?: "26.2"
+    }
+
+    suspend fun ensureVersion(preferred: String = "", onProgress: (String) -> Unit = {}): Result<Unit> = runCatching {
+        onProgress("Определение версии…")
+        val id = resolveClientVersion(preferred)
         val versionDir = config.versionsDir.resolve(id)
         val versionJson = versionDir.resolve("$id.json")
         if (versionJson.exists() && versionDir.resolve("$id.jar").exists()) {
-            onProgress("Клиент уже загружен")
+            onProgress("Клиент $id готов")
             return@runCatching
         }
 
@@ -57,14 +72,10 @@ class MinecraftLauncher(
         config.librariesDir.createDirectories()
         config.assetsDir.createDirectories()
 
-        onProgress("Список версий Mojang…")
-        val manifestText = http.get("https://piston-meta.mojang.com/mc/game/version_manifest_v2.json").bodyAsText()
-        val manifest = json.decodeFromString<VersionManifest>(manifestText)
+        onProgress("Загрузка списка версий…")
+        val manifest = loadManifest()
         val versionUrl = manifest.versions.firstOrNull { it.id == id }?.url
-            ?: throw IllegalStateException(
-                "Версия «$id» не найдена в Mojang. Укажите minecraftVersionId в config.json " +
-                    "(сейчас: ${config.minecraftVersionId.ifBlank { "пусто" }}).",
-            )
+            ?: error("Версия $id недоступна")
 
         onProgress("Метаданные $id…")
         val versionMeta = json.decodeFromString<VersionMeta>(http.get(versionUrl).bodyAsText())
@@ -75,38 +86,45 @@ class MinecraftLauncher(
             val artifact = library.downloads!!.artifact!!
             val libPath = config.librariesDir.resolve(artifact.path)
             if (!libPath.exists()) {
-                onProgress("Библиотеки ${index + 1}/${libs.size}…")
+                onProgress("Библиотеки ${index + 1}/${libs.size}")
                 downloadBinary(artifact.url, libPath)
             }
         }
 
         val clientJar = versionDir.resolve("$id.jar")
+        val clientUrl = versionMeta.downloads?.client?.url
+            ?: error("В метаданных нет ссылки на клиент")
         if (!clientJar.exists()) {
-            onProgress("Скачивание клиента…")
-            downloadBinary(versionMeta.downloads.client.url, clientJar)
+            onProgress("Скачивание клиента $id…")
+            downloadBinary(clientUrl, clientJar)
         }
 
         val assetIndex = versionMeta.assetIndex
+            ?: error("Нет индекса ассетов")
         val assetIndexFile = config.assetsDir.resolve("indexes").resolve("${assetIndex.id}.json")
         assetIndexFile.parent?.createDirectories()
         if (!assetIndexFile.exists()) {
-            onProgress("Индекс ассетов…")
+            onProgress("Индекс ресурсов…")
             assetIndexFile.writeText(http.get(assetIndex.url).bodyAsText())
         }
         onProgress("Готово")
     }
 
-    suspend fun launch(username: String, displayVersion: String = "", onProgress: (String) -> Unit = {}): LaunchResult {
-        val id = resolveClientVersion(displayVersion)
-        ensureVersion(id, onProgress).onFailure { return LaunchResult(false, it.message ?: "Ошибка загрузки версии") }
+    suspend fun launch(username: String, preferredVersion: String = "", onProgress: (String) -> Unit = {}): LaunchResult {
+        val prepare = ensureVersion(preferredVersion, onProgress)
+        if (prepare.isFailure) {
+            return LaunchResult(false, prepare.exceptionOrNull()?.message ?: "Ошибка загрузки версии")
+        }
+        val id = resolveClientVersion(preferredVersion)
 
         val java = findJava() ?: return LaunchResult(
             false,
-            "Java не найдена. Установите JDK 17+ или укажите javaPath в config.json",
+            "Java не найдена. Укажите путь в настройках или установите JDK 17+",
         )
 
         val versionJson = config.versionsDir.resolve(id).resolve("$id.json")
         val versionMeta = json.decodeFromString<VersionMeta>(versionJson.readText())
+        val assetIndexId = versionMeta.assetIndex?.id ?: return LaunchResult(false, "Нет индекса ассетов")
         val classpath = buildClasspath(id, versionMeta)
         val uuid = offlineUuid(username)
         val gameDir = config.gameDir.toAbsolutePath().toString()
@@ -118,7 +136,7 @@ class MinecraftLauncher(
             "-Xmx${config.maxMemoryMb}M",
             "-Djava.library.path=${nativesDir.toAbsolutePath()}",
             "-Dminecraft.launcher.brand=starlitmoon",
-            "-Dminecraft.launcher.version=1.0.2",
+            "-Dminecraft.launcher.version=${ru.starlitmoon.launcher.LauncherVersion.CURRENT}",
         )
 
         val gameArgs = listOf(
@@ -126,7 +144,7 @@ class MinecraftLauncher(
             "--version", id,
             "--gameDir", gameDir,
             "--assetsDir", assetsDir,
-            "--assetIndex", versionMeta.assetIndex.id,
+            "--assetIndex", assetIndexId,
             "--uuid", uuid,
             "--accessToken", "0",
             "--userType", "legacy",
@@ -144,15 +162,20 @@ class MinecraftLauncher(
         }
 
         return try {
-            onProgress("Запуск Minecraft…")
+            onProgress("Запуск…")
             val process = ProcessBuilder(command)
                 .directory(config.gameDir.toFile())
                 .inheritIO()
                 .start()
-            LaunchResult(true, "Minecraft запущен", process)
+            LaunchResult(true, "Игра запущена", process)
         } catch (e: Exception) {
             LaunchResult(false, e.message ?: "Не удалось запустить игру")
         }
+    }
+
+    private suspend fun loadManifest(): VersionManifest {
+        val text = http.get("https://piston-meta.mojang.com/mc/game/version_manifest_v2.json").bodyAsText()
+        return json.decodeFromString(text)
     }
 
     private suspend fun downloadBinary(url: String, target: Path) {
@@ -180,7 +203,8 @@ class MinecraftLauncher(
         }
         val javaHome = System.getenv("JAVA_HOME")
         if (!javaHome.isNullOrBlank()) {
-            val candidate = Path.of(javaHome, "bin", if (System.getProperty("os.name").contains("Windows")) "java.exe" else "java")
+            val name = if (System.getProperty("os.name").contains("Windows")) "java.exe" else "java"
+            val candidate = Path.of(javaHome, "bin", name)
             if (candidate.toFile().exists()) return candidate.toString()
         }
         return runCatching {
@@ -205,13 +229,21 @@ class MinecraftLauncher(
 
 @Serializable
 data class VersionManifest(
+    val latest: LatestVersions? = null,
     val versions: List<VersionRef> = emptyList(),
+)
+
+@Serializable
+data class LatestVersions(
+    val release: String? = null,
+    val snapshot: String? = null,
 )
 
 @Serializable
 data class VersionRef(
     val id: String,
     val url: String,
+    val type: String = "release",
 )
 
 @Serializable
@@ -220,13 +252,13 @@ data class VersionMeta(
     val type: String = "release",
     @SerialName("mainClass") val mainClass: String,
     val libraries: List<Library> = emptyList(),
-    val downloads: ClientDownloads,
-    @SerialName("assetIndex") val assetIndex: AssetIndex,
+    val downloads: ClientDownloads? = null,
+    @SerialName("assetIndex") val assetIndex: AssetIndex? = null,
 )
 
 @Serializable
 data class ClientDownloads(
-    val client: DownloadArtifact,
+    val client: DownloadArtifact? = null,
 )
 
 @Serializable
@@ -249,7 +281,7 @@ data class LibraryDownloads(
 
 @Serializable
 data class DownloadArtifact(
-    val path: String,
+    val path: String = "",
     val url: String,
 )
 

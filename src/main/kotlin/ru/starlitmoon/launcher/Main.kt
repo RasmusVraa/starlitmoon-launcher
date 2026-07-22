@@ -13,7 +13,6 @@ import ru.starlitmoon.launcher.ui.LauncherApp
 import ru.starlitmoon.launcher.viewmodel.LauncherViewModel
 
 fun main() = application {
-    // Compose Desktop: Main dispatcher comes from kotlinx-coroutines-swing
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Swing)
     val api = StarlitApiClient()
     val vm = LauncherViewModel(scope, api)

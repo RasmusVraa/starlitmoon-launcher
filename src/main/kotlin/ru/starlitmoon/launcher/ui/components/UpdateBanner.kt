@@ -46,7 +46,7 @@ fun UpdateBanner(
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 StarlitPrimaryButton(
-                    text = if (update.installerUrl != null) "Скачать установщик" else "Открыть релиз",
+                    text = if (update.installerUrl != null) "Обновить" else "Скачать",
                     onClick = onDownload,
                 )
                 StarlitSecondaryButton(text = "Позже", onClick = onDismiss)

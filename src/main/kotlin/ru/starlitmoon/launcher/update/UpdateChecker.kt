@@ -42,6 +42,9 @@ class UpdateChecker(
 
         val installer = release.assets.firstOrNull { asset ->
             asset.name.endsWith(".exe", ignoreCase = true) &&
+                asset.name.contains("Setup", ignoreCase = true)
+        } ?: release.assets.firstOrNull { asset ->
+            asset.name.endsWith(".exe", ignoreCase = true) &&
                 (asset.name.contains("launcher", ignoreCase = true) || asset.name.contains("StarlitMoon", ignoreCase = true))
         } ?: release.assets.firstOrNull { it.name.endsWith(".exe", ignoreCase = true) }
 

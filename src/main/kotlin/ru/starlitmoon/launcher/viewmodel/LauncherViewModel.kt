@@ -12,8 +12,12 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import ru.starlitmoon.launcher.LauncherConfig
+import ru.starlitmoon.launcher.api.AdminApplicationDto
 import ru.starlitmoon.launcher.api.AdminMeResponse
+import ru.starlitmoon.launcher.api.AdminPlayerDto
+import ru.starlitmoon.launcher.api.AdminStatsResponse
 import ru.starlitmoon.launcher.api.MeResponse
+import ru.starlitmoon.launcher.api.NotificationDto
 import ru.starlitmoon.launcher.api.ServerStatus
 import ru.starlitmoon.launcher.api.StarlitApiClient
 import ru.starlitmoon.launcher.api.StarlitApiException
@@ -35,7 +39,6 @@ class LauncherViewModel(
     private val config: LauncherConfig = LauncherConfig.load(),
     private val updateChecker: UpdateChecker = UpdateChecker(config),
 ) {
-    var isBootLoading by mutableStateOf(false)
     var isRefreshingStatus by mutableStateOf(false)
     var isLoading by mutableStateOf(false)
     var isCheckingUpdates by mutableStateOf(false)
@@ -50,10 +53,16 @@ class LauncherViewModel(
     var currentTab by mutableStateOf(LauncherTab.Play)
     var serverStatus by mutableStateOf(ServerStatus.offline(config.serverHost))
     var serverVersion by mutableStateOf(config.defaultMcVersion)
+    var clientVersion by mutableStateOf(config.minecraftVersionId)
     var meData by mutableStateOf<MeResponse?>(null)
     var adminMe by mutableStateOf<AdminMeResponse?>(null)
+    var adminStats by mutableStateOf<AdminStatsResponse?>(null)
+    var adminPlayers by mutableStateOf<List<AdminPlayerDto>>(emptyList())
+    var adminApps by mutableStateOf<List<AdminApplicationDto>>(emptyList())
+    var notifications by mutableStateOf<List<NotificationDto>>(emptyList())
     var launchProgress by mutableStateOf<String?>(null)
     var onlinePlayers by mutableStateOf<List<String>>(emptyList())
+    var adminSearch by mutableStateOf("")
 
     private var statusJob: Job? = null
     private var booted = false
@@ -61,15 +70,12 @@ class LauncherViewModel(
     fun boot() {
         if (booted) return
         booted = true
-        // UI сразу, сеть в фоне
         scope.launch {
             val sessionJob = async(Dispatchers.IO) {
                 runCatching { api.restoreSession() }.getOrNull()
             }
             val publicJob = async(Dispatchers.IO) { refreshPublicData() }
-            if (config.checkUpdatesOnStart) {
-                launch { checkForUpdates() }
-            }
+            if (config.checkUpdatesOnStart) launch { checkForUpdates() }
             val restored = sessionJob.await()
             if (restored?.user != null) applySession(restored)
             publicJob.await()
@@ -82,11 +88,17 @@ class LauncherViewModel(
             isCheckingUpdates = true
             runCatching {
                 withContext(Dispatchers.IO) { updateChecker.checkForUpdate().getOrThrow() }
-            }
-                .onSuccess { update ->
-                    updateInfo = update
-                    if (update != null) updateDismissed = false
+            }.onSuccess { update ->
+                updateInfo = update
+                if (update != null) {
+                    updateDismissed = false
+                    infoMessage = "Доступна версия ${update.latestVersion}"
+                } else {
+                    infoMessage = "Установлена актуальная версия"
                 }
+            }.onFailure {
+                errorMessage = "Не удалось проверить обновления"
+            }
             isCheckingUpdates = false
         }
     }
@@ -97,7 +109,7 @@ class LauncherViewModel(
         runCatching {
             java.awt.Desktop.getDesktop().browse(java.net.URI(url))
         }.onFailure {
-            errorMessage = "Не удалось открыть страницу загрузки"
+            errorMessage = "Не удалось открыть загрузку"
         }
     }
 
@@ -115,9 +127,10 @@ class LauncherViewModel(
             errorMessage = null
             runCatching {
                 withContext(Dispatchers.IO) { api.login(nickname, password) }
-            }
-                .onSuccess { applySession(it) }
-                .onFailure { handleError(it) }
+            }.onSuccess {
+                applySession(it)
+                infoMessage = "Вход выполнен"
+            }.onFailure { handleError(it) }
             isLoading = false
         }
     }
@@ -132,6 +145,10 @@ class LauncherViewModel(
             userUuid = null
             meData = null
             adminMe = null
+            adminStats = null
+            adminPlayers = emptyList()
+            adminApps = emptyList()
+            notifications = emptyList()
             if (currentTab == LauncherTab.Admin || currentTab == LauncherTab.Cabinet) {
                 currentTab = LauncherTab.Play
             }
@@ -147,39 +164,63 @@ class LauncherViewModel(
         }
         scope.launch {
             isLoading = true
-            launchProgress = "Подготовка клиента…"
+            launchProgress = "Подготовка…"
             errorMessage = null
             val result = withContext(Dispatchers.IO) {
                 mc.launch(userName, config.minecraftVersionId) { progress ->
                     scope.launch { launchProgress = progress }
                 }
             }
-            launchProgress = null
             if (result.success) {
-                infoMessage = "Игра запущена. На сервере: /login <пароль>"
+                clientVersion = runCatching {
+                    withContext(Dispatchers.IO) { mc.resolveClientVersion(config.minecraftVersionId) }
+                }.getOrDefault(config.minecraftVersionId)
+                infoMessage = "Игра запущена. Введите /login на сервере"
             } else {
                 errorMessage = result.message
             }
+            launchProgress = null
             isLoading = false
         }
     }
 
-    fun openDiscordLogin() {
-        runCatching {
-            java.awt.Desktop.getDesktop().browse(java.net.URI(api.discordLoginUrl()))
-        }.onFailure {
-            errorMessage = "Не удалось открыть браузер для Discord"
+    fun refreshAdmin() {
+        if (!isAdmin) return
+        scope.launch {
+            isLoading = true
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    adminMe = api.adminMe()
+                    adminStats = runCatching { api.adminStats() }.getOrNull()
+                    adminPlayers = runCatching { api.adminPlayers(adminSearch).players }.getOrDefault(emptyList())
+                    adminApps = runCatching {
+                        api.adminApplications().filter { it.status == "pending" }
+                    }.getOrDefault(emptyList())
+                }
+            }.onFailure { handleError(it) }
+            isLoading = false
         }
     }
 
-    fun refreshAdminAccess() {
+    fun searchAdminPlayers(query: String) {
+        adminSearch = query
         if (!isAdmin) return
         scope.launch {
-            runCatching {
-                withContext(Dispatchers.IO) { api.adminMe() }
+            adminPlayers = withContext(Dispatchers.IO) {
+                runCatching { api.adminPlayers(query).players }.getOrDefault(emptyList())
             }
-                .onSuccess { adminMe = it }
-                .onFailure { handleError(it) }
+        }
+    }
+
+    fun refreshCabinet() {
+        if (!isLoggedIn) return
+        scope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    meData = api.me()
+                    notifications = api.notifications()
+                }
+            }.onFailure { handleError(it) }
         }
     }
 
@@ -194,7 +235,12 @@ class LauncherViewModel(
         userName = me.user?.name.orEmpty()
         userUuid = me.user?.uuid
         meData = me
-        if (me.admin) refreshAdminAccess()
+        scope.launch {
+            notifications = withContext(Dispatchers.IO) {
+                runCatching { api.notifications() }.getOrDefault(emptyList())
+            }
+        }
+        if (me.admin) refreshAdmin()
     }
 
     private suspend fun refreshPublicData() {
@@ -233,13 +279,13 @@ class LauncherViewModel(
                 errorMessage = if (error.cabinetBlocked) {
                     buildString {
                         append(error.message)
-                        error.applicationStatus?.let { append(" (заявка: $it)") }
+                        error.applicationStatus?.let { append(" ($it)") }
                     }
                 } else {
                     error.message
                 }
             }
-            else -> errorMessage = error.message ?: "Неизвестная ошибка"
+            else -> errorMessage = error.message ?: "Ошибка"
         }
     }
 

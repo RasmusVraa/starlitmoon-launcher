@@ -15,8 +15,7 @@ data class LauncherConfig(
     val serverHost: String = "play.starlit-moon.ru",
     val defaultMcVersion: String = "26.2",
     val defaultMaxPlayers: Int = 100,
-    /** Mojang version id для скачивания клиента */
-    val minecraftVersionId: String = "1.21.4",
+    val minecraftVersionId: String = "26.2",
     val javaPath: String = "",
     val minMemoryMb: Int = 2048,
     val maxMemoryMb: Int = 4096,
@@ -55,9 +54,14 @@ data class LauncherConfig(
                 file.writeText(json.encodeToString(defaults))
                 return defaults
             }
-            return runCatching {
+            val loaded = runCatching {
                 json.decodeFromString<LauncherConfig>(file.readText())
             }.getOrElse { LauncherConfig() }
+            return if (loaded.minecraftVersionId == "1.21.4") {
+                loaded.copy(minecraftVersionId = "26.2", defaultMcVersion = "26.2").also { save(it) }
+            } else {
+                loaded
+            }
         }
 
         fun save(config: LauncherConfig) {

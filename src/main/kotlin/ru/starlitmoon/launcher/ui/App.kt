@@ -19,8 +19,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.NavigationRailItemDefaults
-import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
@@ -43,7 +43,7 @@ import ru.starlitmoon.launcher.viewmodel.LauncherTab
 import ru.starlitmoon.launcher.viewmodel.LauncherViewModel
 
 @Composable
-fun LauncherApp(vm: LauncherViewModel, api: StarlitApiClient) {
+fun LauncherApp(vm: LauncherViewModel, @Suppress("UNUSED_PARAMETER") api: StarlitApiClient) {
     MaterialTheme(
         colorScheme = darkColorScheme(
             background = StarlitColors.BgDeep,
@@ -69,21 +69,18 @@ fun LauncherApp(vm: LauncherViewModel, api: StarlitApiClient) {
                 ) {
                     BrandMark()
                     Spacer(Modifier.height(18.dp))
-                    NavigationRail(
-                        containerColor = Color.Transparent,
-                        modifier = Modifier.weight(1f),
-                    ) {
+                    NavigationRail(containerColor = Color.Transparent, modifier = Modifier.weight(1f)) {
                         NavigationRailItem(
                             selected = vm.currentTab == LauncherTab.Play,
                             onClick = { vm.currentTab = LauncherTab.Play },
-                            icon = { Icon(Icons.Default.Home, contentDescription = null) },
+                            icon = { Icon(Icons.Default.Home, null) },
                             label = { Text("Игра", fontSize = 11.sp) },
                             colors = navColors(),
                         )
                         NavigationRailItem(
                             selected = vm.currentTab == LauncherTab.Cabinet,
                             onClick = { vm.currentTab = LauncherTab.Cabinet },
-                            icon = { Icon(Icons.Default.Person, contentDescription = null) },
+                            icon = { Icon(Icons.Default.Person, null) },
                             label = { Text("Кабинет", fontSize = 11.sp) },
                             colors = navColors(),
                         )
@@ -91,7 +88,7 @@ fun LauncherApp(vm: LauncherViewModel, api: StarlitApiClient) {
                             NavigationRailItem(
                                 selected = vm.currentTab == LauncherTab.Admin,
                                 onClick = { vm.currentTab = LauncherTab.Admin },
-                                icon = { Icon(Icons.Default.AdminPanelSettings, contentDescription = null) },
+                                icon = { Icon(Icons.Default.AdminPanelSettings, null) },
                                 label = { Text("Админ", fontSize = 11.sp) },
                                 colors = navColors(),
                             )
@@ -99,7 +96,7 @@ fun LauncherApp(vm: LauncherViewModel, api: StarlitApiClient) {
                         NavigationRailItem(
                             selected = vm.currentTab == LauncherTab.Settings,
                             onClick = { vm.currentTab = LauncherTab.Settings },
-                            icon = { Icon(Icons.Default.Settings, contentDescription = null) },
+                            icon = { Icon(Icons.Default.Settings, null) },
                             label = { Text("Опции", fontSize = 11.sp) },
                             colors = navColors(),
                         )
@@ -108,23 +105,15 @@ fun LauncherApp(vm: LauncherViewModel, api: StarlitApiClient) {
 
                 Column(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 14.dp)) {
                     if (vm.updateInfo != null && !vm.updateDismissed) {
-                        UpdateBanner(
-                            update = vm.updateInfo!!,
-                            onDownload = vm::downloadUpdate,
-                            onDismiss = vm::dismissUpdate,
-                        )
+                        UpdateBanner(vm.updateInfo!!, vm::downloadUpdate, vm::dismissUpdate)
                     }
-                    vm.errorMessage?.let {
-                        MessageBanner(it, isError = true, onDismiss = vm::clearMessages)
-                    }
-                    vm.infoMessage?.let {
-                        MessageBanner(it, isError = false, onDismiss = vm::clearMessages)
-                    }
+                    vm.errorMessage?.let { MessageBanner(it, true, vm::clearMessages) }
+                    vm.infoMessage?.let { MessageBanner(it, false, vm::clearMessages) }
 
                     when (vm.currentTab) {
                         LauncherTab.Play -> PlayScreen(vm)
-                        LauncherTab.Cabinet -> CabinetScreen(vm, api.baseUrl)
-                        LauncherTab.Admin -> AdminScreen(vm, api.adminUrl(), api.sessionCookie())
+                        LauncherTab.Cabinet -> CabinetScreen(vm)
+                        LauncherTab.Admin -> AdminScreen(vm)
                         LauncherTab.Settings -> SettingsScreen(vm)
                     }
                 }

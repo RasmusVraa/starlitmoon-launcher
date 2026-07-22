@@ -3,9 +3,11 @@ package ru.starlitmoon.launcher.api
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.engine.cio.CIO
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.get
 import io.ktor.client.request.header
+import io.ktor.client.request.parameter
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
@@ -43,10 +45,10 @@ class StarlitApiClient(
 
     val client: HttpClient = HttpClient(CIO) {
         install(ContentNegotiation) { json(json) }
-        install(io.ktor.client.plugins.HttpTimeout) {
-            requestTimeoutMillis = 8_000
+        install(HttpTimeout) {
+            requestTimeoutMillis = 10_000
             connectTimeoutMillis = 5_000
-            socketTimeoutMillis = 8_000
+            socketTimeoutMillis = 10_000
         }
     }
 
@@ -73,11 +75,9 @@ class StarlitApiClient(
         }
         val cookie = extractSessionCookie(response) ?: throw StarlitApiException(
             response.status,
-            "Сервер не вернул сессию",
+            "Не удалось войти",
         )
-        if (!response.status.isSuccess()) {
-            throw parseError(response)
-        }
+        if (!response.status.isSuccess()) throw parseError(response)
         val login = response.body<LoginResponse>()
         sessionStore.save(cookie, login.user?.name ?: nickname.trim(), login.admin)
         return me(cookie)
@@ -104,6 +104,15 @@ class StarlitApiClient(
         return response.body()
     }
 
+    suspend fun notifications(): List<NotificationDto> {
+        val cookie = sessionCookie() ?: return emptyList()
+        val response = client.get("$baseUrl/api/auth/notifications") {
+            header("Cookie", cookieHeader(cookie))
+        }
+        if (!response.status.isSuccess()) return emptyList()
+        return runCatching { response.body<NotificationsResponse>().notifications }.getOrDefault(emptyList())
+    }
+
     suspend fun adminMe(): AdminMeResponse {
         val cookie = sessionCookie() ?: throw StarlitApiException(HttpStatusCode.Unauthorized, "Не авторизован")
         val response = client.get("$baseUrl/api/admin/me") {
@@ -120,6 +129,29 @@ class StarlitApiClient(
         }
         if (!response.status.isSuccess()) throw parseError(response)
         return response.body()
+    }
+
+    suspend fun adminPlayers(query: String = ""): AdminPlayersResponse {
+        val cookie = sessionCookie() ?: throw StarlitApiException(HttpStatusCode.Unauthorized, "Не авторизован")
+        val response = client.get("$baseUrl/api/admin/players") {
+            header("Cookie", cookieHeader(cookie))
+            if (query.isNotBlank()) parameter("q", query)
+        }
+        if (!response.status.isSuccess()) throw parseError(response)
+        return response.body()
+    }
+
+    suspend fun adminApplications(): List<AdminApplicationDto> {
+        val cookie = sessionCookie() ?: return emptyList()
+        val response = client.get("$baseUrl/api/admin/applications") {
+            header("Cookie", cookieHeader(cookie))
+        }
+        if (!response.status.isSuccess()) return emptyList()
+        return runCatching {
+            response.body<AdminApplicationsResponse>().applications
+        }.getOrElse {
+            runCatching { response.body<List<AdminApplicationDto>>() }.getOrDefault(emptyList())
+        }
     }
 
     suspend fun serverVersion(): String {
@@ -151,11 +183,7 @@ class StarlitApiClient(
     }
 
     fun avatarUrl(player: String): String =
-        "$baseUrl/api/avatar?player=${player.encodeURLParameter()}"
-
-    fun adminUrl(): String = "$baseUrl/admin"
-
-    fun discordLoginUrl(): String = "$baseUrl/api/auth/discord/start"
+        "$baseUrl/api/avatar?player=${java.net.URLEncoder.encode(player, Charsets.UTF_8)}"
 
     fun close() = client.close()
 
@@ -208,6 +236,3 @@ private data class McsrvstatPlayers(
     val online: Int? = null,
     val max: Int? = null,
 )
-
-private fun String.encodeURLParameter(): String =
-    java.net.URLEncoder.encode(this, Charsets.UTF_8)
