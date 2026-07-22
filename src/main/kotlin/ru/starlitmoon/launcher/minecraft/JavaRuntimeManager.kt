@@ -16,6 +16,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
@@ -34,10 +35,16 @@ class JavaRuntimeManager(
         val home = runtimesDir.resolve(component)
         val javaName = if (isWindows()) "java.exe" else "java"
         val javaExe = home.resolve("bin").resolve(javaName)
-        if (javaExe.exists() && javaExe.fileSize() > 0) return javaExe
+        if (isRuntimeComplete(home, javaExe)) return javaExe
+
+        // Incomplete previous download — wipe and retry.
+        if (home.exists()) {
+            onProgress("Повторная загрузка Java…", 0f)
+            runCatching { home.toFile().deleteRecursively() }
+        }
+        home.createDirectories()
 
         onProgress("Загрузка Java ($component)…", 0f)
-        home.createDirectories()
 
         val indexText = http.get(JAVA_RUNTIME_INDEX).body<String>()
         val index = json.parseToJsonElement(indexText).jsonObject
@@ -78,7 +85,7 @@ class JavaRuntimeManager(
         val total = downloads.size.coerceAtLeast(1)
         val done = java.util.concurrent.atomic.AtomicInteger(0)
         val progressMutex = Mutex()
-        val sem = Semaphore(10)
+        val sem = Semaphore(8)
 
         coroutineScope {
             downloads.map { (relPath, url) ->
@@ -93,7 +100,7 @@ class JavaRuntimeManager(
                             target.toFile().setExecutable(true)
                         }
                         val n = done.incrementAndGet()
-                        if (n % 8 == 0 || n == total) {
+                        if (n % 5 == 0 || n == total) {
                             progressMutex.withLock {
                                 onProgress("Java $n/$total (${n * 100 / total}%)", n.toFloat() / total)
                             }
@@ -103,20 +110,40 @@ class JavaRuntimeManager(
             }.awaitAll()
         }
 
-        if (!javaExe.exists()) error("Java не найдена после загрузки")
+        if (!isRuntimeComplete(home, javaExe)) {
+            error("Java скачана неполностью (нет jvm.cfg). Попробуйте ещё раз.")
+        }
+        // Marker so future boots skip re-check of hundreds of files.
+        runCatching { home.resolve(".starlit-complete").writeBytes(byteArrayOf(1)) }
         onProgress("Java готова", 1f)
         return javaExe
     }
 
-    private suspend fun downloadWithRetry(url: String, target: Path, attempts: Int = 5) {
+    private fun isRuntimeComplete(home: Path, javaExe: Path): Boolean {
+        if (!javaExe.exists() || javaExe.fileSize() == 0L) return false
+        val jvmCfg = home.resolve("lib").resolve("jvm.cfg")
+        if (!jvmCfg.exists()) return false
+        // modules is the big JDK image file — must exist for modern runtimes
+        val modules = home.resolve("lib").resolve("modules")
+        if (!modules.exists() || modules.fileSize() < 1_000_000) return false
+        return true
+    }
+
+    private suspend fun downloadWithRetry(url: String, target: Path, attempts: Int = 6) {
         var last: Exception? = null
         repeat(attempts) { attempt ->
             try {
-                target.writeBytes(http.get(url).body<ByteArray>())
-                if (target.exists() && target.fileSize() > 0) return
+                val bytes = http.get(url).body<ByteArray>()
+                if (bytes.isEmpty()) error("Пустой ответ")
+                target.parent?.createDirectories()
+                // Atomic-ish write
+                val tmp = target.resolveSibling(target.fileName.toString() + ".part")
+                tmp.writeBytes(bytes)
+                Files.move(tmp, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+                return
             } catch (e: Exception) {
                 last = e
-                delay(1_000L * (attempt + 1))
+                delay(1_200L * (attempt + 1))
             }
         }
         throw last ?: IllegalStateException("Не удалось скачать $url")

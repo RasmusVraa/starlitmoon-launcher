@@ -1,6 +1,7 @@
 package ru.starlitmoon.launcher.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -9,8 +10,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -41,6 +40,7 @@ import androidx.compose.ui.unit.sp
 import ru.starlitmoon.launcher.LauncherConfig
 import ru.starlitmoon.launcher.LauncherVersion
 import ru.starlitmoon.launcher.ui.components.BrandMark
+import ru.starlitmoon.launcher.ui.components.SectionTitle
 import ru.starlitmoon.launcher.ui.components.SettingsRow
 import ru.starlitmoon.launcher.ui.components.StarlitCard
 import ru.starlitmoon.launcher.ui.components.StarlitPrimaryButton
@@ -60,104 +60,98 @@ import javax.swing.JFileChooser
 fun PlayScreen(vm: LauncherViewModel) {
     val config = vm.configState
     val showProgress = vm.launchProgress != null || vm.isLoading
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(bottom = 28.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp),
-    ) {
-        Spacer(Modifier.height(32.dp))
-        Text(
-            "Java Edition · Vanilla",
-            color = StarlitColors.Accent,
-            fontWeight = FontWeight.Bold,
-            fontSize = 12.sp,
-            letterSpacing = 1.sp,
-        )
-        Text(
-            "STARLITMOON",
-            fontSize = 56.sp,
-            fontWeight = FontWeight.ExtraBold,
-            style = TextStyle(brush = StarlitTitleGradient),
-            letterSpacing = 2.sp,
-            lineHeight = 60.sp,
-        )
-        Text(
-            "Ванильный сервер под звёздным небом. Версия ${vm.serverVersion}. Честный геймплей, экономика и живое комьюнити.",
-            color = StarlitColors.TextMuted,
-            fontSize = 15.sp,
-            lineHeight = 22.sp,
-            modifier = Modifier.width(580.dp),
-        )
-        Spacer(Modifier.height(4.dp))
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(top = 48.dp, bottom = 36.dp),
+            verticalArrangement = Arrangement.SpaceBetween,
         ) {
-            StarlitPrimaryButton(
-                text = "ИГРАТЬ",
-                onClick = {
-                    if (vm.isLoggedIn) vm.play() else vm.currentTab = LauncherTab.Cabinet
-                },
-                modifier = Modifier.width(168.dp),
-                loading = vm.isLoading,
-            )
-            StarlitSecondaryButton(
-                text = "НАСТРОИТЬ",
-                onClick = { vm.currentTab = LauncherTab.Settings },
-                modifier = Modifier.width(168.dp),
-            )
-        }
-        if (showProgress) {
-            StarlitProgressBar(
-                progress = vm.launchProgressFraction,
-                label = vm.launchProgress ?: "Запуск…",
-                modifier = Modifier.width(520.dp),
-            )
-        }
-        Spacer(Modifier.height(8.dp))
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            StarlitCard(modifier = Modifier.weight(1f)) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(20.dp),
+            ) {
+                Text(
+                    "JAVA EDITION · VANILLA",
+                    color = StarlitColors.Gold,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 11.sp,
+                    letterSpacing = 2.4.sp,
+                )
+                Text(
+                    "STARLITMOON",
+                    fontSize = 64.sp,
+                    fontWeight = FontWeight.Black,
+                    style = TextStyle(brush = StarlitTitleGradient),
+                    letterSpacing = 1.sp,
+                    lineHeight = 68.sp,
+                )
+                Text(
+                    "Ванильный сервер под звёздным небом — честный геймплей и живое комьюнити.",
+                    color = StarlitColors.TextMuted,
+                    fontSize = 16.sp,
+                    lineHeight = 24.sp,
+                    modifier = Modifier.width(520.dp),
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text("Сервер", color = StarlitColors.Text, fontWeight = FontWeight.Bold)
-                    StatRow("Адрес", config.serverHost)
-                    StatRow(
-                        "Онлайн",
-                        "${vm.serverStatus.playersOnline}/${vm.serverStatus.playersMax}",
-                        vm.serverStatus.online,
+                    StarlitPrimaryButton(
+                        text = "ИГРАТЬ",
+                        onClick = {
+                            if (vm.isLoggedIn) vm.play() else vm.currentTab = LauncherTab.Cabinet
+                        },
+                        modifier = Modifier.width(180.dp),
+                        loading = vm.isLoading,
                     )
-                    StatRow("Версия", vm.serverVersion)
+                    StarlitSecondaryButton(
+                        text = "НАСТРОИТЬ",
+                        onClick = { vm.currentTab = LauncherTab.Settings },
+                        modifier = Modifier.width(180.dp),
+                    )
                 }
-            }
-            StarlitCard(modifier = Modifier.weight(1f)) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text("Игроки онлайн", color = StarlitColors.Text, fontWeight = FontWeight.Bold)
-                    Spacer(Modifier.height(8.dp))
-                    if (vm.onlinePlayers.isEmpty()) {
-                        Text("Список пуст", color = StarlitColors.TextMuted, fontSize = 13.sp)
-                    } else {
-                        LazyColumn(modifier = Modifier.height(100.dp)) {
-                            items(vm.onlinePlayers) {
-                                Text("• $it", color = StarlitColors.Text, fontSize = 13.sp)
-                            }
-                        }
+                if (showProgress) {
+                    StarlitProgressBar(
+                        progress = vm.launchProgressFraction,
+                        label = vm.launchProgress ?: "Запуск…",
+                        modifier = Modifier.width(560.dp),
+                    )
+                }
+                if (vm.onlinePlayers.isNotEmpty()) {
+                    Row(
+                        modifier = Modifier.padding(top = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        StatusDot(vm.serverStatus.online)
+                        Text(
+                            vm.onlinePlayers.joinToString(" · "),
+                            color = StarlitColors.TextDim,
+                            fontSize = 12.sp,
+                        )
                     }
                 }
             }
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Text(config.serverHost, color = StarlitColors.TextMuted, fontSize = 12.sp)
-            Text("v${LauncherVersion.CURRENT}", color = StarlitColors.TextMuted, fontSize = 12.sp)
+
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(
+                    "${config.serverHost} · v${LauncherVersion.CURRENT} · ${vm.serverStatus.playersOnline}/${vm.serverStatus.playersMax} онлайн",
+                    color = StarlitColors.TextDim,
+                    fontSize = 12.sp,
+                    letterSpacing = 0.3.sp,
+                )
+                Text(
+                    "Minecraft ${vm.serverVersion}",
+                    color = StarlitColors.TextDim.copy(alpha = 0.7f),
+                    fontSize = 11.sp,
+                )
+            }
         }
     }
 }
@@ -173,30 +167,31 @@ fun LoginScreen(vm: LauncherViewModel) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        BrandMark(modifier = Modifier.padding(bottom = 20.dp))
+        BrandMark(modifier = Modifier.padding(bottom = 28.dp))
         Text(
             "ВХОД",
-            fontSize = 32.sp,
-            fontWeight = FontWeight.ExtraBold,
+            fontSize = 36.sp,
+            fontWeight = FontWeight.Black,
             style = TextStyle(brush = StarlitTitleGradient),
-            letterSpacing = 2.sp,
+            letterSpacing = 3.sp,
         )
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(8.dp))
         Text(
             "Ник и пароль с сервера StarlitMoon",
             color = StarlitColors.TextMuted,
             fontSize = 14.sp,
         )
-        Spacer(Modifier.height(24.dp))
-        StarlitCard(modifier = Modifier.width(420.dp)) {
+        Spacer(Modifier.height(32.dp))
+        StarlitCard(modifier = Modifier.width(440.dp)) {
             Column(
-                modifier = Modifier.padding(28.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
+                modifier = Modifier.padding(32.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 StarlitTextField(nickname, { nickname = it }, "Ник")
                 StarlitTextField(password, { password = it }, "Пароль", isPassword = true)
+                Spacer(Modifier.height(4.dp))
                 StarlitPrimaryButton(
-                    "Войти",
+                    text = "Войти",
                     onClick = { vm.login(nickname, password) },
                     modifier = Modifier.fillMaxWidth(),
                     loading = vm.isLoading,
@@ -228,19 +223,19 @@ fun CabinetScreen(vm: LauncherViewModel) {
     val notify = vm.meData?.cabinet?.notificationPrefs.orEmpty()
 
     Column(
-        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(bottom = 28.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Text(
-            "ЛИЧНЫЙ КАБИНЕТ",
-            fontSize = 28.sp,
-            fontWeight = FontWeight.ExtraBold,
-            color = StarlitColors.Text,
+        SectionTitle(
+            title = "ЛИЧНЫЙ КАБИНЕТ",
+            subtitle = vm.userName,
         )
-        Text(vm.userName, color = StarlitColors.TextMuted, fontSize = 14.sp)
         StarlitCard(modifier = Modifier.fillMaxWidth()) {
             Column(
-                modifier = Modifier.padding(20.dp),
+                modifier = Modifier.padding(24.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -248,14 +243,22 @@ fun CabinetScreen(vm: LauncherViewModel) {
                     Spacer(Modifier.width(10.dp))
                     if (player?.online == true) StatusDot(true)
                     player?.activeBadge?.let {
-                        Text("${it.emoji.orEmpty()} ${it.name.orEmpty()}", color = StarlitColors.Accent, fontSize = 13.sp)
+                        Text(
+                            "${it.emoji.orEmpty()} ${it.name.orEmpty()}",
+                            color = StarlitColors.Gold,
+                            fontSize = 13.sp,
+                        )
                     }
                 }
                 StatRow("UUID", vm.userUuid ?: "—")
                 StatRow("Ранги", player?.ranks?.joinToString(", ")?.ifBlank { "—" } ?: "—")
                 StatRow("Предупреждения", (player?.warnCount ?: 0).toString())
                 if (player?.banned == true) {
-                    Text("Бан: ${player.banReason ?: "без причины"}", color = StarlitColors.Offline, fontWeight = FontWeight.Bold)
+                    Text(
+                        "Бан: ${player.banReason ?: "без причины"}",
+                        color = StarlitColors.Offline,
+                        fontWeight = FontWeight.Bold,
+                    )
                 }
                 player?.stats?.let { s ->
                     StatRow("Наиграно", "${(s.playtimeMinutes ?: 0) / 60} ч")
@@ -269,8 +272,8 @@ fun CabinetScreen(vm: LauncherViewModel) {
 
         StarlitCard(modifier = Modifier.fillMaxWidth()) {
             Column(
-                modifier = Modifier.padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.padding(24.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Text("Статус профиля", color = StarlitColors.Text, fontWeight = FontWeight.Bold)
                 StarlitTextField(vm.statusDraft, { vm.statusDraft = it }, "Текст статуса")
@@ -284,7 +287,7 @@ fun CabinetScreen(vm: LauncherViewModel) {
 
         StarlitCard(modifier = Modifier.fillMaxWidth()) {
             Column(
-                modifier = Modifier.padding(20.dp),
+                modifier = Modifier.padding(24.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text("Приватность", color = StarlitColors.Text, fontWeight = FontWeight.Bold)
@@ -296,6 +299,7 @@ fun CabinetScreen(vm: LauncherViewModel) {
                         StarlitSecondaryButton(
                             text = if (visible) "Видно" else "Скрыто",
                             onClick = { vm.setPrivacy(id, !visible) },
+                            modifier = Modifier.width(100.dp),
                         )
                     }
                 }
@@ -304,7 +308,7 @@ fun CabinetScreen(vm: LauncherViewModel) {
 
         StarlitCard(modifier = Modifier.fillMaxWidth()) {
             Column(
-                modifier = Modifier.padding(20.dp),
+                modifier = Modifier.padding(24.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text("Уведомления", color = StarlitColors.Text, fontWeight = FontWeight.Bold)
@@ -315,6 +319,7 @@ fun CabinetScreen(vm: LauncherViewModel) {
                         StarlitSecondaryButton(
                             text = if (enabled) "Вкл" else "Выкл",
                             onClick = { vm.setNotifyPref(key, !enabled) },
+                            modifier = Modifier.width(88.dp),
                         )
                     }
                 }
@@ -324,6 +329,7 @@ fun CabinetScreen(vm: LauncherViewModel) {
                     StarlitSecondaryButton(
                         text = if (badgeVisible) "Виден" else "Скрыт",
                         onClick = { vm.setBadgeVisible(!badgeVisible) },
+                        modifier = Modifier.width(100.dp),
                     )
                 }
             }
@@ -331,7 +337,7 @@ fun CabinetScreen(vm: LauncherViewModel) {
 
         StarlitCard(modifier = Modifier.fillMaxWidth()) {
             Column(
-                modifier = Modifier.padding(20.dp),
+                modifier = Modifier.padding(24.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text("Лента", color = StarlitColors.Text, fontWeight = FontWeight.Bold)
@@ -339,7 +345,12 @@ fun CabinetScreen(vm: LauncherViewModel) {
                     Text("Пока пусто", color = StarlitColors.TextMuted, fontSize = 13.sp)
                 } else {
                     vm.notifications.take(10).forEach { n ->
-                        Text(n.title ?: "Уведомление", color = StarlitColors.Text, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                        Text(
+                            n.title ?: "Уведомление",
+                            color = StarlitColors.Text,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 13.sp,
+                        )
                         Text(n.message.orEmpty(), color = StarlitColors.TextMuted, fontSize = 12.sp)
                         Spacer(Modifier.height(4.dp))
                     }
@@ -373,13 +384,13 @@ fun SettingsScreen(vm: LauncherViewModel) {
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+            .padding(bottom = 28.dp),
+        verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
         Text(
             "НАСТРОЙКИ",
-            fontSize = 32.sp,
-            fontWeight = FontWeight.ExtraBold,
+            fontSize = 36.sp,
+            fontWeight = FontWeight.Black,
             style = TextStyle(brush = StarlitTitleGradient),
             letterSpacing = 2.sp,
         )
@@ -390,94 +401,92 @@ fun SettingsScreen(vm: LauncherViewModel) {
         )
 
         StarlitCard(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
+            Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp)) {
                 SettingsRow(
                     title = "Память (RAM)",
                     subtitle = memoryLabel(),
                     icon = {
-                        Icon(Icons.Default.Memory, null, tint = StarlitColors.Accent)
+                        Icon(Icons.Default.Memory, null, tint = StarlitColors.Gold)
                     },
                 ) {
-                    Column(horizontalAlignment = Alignment.End) {
-                        Slider(
-                            value = if (memoryAuto) 0f else memoryGb.coerceIn(1f, 16f),
-                            onValueChange = { v ->
-                                if (v <= 0.5f) {
-                                    memoryAuto = true
-                                    memoryGb = 0f
-                                } else {
-                                    memoryAuto = false
-                                    memoryGb = v.coerceIn(1f, 16f)
-                                }
-                            },
-                            valueRange = 0f..16f,
-                            steps = 15,
-                            modifier = Modifier.width(200.dp),
-                            colors = SliderDefaults.colors(
-                                thumbColor = StarlitColors.Accent,
-                                activeTrackColor = StarlitColors.Accent,
-                                inactiveTrackColor = StarlitColors.CardBorder,
-                            ),
-                        )
-                    }
+                    Slider(
+                        value = if (memoryAuto) 0f else memoryGb.coerceIn(1f, 16f),
+                        onValueChange = { v ->
+                            if (v <= 0.5f) {
+                                memoryAuto = true
+                                memoryGb = 0f
+                            } else {
+                                memoryAuto = false
+                                memoryGb = v.coerceIn(1f, 16f)
+                            }
+                        },
+                        valueRange = 0f..16f,
+                        steps = 15,
+                        modifier = Modifier.width(200.dp),
+                        colors = SliderDefaults.colors(
+                            thumbColor = StarlitColors.Gold,
+                            activeTrackColor = StarlitColors.Gold,
+                            inactiveTrackColor = StarlitColors.Stroke,
+                        ),
+                    )
                 }
 
-                HorizontalDivider(color = StarlitColors.CardBorder)
+                HorizontalDivider(color = StarlitColors.Stroke)
 
                 SettingsRow(
                     title = "Полный экран",
                     subtitle = "Запуск Minecraft на весь экран",
-                    icon = { Icon(Icons.Default.Fullscreen, null, tint = StarlitColors.Accent) },
+                    icon = { Icon(Icons.Default.Fullscreen, null, tint = StarlitColors.Gold) },
                 ) {
                     StarlitToggle(checked = fullscreen, onCheckedChange = { fullscreen = it })
                 }
 
-                HorizontalDivider(color = StarlitColors.CardBorder)
+                HorizontalDivider(color = StarlitColors.Stroke)
 
                 SettingsRow(
                     title = "Авто-подключение",
                     subtitle = "Подключаться к ${base.serverHost} после запуска",
-                    icon = { Icon(Icons.Default.OpenInNew, null, tint = StarlitColors.Accent) },
+                    icon = { Icon(Icons.Default.OpenInNew, null, tint = StarlitColors.Gold) },
                 ) {
                     StarlitToggle(checked = autoJoinServer, onCheckedChange = { autoJoinServer = it })
                 }
 
-                HorizontalDivider(color = StarlitColors.CardBorder)
+                HorizontalDivider(color = StarlitColors.Stroke)
 
                 SettingsRow(
                     title = "Оставить лаунчер открытым",
                     subtitle = "Не закрывать окно после запуска игры",
-                    icon = { Icon(Icons.Default.VideogameAsset, null, tint = StarlitColors.Accent) },
+                    icon = { Icon(Icons.Default.VideogameAsset, null, tint = StarlitColors.Gold) },
                 ) {
                     StarlitToggle(checked = keepLauncherOpen, onCheckedChange = { keepLauncherOpen = it })
                 }
 
-                HorizontalDivider(color = StarlitColors.CardBorder)
+                HorizontalDivider(color = StarlitColors.Stroke)
 
                 SettingsRow(
                     title = "Авто-вход на сервере",
                     subtitle = "Команда /login после входа в мир",
-                    icon = { Icon(Icons.Default.Login, null, tint = StarlitColors.Accent) },
+                    icon = { Icon(Icons.Default.Login, null, tint = StarlitColors.Gold) },
                 ) {
                     StarlitToggle(checked = autoLogin, onCheckedChange = { autoLogin = it })
                 }
 
-                HorizontalDivider(color = StarlitColors.CardBorder)
+                HorizontalDivider(color = StarlitColors.Stroke)
 
                 SettingsRow(
                     title = "Сохранять пароль",
                     subtitle = "Хранить пароль локально (не рекомендуется)",
-                    icon = { Icon(Icons.Default.Save, null, tint = StarlitColors.Accent) },
+                    icon = { Icon(Icons.Default.Save, null, tint = StarlitColors.Gold) },
                 ) {
                     StarlitToggle(checked = savePassword, onCheckedChange = { savePassword = it })
                 }
 
-                HorizontalDivider(color = StarlitColors.CardBorder)
+                HorizontalDivider(color = StarlitColors.Stroke)
 
                 SettingsRow(
                     title = "VSync",
                     subtitle = "Вертикальная синхронизация кадров",
-                    icon = { Icon(Icons.Default.Sync, null, tint = StarlitColors.Accent) },
+                    icon = { Icon(Icons.Default.Sync, null, tint = StarlitColors.Gold) },
                 ) {
                     StarlitToggle(checked = vsync, onCheckedChange = { vsync = it })
                 }
@@ -486,13 +495,13 @@ fun SettingsScreen(vm: LauncherViewModel) {
 
         StarlitCard(modifier = Modifier.fillMaxWidth()) {
             Column(
-                modifier = Modifier.padding(20.dp),
+                modifier = Modifier.padding(24.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 SettingsRow(
                     title = "Папка игры",
                     subtitle = "Minecraft, assets и версии",
-                    icon = { Icon(Icons.Default.FolderOpen, null, tint = StarlitColors.Accent) },
+                    icon = { Icon(Icons.Default.FolderOpen, null, tint = StarlitColors.Gold) },
                 ) {
                     StarlitSecondaryButton(
                         text = "Обзор",
@@ -506,6 +515,7 @@ fun SettingsScreen(vm: LauncherViewModel) {
                                 gamePath = chooser.selectedFile?.absolutePath.orEmpty()
                             }
                         },
+                        modifier = Modifier.width(100.dp),
                     )
                 }
                 StarlitTextField(
@@ -518,7 +528,7 @@ fun SettingsScreen(vm: LauncherViewModel) {
 
         StarlitCard(modifier = Modifier.fillMaxWidth()) {
             Column(
-                modifier = Modifier.padding(20.dp),
+                modifier = Modifier.padding(24.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Text("Обновления", color = StarlitColors.Text, fontWeight = FontWeight.Bold)

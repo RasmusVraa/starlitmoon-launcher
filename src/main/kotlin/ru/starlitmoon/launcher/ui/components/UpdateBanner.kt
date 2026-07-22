@@ -28,7 +28,7 @@ fun UpdateBanner(
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
                 "Доступно обновление ${update.latestVersion}",
-                color = StarlitColors.Accent,
+                color = StarlitColors.Gold,
                 fontWeight = FontWeight.Bold,
                 style = MaterialTheme.typography.titleMedium,
             )

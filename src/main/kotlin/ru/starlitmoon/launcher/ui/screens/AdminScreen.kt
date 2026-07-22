@@ -331,7 +331,7 @@ private fun AdminAccountsTab(
                 StarlitPrimaryButton(text = "Найти", onClick = { vm.searchAdminAccounts(search) })
             }
             vm.lastResetPassword?.let { pwd ->
-                Text("Последний сброс: $pwd", color = StarlitColors.Accent, fontSize = 12.sp)
+                Text("Последний сброс: $pwd", color = StarlitColors.Gold, fontSize = 12.sp)
             }
             if (vm.adminAccounts.isEmpty()) {
                 Text("Нет аккаунтов", color = StarlitColors.TextMuted)
@@ -398,7 +398,7 @@ private fun AdminConsoleTab(vm: LauncherViewModel) {
             if (vm.adminRconResponse.isNotBlank()) {
                 Text(
                     vm.adminRconResponse,
-                    color = StarlitColors.Accent,
+                    color = StarlitColors.Gold,
                     fontSize = 11.sp,
                     fontFamily = FontFamily.Monospace,
                 )
