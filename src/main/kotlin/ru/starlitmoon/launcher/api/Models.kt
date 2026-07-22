@@ -220,3 +220,105 @@ data class NotificationDto(
 
 @Serializable
 data class OkResponse(val ok: Boolean = false)
+
+@Serializable
+data class ResetPasswordResponse(
+    val ok: Boolean = false,
+    val nickname: String? = null,
+    val password: String? = null,
+    val resetId: String? = null,
+    val message: String? = null,
+)
+
+@Serializable
+data class RconExecResponse(
+    val ok: Boolean = false,
+    val command: String? = null,
+    val response: String? = null,
+    val executedBy: String? = null,
+    val serverId: String? = null,
+    val at: String? = null,
+)
+
+@Serializable
+data class ConsoleOutputResponse(
+    val ok: Boolean = false,
+    val text: String? = null,
+    val error: String? = null,
+    val screenSession: String? = null,
+    val host: String? = null,
+    val fetchedAt: String? = null,
+    val serverId: String? = null,
+    val serverName: String? = null,
+)
+
+@Serializable
+data class AdminTreasuryResponse(
+    val ok: Boolean = false,
+    val treasury: AdminTreasuryCardDto? = null,
+    val payoutReasons: List<TreasuryPayoutReasonDto> = emptyList(),
+    val penaltiesPending: Int = 0,
+    val penaltiesPaidTotal: Long = 0,
+)
+
+@Serializable
+data class AdminTreasuryCardDto(
+    val cardCode: String? = null,
+    val balance: Long? = null,
+    val ownerName: String? = null,
+    val isTreasury: Boolean? = null,
+)
+
+@Serializable
+data class TreasuryPayoutReasonDto(
+    val id: String? = null,
+    val label: String? = null,
+)
+
+@Serializable
+data class AdminBadgesResponse(
+    val total: Int = 0,
+    val badges: List<AdminBadgeDto> = emptyList(),
+)
+
+@Serializable
+data class AdminBadgeDto(
+    val id: String? = null,
+    val emoji: String? = null,
+    val name: String? = null,
+    val description: String? = null,
+)
+
+@Serializable
+data class AdminProductsResponse(
+    val total: Int = 0,
+    val products: List<AdminProductDto> = emptyList(),
+)
+
+@Serializable
+data class AdminProductDto(
+    val id: String? = null,
+    val name: String? = null,
+    val description: String? = null,
+    val price: Int? = null,
+    val icon: String? = null,
+    val commands: List<String> = emptyList(),
+)
+
+@Serializable
+data class AdminOrdersResponse(
+    val total: Int = 0,
+    val orders: List<AdminOrderDto> = emptyList(),
+)
+
+@Serializable
+data class AdminOrderDto(
+    val id: String? = null,
+    val nickname: String? = null,
+    val productId: String? = null,
+    val productName: String? = null,
+    val price: Int? = null,
+    val status: String? = null,
+    val delivered: Boolean = false,
+    val createdAt: String? = null,
+)

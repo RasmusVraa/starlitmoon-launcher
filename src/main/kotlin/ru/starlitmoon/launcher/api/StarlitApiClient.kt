@@ -5,6 +5,7 @@ import io.ktor.client.call.body
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.parameter
@@ -61,6 +62,20 @@ private data class NotifySendBody(
     val title: String,
     val message: String,
     val deliverIngame: Boolean = true,
+)
+
+@Serializable
+private data class RconExecBody(val command: String, val serverId: String? = null)
+
+@Serializable
+private data class ResetPasswordBody(val password: String? = null)
+
+@Serializable
+private data class TreasuryPayoutBody(
+    val toCode: String,
+    val amount: Long,
+    val reasonId: String,
+    val reasonNote: String? = null,
 )
 
 class StarlitApiClient(
@@ -227,6 +242,79 @@ class StarlitApiClient(
         if (!response.status.isSuccess()) throw parseError(response)
     }
 
+    suspend fun resetAccountPassword(nick: String, password: String? = null): ResetPasswordResponse {
+        val cookie = needCookie()
+        val response = client.post("$baseUrl/api/admin/accounts/${encodePath(nick)}/reset-password") {
+            header("Cookie", cookieHeader(cookie))
+            contentType(ContentType.Application.Json)
+            setBody(ResetPasswordBody(password?.trim()?.ifBlank { null }))
+        }
+        if (!response.status.isSuccess()) throw parseError(response)
+        return response.body()
+    }
+
+    suspend fun deleteAccount(nick: String) = authedDelete("/api/admin/accounts/${encodePath(nick)}")
+
+    suspend fun rconExec(command: String, serverId: String? = null): RconExecResponse {
+        val cookie = needCookie()
+        val response = client.post("$baseUrl/api/admin/rcon/exec") {
+            header("Cookie", cookieHeader(cookie))
+            contentType(ContentType.Application.Json)
+            setBody(RconExecBody(command.trim(), serverId?.trim()?.ifBlank { null }))
+        }
+        if (!response.status.isSuccess()) throw parseError(response)
+        return response.body()
+    }
+
+    suspend fun consoleOutput(serverId: String? = null): ConsoleOutputResponse {
+        val cookie = needCookie()
+        val response = client.get("$baseUrl/api/admin/console/output") {
+            header("Cookie", cookieHeader(cookie))
+            val sid = serverId?.trim()?.ifBlank { null }
+            if (sid != null) parameter("serverId", sid)
+        }
+        if (!response.status.isSuccess()) throw parseError(response)
+        return response.body()
+    }
+
+    suspend fun treasury(): AdminTreasuryResponse = authedGet("/api/admin/treasury")
+
+    suspend fun treasuryPayout(
+        toCode: String,
+        amount: Long,
+        reasonId: String,
+        reasonNote: String? = null,
+    ): AdminTreasuryResponse {
+        val cookie = needCookie()
+        val response = client.post("$baseUrl/api/admin/treasury/payout") {
+            header("Cookie", cookieHeader(cookie))
+            contentType(ContentType.Application.Json)
+            setBody(
+                TreasuryPayoutBody(
+                    toCode = toCode.trim().uppercase(),
+                    amount = amount,
+                    reasonId = reasonId.trim(),
+                    reasonNote = reasonNote?.trim()?.ifBlank { null },
+                ),
+            )
+        }
+        if (!response.status.isSuccess()) throw parseError(response)
+        return response.body()
+    }
+
+    suspend fun adminBadges(): AdminBadgesResponse = authedGet("/api/admin/badges")
+
+    suspend fun adminProducts(): AdminProductsResponse = authedGet("/api/admin/products")
+
+    suspend fun deleteApplication(id: String) = authedDelete("/api/admin/applications/${encodePath(id)}")
+
+    suspend fun deleteClan(id: String) = authedDelete("/api/admin/clans/${encodePath(id)}")
+
+    suspend fun deleteBankCard(nick: String) = authedDelete("/api/admin/bank/${encodePath(nick)}")
+
+    suspend fun adminOrders(query: String = ""): AdminOrdersResponse =
+        authedGet("/api/admin/orders") { if (query.isNotBlank()) parameter("q", query) }
+
     suspend fun serverVersion(): String {
         val response = client.get("$baseUrl/api/server-version")
         if (!response.status.isSuccess()) return config.defaultMcVersion
@@ -272,6 +360,15 @@ class StarlitApiClient(
         val response = client.post("$baseUrl$path") { header("Cookie", cookieHeader(cookie)) }
         if (!response.status.isSuccess()) throw parseError(response)
     }
+
+    private suspend fun authedDelete(path: String) {
+        val cookie = needCookie()
+        val response = client.delete("$baseUrl$path") { header("Cookie", cookieHeader(cookie)) }
+        if (!response.status.isSuccess()) throw parseError(response)
+    }
+
+    private fun encodePath(segment: String): String =
+        java.net.URLEncoder.encode(segment.trim(), Charsets.UTF_8)
 
     private fun needCookie(): String =
         sessionCookie() ?: throw StarlitApiException(HttpStatusCode.Unauthorized, "Не авторизован")

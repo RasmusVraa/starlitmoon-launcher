@@ -52,7 +52,11 @@ import ru.starlitmoon.launcher.viewmodel.LauncherTab
 import ru.starlitmoon.launcher.viewmodel.LauncherViewModel
 
 @Composable
-fun LauncherApp(vm: LauncherViewModel, @Suppress("UNUSED_PARAMETER") api: StarlitApiClient) {
+fun LauncherApp(
+    vm: LauncherViewModel,
+    @Suppress("UNUSED_PARAMETER") api: StarlitApiClient,
+    onRequestExit: () -> Unit = {},
+) {
     MaterialTheme(
         colorScheme = darkColorScheme(
             background = StarlitColors.BgDeep,
@@ -66,12 +70,19 @@ fun LauncherApp(vm: LauncherViewModel, @Suppress("UNUSED_PARAMETER") api: Starli
     ) {
         StarlitBackground {
             LaunchedEffect(Unit) { vm.boot() }
+            LaunchedEffect(vm.requestExit) {
+                if (vm.requestExit) onRequestExit()
+            }
 
             Row(modifier = Modifier.fillMaxSize()) {
                 SideNav(vm)
                 Column(modifier = Modifier.fillMaxSize()) {
                     TopBar(vm)
-                    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 28.dp, vertical = 12.dp)) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 32.dp, vertical = 8.dp),
+                    ) {
                         if (vm.updateInfo != null && !vm.updateDismissed) {
                             UpdateBanner(vm.updateInfo!!, vm::downloadUpdate, vm::dismissUpdate)
                         }
@@ -95,33 +106,39 @@ private fun SideNav(vm: LauncherViewModel) {
     Column(
         modifier = Modifier
             .fillMaxHeight()
-            .width(72.dp)
-            .background(Color(0xE6080C18))
-            .padding(vertical = 18.dp),
+            .width(76.dp)
+            .background(Color(0xE6050812))
+            .border(
+                width = 1.dp,
+                color = StarlitColors.CardBorder,
+                shape = RoundedCornerShape(topEnd = 0.dp, bottomEnd = 0.dp),
+            )
+            .padding(vertical = 20.dp, horizontal = 12.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Box(
             modifier = Modifier
-                .size(42.dp)
-                .clip(RoundedCornerShape(12.dp))
+                .size(44.dp)
+                .clip(RoundedCornerShape(14.dp))
                 .background(
                     Brush.linearGradient(listOf(StarlitColors.Accent, StarlitColors.Purple)),
-                ),
+                )
+                .clickable { vm.currentTab = LauncherTab.Play },
             contentAlignment = Alignment.Center,
         ) {
-            Text("★", color = StarlitColors.BgDeep, fontSize = 20.sp)
+            Text("★", color = StarlitColors.BgDeep, fontSize = 22.sp, fontWeight = FontWeight.Bold)
         }
-        Spacer(Modifier.height(28.dp))
+        Spacer(Modifier.height(32.dp))
         NavIcon(Icons.Default.Home, vm.currentTab == LauncherTab.Play) { vm.currentTab = LauncherTab.Play }
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(8.dp))
         NavIcon(Icons.Default.Person, vm.currentTab == LauncherTab.Cabinet) { vm.currentTab = LauncherTab.Cabinet }
         if (vm.isAdmin) {
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(8.dp))
             NavIcon(Icons.Default.AdminPanelSettings, vm.currentTab == LauncherTab.Admin) {
                 vm.currentTab = LauncherTab.Admin
             }
         }
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(8.dp))
         NavIcon(Icons.Default.Settings, vm.currentTab == LauncherTab.Settings) { vm.currentTab = LauncherTab.Settings }
         Spacer(Modifier.weight(1f))
         if (vm.isLoggedIn) {
@@ -138,9 +155,25 @@ private fun NavIcon(
 ) {
     Box(
         modifier = Modifier
-            .size(44.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(if (selected) StarlitColors.Accent.copy(alpha = 0.2f) else Color.Transparent)
+            .size(48.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(
+                if (selected) {
+                    Brush.linearGradient(
+                        listOf(
+                            StarlitColors.Accent.copy(alpha = 0.22f),
+                            StarlitColors.Purple.copy(alpha = 0.18f),
+                        ),
+                    )
+                } else {
+                    Brush.linearGradient(listOf(Color.Transparent, Color.Transparent))
+                },
+            )
+            .border(
+                width = if (selected) 1.dp else 0.dp,
+                color = if (selected) StarlitColors.Accent.copy(alpha = 0.4f) else Color.Transparent,
+                shape = RoundedCornerShape(14.dp),
+            )
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
@@ -158,9 +191,9 @@ private fun TopBar(vm: LauncherViewModel) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 24.dp, vertical = 14.dp),
+            .padding(horizontal = 28.dp, vertical = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         StatusPill(
             text = "Сейчас играют ${vm.serverStatus.playersOnline}",
@@ -174,30 +207,78 @@ private fun TopBar(vm: LauncherViewModel) {
         )
         Spacer(Modifier.weight(1f))
         if (vm.isLoggedIn) {
-            Column(horizontalAlignment = Alignment.End) {
-                Text(vm.userName, color = StarlitColors.Text, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                Text("StarlitMoon", color = StarlitColors.TextMuted, fontSize = 11.sp)
-            }
-            Box(
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .border(2.dp, StarlitColors.Accent.copy(alpha = 0.5f), CircleShape)
-                    .background(StarlitColors.PurpleSoft),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(vm.userName.take(1).uppercase(), color = StarlitColors.Accent, fontWeight = FontWeight.Bold)
-            }
+            ProfileChip(name = vm.userName)
         } else {
-            Text(
-                "Гость",
-                color = StarlitColors.TextMuted,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(20.dp))
-                    .clickable { vm.currentTab = LauncherTab.Cabinet }
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-            )
+            GuestChip(onClick = { vm.currentTab = LauncherTab.Cabinet })
         }
+    }
+}
+
+@Composable
+private fun ProfileChip(name: String) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .background(Color(0xCC12182A))
+            .border(1.dp, StarlitColors.Accent.copy(alpha = 0.3f), RoundedCornerShape(50))
+            .padding(start = 14.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Column(horizontalAlignment = Alignment.End) {
+            Text(name, color = StarlitColors.Text, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+            Text("StarlitMoon", color = StarlitColors.TextMuted, fontSize = 10.sp)
+        }
+        AvatarInitial(name)
+    }
+}
+
+@Composable
+private fun GuestChip(onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .background(Color(0x9912182A))
+            .border(1.dp, StarlitColors.CardBorder, RoundedCornerShape(50))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text("Гость", color = StarlitColors.TextMuted, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        Box(
+            modifier = Modifier
+                .size(28.dp)
+                .clip(CircleShape)
+                .background(StarlitColors.PurpleSoft)
+                .border(1.dp, StarlitColors.CardBorder, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("?", color = StarlitColors.TextMuted, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+        }
+    }
+}
+
+@Composable
+private fun AvatarInitial(name: String) {
+    Box(
+        modifier = Modifier
+            .size(36.dp)
+            .clip(CircleShape)
+            .background(
+                Brush.linearGradient(
+                    listOf(StarlitColors.Purple.copy(alpha = 0.55f), StarlitColors.Accent.copy(alpha = 0.45f)),
+                ),
+            )
+            .border(2.dp, StarlitColors.Accent.copy(alpha = 0.55f), CircleShape),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            name.take(1).uppercase(),
+            color = StarlitColors.Accent,
+            fontWeight = FontWeight.ExtraBold,
+            fontSize = 14.sp,
+        )
     }
 }
 
@@ -208,7 +289,7 @@ private fun StatusPill(text: String, accent: Color, dot: Boolean = false, online
             .clip(RoundedCornerShape(50))
             .background(Color(0xCC12182A))
             .border(1.dp, accent.copy(alpha = 0.35f), RoundedCornerShape(50))
-            .padding(horizontal = 14.dp, vertical = 8.dp),
+            .padding(horizontal = 14.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (dot) {

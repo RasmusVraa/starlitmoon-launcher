@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="StarlitMoon">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0a0e1a"/>
+      <stop offset="100%" stop-color="#151b32"/>
+    </linearGradient>
+    <linearGradient id="moon" x1="20%" y1="15%" x2="80%" y2="85%">
+      <stop offset="0%" stop-color="#fffef8"/>
+      <stop offset="100%" stop-color="#d4cec4"/>
+    </linearGradient>
+  </defs>
+  <rect width="32" height="32" rx="7" fill="url(#bg)"/>
+  <circle cx="14" cy="17" r="8.5" fill="url(#moon)"/>
+  <circle cx="18.5" cy="14.5" r="7" fill="#0a0e1a"/>
+  <path fill="#c9a227" d="M23.2 8.4l.9 2.7h2.8l-2.3 1.7.9 2.7-2.3-1.7-2.3 1.7.9-2.7-2.3-1.7h2.8z"/>
+  <circle cx="6" cy="9" r=".9" fill="#e8ecf8" opacity=".85"/>
+  <circle cx="9.5" cy="24" r=".6" fill="#e8ecf8" opacity=".6"/>
+  <circle cx="25" cy="22" r=".5" fill="#e8ecf8" opacity=".5"/>
+</svg>

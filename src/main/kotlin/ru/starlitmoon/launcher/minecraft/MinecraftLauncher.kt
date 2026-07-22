@@ -43,9 +43,9 @@ class MinecraftLauncher(
 
     private val http = HttpClient(CIO) {
         install(HttpTimeout) {
-            requestTimeoutMillis = 180_000
-            connectTimeoutMillis = 20_000
-            socketTimeoutMillis = 180_000
+            requestTimeoutMillis = 300_000
+            connectTimeoutMillis = 60_000
+            socketTimeoutMillis = 300_000
         }
     }
 
@@ -71,9 +71,9 @@ class MinecraftLauncher(
         return manifest.versions.firstOrNull { it.type == "release" }?.id ?: "26.2"
     }
 
-    suspend fun ensureVersion(preferred: String = "", onProgress: (String) -> Unit = {}): Result<Pair<String, VersionMeta>> =
+    suspend fun ensureVersion(preferred: String = "", onProgress: (String, Float?) -> Unit = { _, _ -> }): Result<Pair<String, VersionMeta>> =
         runCatching {
-            onProgress("Определение версии…")
+            onProgress("Определение версии…", 0.01f)
             val id = resolveClientVersion(preferred)
             val versionDir = config.versionsDir.resolve(id)
             val versionJson = versionDir.resolve("$id.json")
@@ -84,11 +84,11 @@ class MinecraftLauncher(
             val versionMeta = if (versionJson.exists()) {
                 json.decodeFromString<VersionMeta>(versionJson.readText())
             } else {
-                onProgress("Список версий…")
+                onProgress("Список версий…", 0.03f)
                 val manifest = loadManifest()
                 val url = manifest.versions.firstOrNull { it.id == id }?.url
                     ?: error("Версия $id недоступна")
-                onProgress("Метаданные $id…")
+                onProgress("Метаданные $id…", 0.05f)
                 val meta = json.decodeFromString<VersionMeta>(http.get(url).bodyAsText())
                 versionJson.writeText(json.encodeToString(VersionMeta.serializer(), meta))
                 meta
@@ -96,35 +96,47 @@ class MinecraftLauncher(
 
             val nativesDir = versionDir.resolve("natives").apply { createDirectories() }
             val libs = versionMeta.libraries.filter { it.appliesToCurrentOs() }
-            libs.forEachIndexed { index, library ->
-                val artifact = library.downloads?.artifact ?: return@forEachIndexed
-                val libPath = if (artifact.path.isNotBlank()) {
-                    config.librariesDir.resolve(artifact.path)
-                } else {
-                    config.librariesDir.resolve(library.name.replace(':', File.separatorChar) + ".jar")
-                }
-                if (!libPath.exists()) {
-                    onProgress("Библиотеки ${index + 1}/${libs.size}")
-                    downloadBinary(artifact.url, libPath)
-                }
-                if (library.isNativesForCurrentOs()) {
-                    extractNatives(libPath, nativesDir)
-                }
+            val totalLibs = libs.size.coerceAtLeast(1)
+            val libSem = Semaphore(12)
+            coroutineScope {
+                libs.mapIndexed { index, library ->
+                    async(Dispatchers.IO) {
+                        libSem.withPermit {
+                            val artifact = library.downloads?.artifact ?: return@withPermit
+                            val libPath = if (artifact.path.isNotBlank()) {
+                                config.librariesDir.resolve(artifact.path)
+                            } else {
+                                config.librariesDir.resolve(library.name.replace(':', File.separatorChar) + ".jar")
+                            }
+                            if (!libPath.exists()) {
+                                downloadBinaryWithRetry(artifact.url, libPath)
+                            }
+                            if (library.isNativesForCurrentOs()) {
+                                extractNatives(libPath, nativesDir)
+                            }
+                            if ((index + 1) % 5 == 0 || index + 1 == totalLibs) {
+                                val frac = 0.08f + 0.32f * (index + 1).toFloat() / totalLibs
+                                onProgress("Библиотеки ${index + 1}/$totalLibs (${(index + 1) * 100 / totalLibs}%)", frac)
+                            }
+                        }
+                    }
+                }.awaitAll()
             }
 
             val clientJar = versionDir.resolve("$id.jar")
             val clientUrl = versionMeta.downloads?.client?.url
                 ?: error("Нет ссылки на клиент")
             if (!clientJar.exists()) {
-                onProgress("Скачивание клиента…")
-                downloadBinary(clientUrl, clientJar)
+                onProgress("Скачивание клиента…", 0.42f)
+                downloadBinaryWithRetry(clientUrl, clientJar)
             }
+            onProgress("Клиент готов", 0.45f)
 
             val assetIndex = versionMeta.assetIndex ?: error("Нет индекса ассетов")
             val assetIndexFile = config.assetsDir.resolve("indexes").resolve("${assetIndex.id}.json")
             assetIndexFile.parent?.createDirectories()
             if (!assetIndexFile.exists()) {
-                onProgress("Индекс ресурсов…")
+                onProgress("Индекс ресурсов…", 0.46f)
                 assetIndexFile.writeText(http.get(assetIndex.url).bodyAsText())
             }
             downloadAssets(assetIndexFile, onProgress)
@@ -132,7 +144,7 @@ class MinecraftLauncher(
             id to versionMeta
         }
 
-    suspend fun launch(username: String, preferredVersion: String = "", onProgress: (String) -> Unit = {}): LaunchResult {
+    suspend fun launch(username: String, preferredVersion: String = "", onProgress: (String, Float?) -> Unit = { _, _ -> }): LaunchResult {
         val prepared = ensureVersion(preferredVersion, onProgress)
         if (prepared.isFailure) {
             return LaunchResult(false, prepared.exceptionOrNull()?.message ?: "Ошибка подготовки")
@@ -142,7 +154,10 @@ class MinecraftLauncher(
         val component = versionMeta.javaVersion?.component ?: "java-runtime-epsilon"
         val requiredMajor = versionMeta.javaVersion?.majorVersion ?: 25
         val javaPath = try {
-            javaRuntimes.ensureRuntime(component, onProgress).toAbsolutePath().toString()
+            javaRuntimes.ensureRuntime(component) { msg, frac ->
+                val mapped = if (frac != null) 0.72f + frac * 0.22f else null
+                onProgress(msg, mapped)
+            }.toAbsolutePath().toString()
         } catch (e: Exception) {
             val fallback = findSystemJava()?.takeIf { javaMajorVersion(it) >= requiredMajor }
             fallback ?: return LaunchResult(
@@ -180,9 +195,8 @@ class MinecraftLauncher(
             if (none { it.startsWith("-Djava.library.path") }) {
                 add("-Djava.library.path=${nativesDir.toAbsolutePath()}")
             }
-            // Config memory wins over Mojang defaults.
-            add("-Xms${config.minMemoryMb}M")
-            add("-Xmx${config.maxMemoryMb}M")
+            add("-Xms${config.resolvedMinMemoryMb()}M")
+            add("-Xmx${config.resolvedMaxMemoryMb()}M")
         }
 
         val gameArgs = buildList {
@@ -204,9 +218,23 @@ class MinecraftLauncher(
                     ),
                 )
             }
-            if (none { it == "--quickPlayMultiplayer" || it.startsWith("--server") }) {
-                add("--quickPlayMultiplayer")
-                add("${config.serverHost}:25565")
+            // Drop demo/quick-play feature args that weren't filled, then apply settings.
+            removeAll { it == "--demo" }
+            if (config.fullscreen && none { it == "--fullscreen" }) {
+                add("--fullscreen")
+            }
+            if (config.autoJoinServer) {
+                if (none { it == "--quickPlayMultiplayer" || it == "--server" }) {
+                    add("--quickPlayMultiplayer")
+                    add("${config.serverHost}:25565")
+                }
+            } else {
+                // Strip auto-join if meta enabled it via features.
+                val qi = indexOf("--quickPlayMultiplayer")
+                if (qi >= 0) {
+                    removeAt(qi)
+                    if (qi < size) removeAt(qi)
+                }
             }
         }
 
@@ -223,27 +251,21 @@ class MinecraftLauncher(
 
         val logFile = config.dataDir.resolve("last-launch.log")
         return try {
-            onProgress("Запуск Minecraft…")
+            onProgress("Запуск Minecraft…", 0.98f)
             config.gameDir.createDirectories()
             val pb = ProcessBuilder(command)
                 .directory(config.gameDir.toFile())
                 .redirectErrorStream(true)
                 .redirectOutput(logFile.toFile())
             val process = pb.start()
-            Thread {
-                Thread.sleep(4000)
-                if (!process.isAlive) {
-                    val tail = runCatching { logFile.readText().takeLast(1500) }.getOrDefault("")
-                    // keep for diagnostics
-                }
-            }.start()
+            onProgress("Игра запущена", 1f)
             LaunchResult(true, "Игра запущена", process)
         } catch (e: Exception) {
             LaunchResult(false, e.message ?: "Не удалось запустить")
         }
     }
 
-    private suspend fun downloadAssets(indexFile: Path, onProgress: (String) -> Unit) {
+    private suspend fun downloadAssets(indexFile: Path, onProgress: (String, Float?) -> Unit) {
         val root = json.parseToJsonElement(indexFile.readText()).jsonObject
         val objects = root["objects"]?.jsonObject ?: return
         val objectsDir = config.assetsDir.resolve("objects").apply { createDirectories() }
@@ -252,22 +274,31 @@ class MinecraftLauncher(
             val dest = objectsDir.resolve(hash.substring(0, 2)).resolve(hash)
             if (dest.exists()) null else hash to dest
         }
-        if (missing.isEmpty()) return
-        onProgress("Ресурсы 0/${missing.size}")
-        val sem = Semaphore(12)
+        if (missing.isEmpty()) {
+            onProgress("Ресурсы готовы", 0.70f)
+            return
+        }
+        onProgress("Ресурсы 0/${missing.size} (0%)", 0.46f)
+        val total = missing.size
+        val done = java.util.concurrent.atomic.AtomicInteger(0)
+        val sem = Semaphore(16)
         coroutineScope {
-            missing.mapIndexed { index, (hash, dest) ->
+            missing.map { (hash, dest) ->
                 async(Dispatchers.IO) {
                     sem.withPermit {
                         dest.parent?.createDirectories()
                         val url = "https://resources.download.minecraft.net/${hash.substring(0, 2)}/$hash"
-                        runCatching { downloadBinary(url, dest) }
-                        if ((index + 1) % 50 == 0) onProgress("Ресурсы ${index + 1}/${missing.size}")
+                        runCatching { downloadBinaryWithRetry(url, dest) }
+                        val n = done.incrementAndGet()
+                        if (n % 40 == 0 || n == total) {
+                            val pct = n * 100 / total
+                            onProgress("Ресурсы $n/$total ($pct%)", 0.46f + 0.24f * n.toFloat() / total)
+                        }
                     }
                 }
             }.awaitAll()
         }
-        onProgress("Ресурсы готовы")
+        onProgress("Ресурсы готовы", 0.70f)
     }
 
     private fun resolveArgList(elements: List<JsonElement>?, vars: Map<String, String>): List<String> {
@@ -352,6 +383,20 @@ class MinecraftLauncher(
     private suspend fun downloadBinary(url: String, target: Path) {
         target.parent?.createDirectories()
         target.writeBytes(http.get(url).body())
+    }
+
+    private suspend fun downloadBinaryWithRetry(url: String, target: Path, attempts: Int = 4) {
+        var last: Exception? = null
+        repeat(attempts) { attempt ->
+            try {
+                downloadBinary(url, target)
+                if (target.exists()) return
+            } catch (e: Exception) {
+                last = e
+                kotlinx.coroutines.delay(800L * (attempt + 1))
+            }
+        }
+        throw last ?: IllegalStateException("Не удалось скачать $url")
     }
 
     private fun buildClasspath(versionId: String, meta: VersionMeta): String {

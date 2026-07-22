@@ -9,18 +9,21 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -351,6 +354,141 @@ fun SectionTitle(title: String, subtitle: String? = null) {
             Spacer(Modifier.height(6.dp))
             Text(subtitle, color = StarlitColors.TextMuted, fontSize = 14.sp, lineHeight = 20.sp)
         }
+    }
+}
+
+@Composable
+fun StarlitProgressBar(
+    progress: Float?,
+    label: String,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = label,
+                color = StarlitColors.TextMuted,
+                fontSize = 13.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f).padding(end = 12.dp),
+            )
+            if (progress != null) {
+                Text(
+                    text = "${(progress.coerceIn(0f, 1f) * 100).toInt()}%",
+                    color = StarlitColors.Accent,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(6.dp)
+                .clip(RoundedCornerShape(50))
+                .background(Color(0x3312182A)),
+        ) {
+            if (progress != null) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .fillMaxWidth(progress.coerceIn(0f, 1f))
+                        .clip(RoundedCornerShape(50))
+                        .background(
+                            Brush.horizontalGradient(
+                                listOf(StarlitColors.Purple, StarlitColors.Accent),
+                            ),
+                        ),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun StarlitToggle(
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) {
+    Box(
+        modifier = modifier
+            .size(width = 48.dp, height = 26.dp)
+            .clip(RoundedCornerShape(50))
+            .background(
+                if (checked) StarlitColors.Accent.copy(alpha = 0.28f) else Color(0x4412182A),
+            )
+            .border(
+                1.dp,
+                if (checked) StarlitColors.Accent.copy(alpha = 0.6f) else StarlitColors.CardBorder,
+                RoundedCornerShape(50),
+            )
+            .clickable(enabled = enabled) { onCheckedChange(!checked) }
+            .padding(3.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(20.dp)
+                .align(if (checked) Alignment.CenterEnd else Alignment.CenterStart)
+                .clip(CircleShape)
+                .background(if (checked) StarlitColors.Accent else StarlitColors.TextMuted.copy(alpha = 0.7f)),
+        )
+    }
+}
+
+@Composable
+fun SettingsRow(
+    title: String,
+    subtitle: String? = null,
+    icon: (@Composable () -> Unit)? = null,
+    modifier: Modifier = Modifier,
+    trailing: @Composable () -> Unit,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (icon != null) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(StarlitColors.PurpleSoft)
+                    .padding(8.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                icon()
+            }
+            Spacer(Modifier.size(14.dp))
+        }
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                color = StarlitColors.Text,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 15.sp,
+            )
+            if (subtitle != null) {
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = subtitle,
+                    color = StarlitColors.TextMuted,
+                    fontSize = 12.sp,
+                    lineHeight = 16.sp,
+                )
+            }
+        }
+        Spacer(Modifier.width(12.dp))
+        trailing()
     }
 }
 

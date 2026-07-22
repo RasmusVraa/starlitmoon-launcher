@@ -14,11 +14,15 @@ import kotlinx.coroutines.withContext
 import ru.starlitmoon.launcher.LauncherConfig
 import ru.starlitmoon.launcher.api.AdminAccountDto
 import ru.starlitmoon.launcher.api.AdminApplicationDto
+import ru.starlitmoon.launcher.api.AdminBadgeDto
 import ru.starlitmoon.launcher.api.AdminBankCardDto
 import ru.starlitmoon.launcher.api.AdminClanDto
 import ru.starlitmoon.launcher.api.AdminMeResponse
+import ru.starlitmoon.launcher.api.AdminOrderDto
 import ru.starlitmoon.launcher.api.AdminPlayerDto
+import ru.starlitmoon.launcher.api.AdminProductDto
 import ru.starlitmoon.launcher.api.AdminStatsResponse
+import ru.starlitmoon.launcher.api.AdminTreasuryResponse
 import ru.starlitmoon.launcher.api.MeResponse
 import ru.starlitmoon.launcher.api.NotificationDto
 import ru.starlitmoon.launcher.api.ServerStatus
@@ -33,10 +37,11 @@ enum class LauncherTab { Play, Cabinet, Admin, Settings }
 class LauncherViewModel(
     private val scope: CoroutineScope,
     private val api: StarlitApiClient = StarlitApiClient(),
-    private val mc: MinecraftLauncher = MinecraftLauncher(),
-    private val config: LauncherConfig = LauncherConfig.load(),
-    private val updateChecker: UpdateChecker = UpdateChecker(config),
+    private val initialConfig: LauncherConfig = LauncherConfig.load(),
+    private val updateChecker: UpdateChecker = UpdateChecker(initialConfig),
 ) {
+    var configState by mutableStateOf(initialConfig)
+    private var mc: MinecraftLauncher = MinecraftLauncher(configState)
     var isRefreshingStatus by mutableStateOf(false)
     var isLoading by mutableStateOf(false)
     var isCheckingUpdates by mutableStateOf(false)
@@ -50,8 +55,8 @@ class LauncherViewModel(
     var infoMessage by mutableStateOf<String?>(null)
     var currentTab by mutableStateOf(LauncherTab.Play)
     var adminSubTab by mutableStateOf(0)
-    var serverStatus by mutableStateOf(ServerStatus.offline(config.serverHost))
-    var serverVersion by mutableStateOf(config.defaultMcVersion)
+    var serverStatus by mutableStateOf(ServerStatus.offline(initialConfig.serverHost))
+    var serverVersion by mutableStateOf(initialConfig.defaultMcVersion)
     var meData by mutableStateOf<MeResponse?>(null)
     var adminMe by mutableStateOf<AdminMeResponse?>(null)
     var adminStats by mutableStateOf<AdminStatsResponse?>(null)
@@ -60,10 +65,27 @@ class LauncherViewModel(
     var adminAccounts by mutableStateOf<List<AdminAccountDto>>(emptyList())
     var adminBank by mutableStateOf<List<AdminBankCardDto>>(emptyList())
     var adminClans by mutableStateOf<List<AdminClanDto>>(emptyList())
+    var adminTreasury by mutableStateOf<AdminTreasuryResponse?>(null)
+    var adminBadges by mutableStateOf<List<AdminBadgeDto>>(emptyList())
+    var adminProducts by mutableStateOf<List<AdminProductDto>>(emptyList())
+    var adminOrders by mutableStateOf<List<AdminOrderDto>>(emptyList())
+    var adminConsoleOutput by mutableStateOf("")
+    var adminConsoleError by mutableStateOf<String?>(null)
+    var adminRconResponse by mutableStateOf("")
     var notifications by mutableStateOf<List<NotificationDto>>(emptyList())
     var launchProgress by mutableStateOf<String?>(null)
+    var launchProgressFraction by mutableStateOf<Float?>(null)
+    var requestExit by mutableStateOf(false)
     var onlinePlayers by mutableStateOf<List<String>>(emptyList())
     var adminSearch by mutableStateOf("")
+    var accountSearch by mutableStateOf("")
+    var adminConsoleServerId by mutableStateOf("")
+    var treasuryPayoutCode by mutableStateOf("")
+    var treasuryPayoutAmount by mutableStateOf("")
+    var treasuryPayoutReason by mutableStateOf("bonus")
+    var treasuryPayoutNote by mutableStateOf("")
+    var rconCommand by mutableStateOf("")
+    var lastResetPassword by mutableStateOf<String?>(null)
     var statusDraft by mutableStateOf("")
     var notifyTitle by mutableStateOf("")
     var notifyMessage by mutableStateOf("")
@@ -77,7 +99,7 @@ class LauncherViewModel(
         scope.launch {
             val sessionJob = async(Dispatchers.IO) { runCatching { api.restoreSession() }.getOrNull() }
             val publicJob = async(Dispatchers.IO) { refreshPublicData() }
-            if (config.checkUpdatesOnStart) launch { checkForUpdates(silent = true) }
+            if (configState.checkUpdatesOnStart) launch { checkForUpdates(silent = true) }
             val restored = sessionJob.await()
             if (restored?.user != null) applySession(restored)
             publicJob.await()
@@ -146,10 +168,26 @@ class LauncherViewModel(
             adminAccounts = emptyList()
             adminBank = emptyList()
             adminClans = emptyList()
+            adminTreasury = null
+            adminBadges = emptyList()
+            adminProducts = emptyList()
+            adminOrders = emptyList()
+            adminConsoleOutput = ""
+            adminConsoleError = null
+            adminRconResponse = ""
+            lastResetPassword = null
             notifications = emptyList()
             currentTab = LauncherTab.Play
             isLoading = false
         }
+    }
+
+    fun saveSettings(newConfig: LauncherConfig) {
+        LauncherConfig.save(newConfig)
+        configState = newConfig
+        mc.close()
+        mc = MinecraftLauncher(configState)
+        infoMessage = "Настройки сохранены"
     }
 
     fun play() {
@@ -161,18 +199,27 @@ class LauncherViewModel(
         scope.launch {
             isLoading = true
             launchProgress = "Подготовка…"
+            launchProgressFraction = 0f
             errorMessage = null
             val result = withContext(Dispatchers.IO) {
-                mc.launch(userName, config.minecraftVersionId) { p -> scope.launch { launchProgress = p } }
+                mc.launch(userName, configState.minecraftVersionId) { msg, frac ->
+                    scope.launch {
+                        launchProgress = msg
+                        launchProgressFraction = frac
+                    }
+                }
             }
             if (result.success) {
                 infoMessage = "Игра запущена. На сервере: /login"
+                if (!configState.keepLauncherOpen) {
+                    requestExit = true
+                }
                 result.process?.let { process ->
                     scope.launch(Dispatchers.IO) {
                         delay(5000)
                         if (!process.isAlive) {
                             val log = runCatching {
-                                config.dataDir.resolve("last-launch.log").toFile().readText().takeLast(800)
+                                configState.dataDir.resolve("last-launch.log").toFile().readText().takeLast(800)
                             }.getOrNull()
                             scope.launch {
                                 errorMessage = "Игра закрылась. ${log?.lineSequence()?.lastOrNull() ?: "См. лог запуска"}"
@@ -184,6 +231,7 @@ class LauncherViewModel(
                 errorMessage = result.message
             }
             launchProgress = null
+            launchProgressFraction = null
             isLoading = false
         }
     }
@@ -247,16 +295,157 @@ class LauncherViewModel(
             runCatching {
                 withContext(Dispatchers.IO) {
                     adminMe = api.adminMe()
-                    adminStats = runCatching { api.adminStats() }.getOrNull()
-                    adminPlayers = runCatching { api.adminPlayers(adminSearch).players }.getOrDefault(emptyList())
-                    adminApps = runCatching { api.adminApplications("pending").applications }.getOrDefault(emptyList())
-                    adminAccounts = runCatching { api.adminAccounts().accounts }.getOrDefault(emptyList())
-                    adminBank = runCatching { api.adminBank().cards }.getOrDefault(emptyList())
-                    adminClans = runCatching { api.adminClans("pending").clans }.getOrDefault(emptyList())
+                    when (adminSubTab) {
+                        0 -> adminStats = runCatching { api.adminStats() }.getOrNull()
+                        1 -> adminPlayers = runCatching { api.adminPlayers(adminSearch).players }.getOrDefault(emptyList())
+                        2 -> adminApps = runCatching { api.adminApplications("pending").applications }.getOrDefault(emptyList())
+                        3 -> adminClans = runCatching { api.adminClans("pending").clans }.getOrDefault(emptyList())
+                        4 -> adminBank = runCatching { api.adminBank().cards }.getOrDefault(emptyList())
+                        6 -> adminAccounts = runCatching { api.adminAccounts(accountSearch).accounts }.getOrDefault(emptyList())
+                        7 -> loadConsoleOutputInternal()
+                        8 -> adminTreasury = runCatching { api.treasury() }.getOrNull()
+                        9 -> adminBadges = runCatching { api.adminBadges().badges }.getOrDefault(emptyList())
+                        10 -> {
+                            adminProducts = runCatching { api.adminProducts().products }.getOrDefault(emptyList())
+                            adminOrders = runCatching { api.adminOrders().orders }.getOrDefault(emptyList())
+                        }
+                    }
                 }
             }.onFailure { handleError(it) }
             isLoading = false
         }
+    }
+
+    private suspend fun loadConsoleOutputInternal() {
+        val sid = adminConsoleServerId.trim().ifBlank { null }
+        runCatching { api.consoleOutput(sid) }
+            .onSuccess {
+                adminConsoleOutput = it.text.orEmpty()
+                adminConsoleError = it.error
+            }
+            .onFailure {
+                adminConsoleOutput = ""
+                adminConsoleError = (it as? StarlitApiException)?.message ?: it.message
+            }
+    }
+
+    fun searchAdminAccounts(q: String) {
+        accountSearch = q
+        scope.launch {
+            adminAccounts = withContext(Dispatchers.IO) {
+                runCatching { api.adminAccounts(q).accounts }.getOrDefault(emptyList())
+            }
+        }
+    }
+
+    fun resetAccountPassword(nick: String) {
+        scope.launch {
+            runCatching { withContext(Dispatchers.IO) { api.resetAccountPassword(nick) } }
+                .onSuccess {
+                    lastResetPassword = it.password
+                    infoMessage = "Пароль для $nick: ${it.password}"
+                }
+                .onFailure { handleError(it) }
+        }
+    }
+
+    fun deleteAccount(nick: String) {
+        scope.launch {
+            runCatching { withContext(Dispatchers.IO) { api.deleteAccount(nick) } }
+                .onSuccess {
+                    infoMessage = "Аккаунт удалён: $nick"
+                    refreshAdmin()
+                }
+                .onFailure { handleError(it) }
+        }
+    }
+
+    fun execRcon() {
+        val cmd = rconCommand.trim()
+        if (cmd.isBlank()) {
+            errorMessage = "Введите команду"
+            return
+        }
+        scope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    api.rconExec(cmd, adminConsoleServerId.trim().ifBlank { null })
+                }
+            }.onSuccess {
+                adminRconResponse = it.response.orEmpty()
+                infoMessage = "RCON выполнен"
+                rconCommand = ""
+            }.onFailure { handleError(it) }
+        }
+    }
+
+    fun loadConsoleOutput() {
+        scope.launch {
+            isLoading = true
+            runCatching { withContext(Dispatchers.IO) { loadConsoleOutputInternal() } }
+                .onFailure { handleError(it) }
+            isLoading = false
+        }
+    }
+
+    fun treasuryPayout() {
+        val code = treasuryPayoutCode.trim()
+        val amount = treasuryPayoutAmount.toLongOrNull()
+        if (code.isBlank() || amount == null || amount <= 0) {
+            errorMessage = "Укажи код карты и сумму"
+            return
+        }
+        scope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    api.treasuryPayout(code, amount, treasuryPayoutReason, treasuryPayoutNote.trim().ifBlank { null })
+                }
+            }.onSuccess {
+                adminTreasury = it
+                infoMessage = "Выплата $amount ◆ на $code"
+                treasuryPayoutCode = ""
+                treasuryPayoutAmount = ""
+                treasuryPayoutNote = ""
+            }.onFailure { handleError(it) }
+        }
+    }
+
+    fun deleteApp(id: String) {
+        scope.launch {
+            runCatching { withContext(Dispatchers.IO) { api.deleteApplication(id) } }
+                .onSuccess {
+                    infoMessage = "Заявка удалена"
+                    refreshAdmin()
+                }
+                .onFailure { handleError(it) }
+        }
+    }
+
+    fun deleteClan(id: String) {
+        scope.launch {
+            runCatching { withContext(Dispatchers.IO) { api.deleteClan(id) } }
+                .onSuccess {
+                    infoMessage = "Клан удалён"
+                    refreshAdmin()
+                }
+                .onFailure { handleError(it) }
+        }
+    }
+
+    fun deleteBankCard(nick: String) {
+        scope.launch {
+            runCatching { withContext(Dispatchers.IO) { api.deleteBankCard(nick) } }
+                .onSuccess {
+                    infoMessage = "Карта удалена: $nick"
+                    refreshAdmin()
+                }
+                .onFailure { handleError(it) }
+        }
+    }
+
+    fun openAdminWebsite() {
+        runCatching { java.awt.Desktop.getDesktop().browse(java.net.URI("https://starlit-moon.ru/admin")) }
+            .onFailure { errorMessage = "Не удалось открыть браузер" }
     }
 
     fun searchAdminPlayers(q: String) {
@@ -391,7 +580,7 @@ class LauncherViewModel(
         isRefreshingStatus = true
         try {
             coroutineScope {
-                val v = async(Dispatchers.IO) { runCatching { api.serverVersion() }.getOrDefault(config.defaultMcVersion) }
+                val v = async(Dispatchers.IO) { runCatching { api.serverVersion() }.getOrDefault(configState.defaultMcVersion) }
                 val s = async(Dispatchers.IO) { api.fetchServerStatus() }
                 val p = async(Dispatchers.IO) {
                     runCatching { api.fetchOnlinePlayers().online.map { it.name } }.getOrDefault(emptyList())

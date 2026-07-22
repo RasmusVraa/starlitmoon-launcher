@@ -17,8 +17,17 @@ data class LauncherConfig(
     val defaultMaxPlayers: Int = 100,
     val minecraftVersionId: String = "26.2",
     val javaPath: String = "",
+    val memoryAuto: Boolean = true,
     val minMemoryMb: Int = 2048,
     val maxMemoryMb: Int = 4096,
+    val fullscreen: Boolean = false,
+    val autoJoinServer: Boolean = true,
+    val keepLauncherOpen: Boolean = false,
+    val autoLogin: Boolean = true,
+    val savePassword: Boolean = false,
+    val vsync: Boolean = true,
+    /** Пустая строка = ~/.starlitmoon-launcher/game */
+    val gamePath: String = "",
     val githubOwner: String = "RasmusVraa",
     val githubRepo: String = "starlitmoon-launcher",
     val checkUpdatesOnStart: Boolean = true,
@@ -27,7 +36,7 @@ data class LauncherConfig(
         get() = Path.of(System.getProperty("user.home"), ".starlitmoon-launcher")
 
     val gameDir: Path
-        get() = dataDir.resolve("game")
+        get() = if (gamePath.isNotBlank()) Path.of(gamePath) else dataDir.resolve("game")
 
     val assetsDir: Path
         get() = gameDir.resolve("assets")
@@ -37,6 +46,18 @@ data class LauncherConfig(
 
     val librariesDir: Path
         get() = gameDir.resolve("libraries")
+
+    fun resolvedMinMemoryMb(): Int =
+        if (memoryAuto) (Runtime.getRuntime().maxMemory() / (1024 * 1024)).toInt().coerceIn(1024, 2048)
+            .coerceAtMost(resolvedMaxMemoryMb())
+        else minMemoryMb
+
+    fun resolvedMaxMemoryMb(): Int {
+        if (!memoryAuto) return maxMemoryMb.coerceIn(1024, 32768)
+        val coresHint = Runtime.getRuntime().availableProcessors().coerceAtLeast(2)
+        val suggested = (2048 + coresHint * 512).coerceIn(2048, 8192)
+        return suggested.coerceAtMost(maxMemoryMb.coerceAtLeast(2048))
+    }
 
     companion object {
         private val json = Json {

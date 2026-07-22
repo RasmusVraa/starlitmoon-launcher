@@ -17,6 +17,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -31,13 +32,27 @@ import ru.starlitmoon.launcher.ui.theme.StarlitColors
 import ru.starlitmoon.launcher.viewmodel.LauncherTab
 import ru.starlitmoon.launcher.viewmodel.LauncherViewModel
 
+private val adminTabTitles = listOf(
+    "Сводка",
+    "Игроки",
+    "Заявки",
+    "Кланы",
+    "Банк",
+    "Рассылка",
+    "Аккаунты",
+    "Консоль",
+    "Казна",
+    "Значки",
+    "Товары",
+)
+
 @Composable
 fun AdminScreen(vm: LauncherViewModel) {
     if (!vm.isLoggedIn) {
         LoginScreen(vm)
         return
     }
-    LaunchedEffect(Unit) { vm.refreshAdmin() }
+    LaunchedEffect(vm.adminSubTab) { vm.refreshAdmin() }
     if (!vm.isAdmin) {
         Column(modifier = Modifier.fillMaxSize().padding(8.dp)) {
             SectionTitle("Админ-панель", "Нет доступа")
@@ -50,9 +65,9 @@ fun AdminScreen(vm: LauncherViewModel) {
     }
 
     val search = remember { mutableStateOf(vm.adminSearch) }
+    val accountSearch = remember { mutableStateOf(vm.accountSearch) }
     val bankNick = remember { mutableStateOf("") }
     val bankBal = remember { mutableStateOf("0") }
-    val tabs = listOf("Сводка", "Игроки", "Заявки", "Кланы", "Банк", "Рассылка")
 
     Column(
         modifier = Modifier
@@ -63,16 +78,15 @@ fun AdminScreen(vm: LauncherViewModel) {
     ) {
         SectionTitle("Админ-панель", "Управление")
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            tabs.forEachIndexed { index, title ->
-                if (index == vm.adminSubTab) {
-                    StarlitPrimaryButton(text = title, onClick = { vm.adminSubTab = index })
-                } else {
-                    StarlitSecondaryButton(text = title, onClick = { vm.adminSubTab = index })
-                }
-            }
+            StarlitSecondaryButton(
+                text = "Полная админка на сайте",
+                onClick = { vm.openAdminWebsite() },
+            )
             Spacer(Modifier.weight(1f))
             StarlitSecondaryButton(text = "Обновить", onClick = { vm.refreshAdmin() })
         }
+        AdminTabRow(vm, adminTabTitles.take(6), startIndex = 0)
+        AdminTabRow(vm, adminTabTitles.drop(6), startIndex = 6)
 
         when (vm.adminSubTab) {
             0 -> AdminStatsTab(vm)
@@ -81,6 +95,25 @@ fun AdminScreen(vm: LauncherViewModel) {
             3 -> AdminClansTab(vm)
             4 -> AdminBankTab(vm, bankNick.value, bankBal.value, { bankNick.value = it }, { bankBal.value = it })
             5 -> AdminBroadcastTab(vm)
+            6 -> AdminAccountsTab(vm, accountSearch.value) { accountSearch.value = it }
+            7 -> AdminConsoleTab(vm)
+            8 -> AdminTreasuryTab(vm)
+            9 -> AdminBadgesTab(vm)
+            10 -> AdminProductsTab(vm)
+        }
+    }
+}
+
+@Composable
+private fun AdminTabRow(vm: LauncherViewModel, titles: List<String>, startIndex: Int) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        titles.forEachIndexed { offset, title ->
+            val index = startIndex + offset
+            if (index == vm.adminSubTab) {
+                StarlitPrimaryButton(text = title, onClick = { vm.adminSubTab = index })
+            } else {
+                StarlitSecondaryButton(text = title, onClick = { vm.adminSubTab = index })
+            }
         }
     }
 }
@@ -181,6 +214,7 @@ private fun AdminAppsTab(vm: LauncherViewModel) {
                         if (id != null) {
                             StarlitPrimaryButton(text = "Принять", onClick = { vm.acceptApp(id) })
                             StarlitSecondaryButton(text = "Отклонить", onClick = { vm.rejectApp(id) })
+                            StarlitSecondaryButton(text = "Удалить", onClick = { vm.deleteApp(id) })
                         }
                     }
                 }
@@ -213,6 +247,7 @@ private fun AdminClansTab(vm: LauncherViewModel) {
                         if (id != null) {
                             StarlitPrimaryButton(text = "Одобрить", onClick = { vm.approveClan(id) })
                             StarlitSecondaryButton(text = "Отклонить", onClick = { vm.rejectClan(id) })
+                            StarlitSecondaryButton(text = "Удалить", onClick = { vm.deleteClan(id) })
                         }
                     }
                 }
@@ -246,7 +281,21 @@ private fun AdminBankTab(
                 )
             }
             vm.adminBank.take(60).forEach { card ->
-                StatRow(card.ownerName ?: "—", (card.balance ?: 0).toString())
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        StatRow(card.ownerName ?: "—", (card.balance ?: 0).toString())
+                        if (!card.cardCode.isNullOrBlank()) {
+                            Text(card.cardCode, color = StarlitColors.TextMuted, fontSize = 11.sp)
+                        }
+                    }
+                    val owner = card.ownerName
+                    if (!owner.isNullOrBlank()) {
+                        StarlitSecondaryButton(text = "Удалить", onClick = { vm.deleteBankCard(owner) })
+                    }
+                }
             }
         }
     }
@@ -262,6 +311,246 @@ private fun AdminBroadcastTab(vm: LauncherViewModel) {
             StarlitTextField(vm.notifyTitle, { vm.notifyTitle = it }, "Заголовок")
             StarlitTextField(vm.notifyMessage, { vm.notifyMessage = it }, "Сообщение")
             StarlitPrimaryButton(text = "Отправить всем", onClick = { vm.sendBroadcast() })
+        }
+    }
+}
+
+@Composable
+private fun AdminAccountsTab(
+    vm: LauncherViewModel,
+    search: String,
+    onSearchChange: (String) -> Unit,
+) {
+    StarlitCard(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                StarlitTextField(search, onSearchChange, "Поиск", modifier = Modifier.weight(1f))
+                StarlitPrimaryButton(text = "Найти", onClick = { vm.searchAdminAccounts(search) })
+            }
+            vm.lastResetPassword?.let { pwd ->
+                Text("Последний сброс: $pwd", color = StarlitColors.Accent, fontSize = 12.sp)
+            }
+            if (vm.adminAccounts.isEmpty()) {
+                Text("Нет аккаунтов", color = StarlitColors.TextMuted)
+            } else {
+                vm.adminAccounts.take(80).forEach { acc ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(acc.name ?: "—", color = StarlitColors.Text, fontWeight = FontWeight.SemiBold)
+                            Text(acc.uuid ?: "", color = StarlitColors.TextMuted, fontSize = 11.sp)
+                        }
+                        val nick = acc.name
+                        if (!nick.isNullOrBlank()) {
+                            StarlitSecondaryButton(text = "Сброс пароля", onClick = { vm.resetAccountPassword(nick) })
+                            StarlitSecondaryButton(text = "Удалить", onClick = { vm.deleteAccount(nick) })
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AdminConsoleTab(vm: LauncherViewModel) {
+    StarlitCard(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            StarlitTextField(
+                vm.adminConsoleServerId,
+                { vm.adminConsoleServerId = it },
+                "ID сервера (serverId)",
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                StarlitPrimaryButton(text = "Загрузить вывод", onClick = { vm.loadConsoleOutput() })
+            }
+            val output = when {
+                vm.adminConsoleError != null -> "⚠ ${vm.adminConsoleError}"
+                vm.adminConsoleOutput.isNotBlank() -> vm.adminConsoleOutput
+                else -> "Нет вывода. Укажи serverId и нажми «Загрузить вывод»."
+            }
+            Text(
+                output,
+                color = StarlitColors.TextMuted,
+                fontSize = 11.sp,
+                fontFamily = FontFamily.Monospace,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(8.dp))
+            Text("RCON", color = StarlitColors.Text, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                StarlitTextField(
+                    vm.rconCommand,
+                    { vm.rconCommand = it },
+                    "Команда",
+                    modifier = Modifier.weight(1f),
+                )
+                StarlitPrimaryButton(text = "Выполнить", onClick = { vm.execRcon() })
+            }
+            if (vm.adminRconResponse.isNotBlank()) {
+                Text(
+                    vm.adminRconResponse,
+                    color = StarlitColors.Accent,
+                    fontSize = 11.sp,
+                    fontFamily = FontFamily.Monospace,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AdminTreasuryTab(vm: LauncherViewModel) {
+    val t = vm.adminTreasury
+    StarlitCard(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            StatRow("Баланс казны", (t?.treasury?.balance ?: 0).toString())
+            StatRow("Код", t?.treasury?.cardCode ?: "—")
+            StatRow("Штрафы (ожидают)", (t?.penaltiesPending ?: 0).toString())
+            StatRow("Штрафы (оплачено)", (t?.penaltiesPaidTotal ?: 0).toString())
+            Text("Выплата", color = StarlitColors.Text, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+            StarlitTextField(vm.treasuryPayoutCode, { vm.treasuryPayoutCode = it }, "Код карты SM-XXXX-XXXX")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                StarlitTextField(
+                    vm.treasuryPayoutAmount,
+                    { vm.treasuryPayoutAmount = it },
+                    "Сумма",
+                    modifier = Modifier.width(120.dp),
+                )
+                StarlitTextField(
+                    vm.treasuryPayoutReason,
+                    { vm.treasuryPayoutReason = it },
+                    "Причина (id)",
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            StarlitTextField(vm.treasuryPayoutNote, { vm.treasuryPayoutNote = it }, "Комментарий")
+            val reasons = t?.payoutReasons.orEmpty()
+            if (reasons.isNotEmpty()) {
+                Text(
+                    reasons.joinToString(" · ") { "${it.id}: ${it.label}" },
+                    color = StarlitColors.TextMuted,
+                    fontSize = 11.sp,
+                )
+            }
+            StarlitPrimaryButton(text = "Выплатить", onClick = { vm.treasuryPayout() })
+        }
+    }
+}
+
+@Composable
+private fun AdminBadgesTab(vm: LauncherViewModel) {
+    StarlitCard(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            if (vm.adminBadges.isEmpty()) {
+                Text("Нет значков", color = StarlitColors.TextMuted)
+            } else {
+                vm.adminBadges.forEach { badge ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(badge.emoji ?: "🏷", fontSize = 18.sp)
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(badge.name ?: "—", color = StarlitColors.Text, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                "${badge.id.orEmpty()} · ${badge.description.orEmpty()}",
+                                color = StarlitColors.TextMuted,
+                                fontSize = 11.sp,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AdminProductsTab(vm: LauncherViewModel) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        StarlitCard(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier.padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text("Товары", color = StarlitColors.Text, fontWeight = FontWeight.SemiBold)
+                if (vm.adminProducts.isEmpty()) {
+                    Text("Нет товаров", color = StarlitColors.TextMuted)
+                } else {
+                    vm.adminProducts.forEach { product ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Text(product.icon ?: "🎁", fontSize = 18.sp)
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    "${product.name.orEmpty()} — ${product.price ?: 0} ◆",
+                                    color = StarlitColors.Text,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                                Text(
+                                    product.id.orEmpty(),
+                                    color = StarlitColors.TextMuted,
+                                    fontSize = 11.sp,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        StarlitCard(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier.padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text("Заказы", color = StarlitColors.Text, fontWeight = FontWeight.SemiBold)
+                if (vm.adminOrders.isEmpty()) {
+                    Text("Нет заказов", color = StarlitColors.TextMuted)
+                } else {
+                    vm.adminOrders.take(60).forEach { order ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    "${order.nickname.orEmpty()} — ${order.productName.orEmpty()}",
+                                    color = StarlitColors.Text,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                                Text(
+                                    buildString {
+                                        append(order.status.orEmpty())
+                                        append(" · ")
+                                        append(order.price ?: 0)
+                                        append(" ◆")
+                                        if (order.delivered) append(" · доставлен")
+                                    },
+                                    color = StarlitColors.TextMuted,
+                                    fontSize = 11.sp,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
