@@ -12,7 +12,7 @@
 
 ## Скачать
 
-Releases: https://github.com/starlit-moon/starlitmoon-launcher/releases
+Releases: https://github.com/RasmusVraa/starlitmoon-launcher/releases
 
 Windows: скачайте `StarlitMoon Launcher-1.x.x.exe` из последнего релиза.
 
@@ -37,13 +37,21 @@ EXE-установщик:
 
 ```powershell
 gh auth login
-.\scripts\create-github-repo.ps1 -Owner starlit-moon
+# PowerShell
+.\scripts\create-github-repo.ps1 -Owner RasmusVraa
+
+# Git Bash
+./scripts/create-github-repo.sh RasmusVraa
 ```
 
 ### Опубликовать релиз с EXE
 
 ```powershell
-.\scripts\publish-release.ps1 -Version 1.0.0
+# PowerShell
+.\scripts\publish-release.ps1 -Version 1.0.0 -Owner RasmusVraa
+
+# Git Bash
+./scripts/publish-release.sh 1.0.0 RasmusVraa
 ```
 
 ## Обновления
@@ -60,7 +68,7 @@ GET https://api.github.com/repos/starlit-moon/starlitmoon-launcher/releases/late
 
 ```json
 {
-  "githubOwner": "starlit-moon",
+  "githubOwner": "RasmusVraa",
   "githubRepo": "starlitmoon-launcher",
   "checkUpdatesOnStart": true
 }

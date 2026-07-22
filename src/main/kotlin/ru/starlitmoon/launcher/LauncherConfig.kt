@@ -20,7 +20,7 @@ data class LauncherConfig(
     val javaPath: String = "",
     val minMemoryMb: Int = 2048,
     val maxMemoryMb: Int = 4096,
-    val githubOwner: String = "starlit-moon",
+    val githubOwner: String = "RasmusVraa",
     val githubRepo: String = "starlitmoon-launcher",
     val checkUpdatesOnStart: Boolean = true,
 ) {

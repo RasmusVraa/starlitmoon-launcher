@@ -1,7 +1,7 @@
 # Requires: gh auth login, JDK 17+
 param(
     [string]$Version = "1.0.0",
-    [string]$Owner = "starlit-moon",
+    [string]$Owner = "RasmusVraa",
     [string]$Repo = "starlitmoon-launcher"
 )
 

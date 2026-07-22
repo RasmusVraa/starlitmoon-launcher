@@ -1,6 +1,6 @@
 # Requires: gh auth login
 param(
-    [string]$Owner = "starlit-moon",
+    [string]$Owner = "RasmusVraa",
     [string]$Repo = "starlitmoon-launcher",
     [switch]$Private
 )
