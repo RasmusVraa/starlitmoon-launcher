@@ -7,13 +7,14 @@ import androidx.compose.ui.window.rememberWindowState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.swing.Swing
 import ru.starlitmoon.launcher.api.StarlitApiClient
 import ru.starlitmoon.launcher.ui.LauncherApp
-import ru.starlitmoon.launcher.ui.theme.StarlitDimens
 import ru.starlitmoon.launcher.viewmodel.LauncherViewModel
 
 fun main() = application {
-    val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    // Compose Desktop: Main dispatcher comes from kotlinx-coroutines-swing
+    val scope = CoroutineScope(SupervisorJob() + Dispatchers.Swing)
     val api = StarlitApiClient()
     val vm = LauncherViewModel(scope, api)
 

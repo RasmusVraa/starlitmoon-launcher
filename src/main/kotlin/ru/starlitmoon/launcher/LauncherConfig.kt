@@ -15,8 +15,8 @@ data class LauncherConfig(
     val serverHost: String = "play.starlit-moon.ru",
     val defaultMcVersion: String = "26.2",
     val defaultMaxPlayers: Int = 100,
-    /** Mojang version id, если отличается от отображаемой версии сервера */
-    val minecraftVersionId: String = "",
+    /** Mojang version id для скачивания клиента */
+    val minecraftVersionId: String = "1.21.4",
     val javaPath: String = "",
     val minMemoryMb: Int = 2048,
     val maxMemoryMb: Int = 4096,

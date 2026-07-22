@@ -4,9 +4,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import ru.starlitmoon.launcher.LauncherConfig
 import ru.starlitmoon.launcher.api.AdminMeResponse
 import ru.starlitmoon.launcher.api.MeResponse
@@ -31,7 +35,8 @@ class LauncherViewModel(
     private val config: LauncherConfig = LauncherConfig.load(),
     private val updateChecker: UpdateChecker = UpdateChecker(config),
 ) {
-    var isBootLoading by mutableStateOf(true)
+    var isBootLoading by mutableStateOf(false)
+    var isRefreshingStatus by mutableStateOf(false)
     var isLoading by mutableStateOf(false)
     var isCheckingUpdates by mutableStateOf(false)
     var updateInfo by mutableStateOf<UpdateInfo?>(null)
@@ -51,33 +56,36 @@ class LauncherViewModel(
     var onlinePlayers by mutableStateOf<List<String>>(emptyList())
 
     private var statusJob: Job? = null
+    private var booted = false
 
     fun boot() {
+        if (booted) return
+        booted = true
+        // UI сразу, сеть в фоне
         scope.launch {
-            isBootLoading = true
-            refreshPublicData()
-            val restored = runCatching { api.restoreSession() }.getOrNull()
-            if (restored?.user != null) {
-                applySession(restored)
-            } else {
-                isLoggedIn = false
+            val sessionJob = async(Dispatchers.IO) {
+                runCatching { api.restoreSession() }.getOrNull()
             }
-            isBootLoading = false
+            val publicJob = async(Dispatchers.IO) { refreshPublicData() }
+            if (config.checkUpdatesOnStart) {
+                launch { checkForUpdates() }
+            }
+            val restored = sessionJob.await()
+            if (restored?.user != null) applySession(restored)
+            publicJob.await()
             startStatusPolling()
-            if (config.checkUpdatesOnStart) checkForUpdates()
         }
     }
 
     fun checkForUpdates() {
         scope.launch {
             isCheckingUpdates = true
-            runCatching { updateChecker.checkForUpdate().getOrThrow() }
+            runCatching {
+                withContext(Dispatchers.IO) { updateChecker.checkForUpdate().getOrThrow() }
+            }
                 .onSuccess { update ->
                     updateInfo = update
                     if (update != null) updateDismissed = false
-                }
-                .onFailure {
-                    // Тихо игнорируем — обновления не критичны для запуска
                 }
             isCheckingUpdates = false
         }
@@ -105,7 +113,9 @@ class LauncherViewModel(
         scope.launch {
             isLoading = true
             errorMessage = null
-            runCatching { api.login(nickname, password) }
+            runCatching {
+                withContext(Dispatchers.IO) { api.login(nickname, password) }
+            }
                 .onSuccess { applySession(it) }
                 .onFailure { handleError(it) }
             isLoading = false
@@ -115,7 +125,7 @@ class LauncherViewModel(
     fun logout() {
         scope.launch {
             isLoading = true
-            runCatching { api.logout() }
+            withContext(Dispatchers.IO) { runCatching { api.logout() } }
             isLoggedIn = false
             isAdmin = false
             userName = ""
@@ -137,13 +147,16 @@ class LauncherViewModel(
         }
         scope.launch {
             isLoading = true
-            launchProgress = "Подготовка клиента Minecraft…"
+            launchProgress = "Подготовка клиента…"
             errorMessage = null
-            val version = serverVersion
-            val result = mc.launch(userName, version)
+            val result = withContext(Dispatchers.IO) {
+                mc.launch(userName, config.minecraftVersionId) { progress ->
+                    scope.launch { launchProgress = progress }
+                }
+            }
             launchProgress = null
             if (result.success) {
-                infoMessage = "Игра запущена. На сервере используйте /login с паролем mcAuth."
+                infoMessage = "Игра запущена. На сервере: /login <пароль>"
             } else {
                 errorMessage = result.message
             }
@@ -162,7 +175,9 @@ class LauncherViewModel(
     fun refreshAdminAccess() {
         if (!isAdmin) return
         scope.launch {
-            runCatching { api.adminMe() }
+            runCatching {
+                withContext(Dispatchers.IO) { api.adminMe() }
+            }
                 .onSuccess { adminMe = it }
                 .onFailure { handleError(it) }
         }
@@ -183,17 +198,31 @@ class LauncherViewModel(
     }
 
     private suspend fun refreshPublicData() {
-        serverVersion = runCatching { api.serverVersion() }.getOrDefault(config.defaultMcVersion)
-        serverStatus = api.fetchServerStatus()
-        onlinePlayers = runCatching { api.fetchOnlinePlayers().online.map { it.name } }.getOrDefault(emptyList())
+        isRefreshingStatus = true
+        try {
+            coroutineScope {
+                val versionDeferred = async(Dispatchers.IO) {
+                    runCatching { api.serverVersion() }.getOrDefault(config.defaultMcVersion)
+                }
+                val statusDeferred = async(Dispatchers.IO) { api.fetchServerStatus() }
+                val playersDeferred = async(Dispatchers.IO) {
+                    runCatching { api.fetchOnlinePlayers().online.map { it.name } }.getOrDefault(emptyList())
+                }
+                serverVersion = versionDeferred.await()
+                serverStatus = statusDeferred.await()
+                onlinePlayers = playersDeferred.await()
+            }
+        } finally {
+            isRefreshingStatus = false
+        }
     }
 
     private fun startStatusPolling() {
         statusJob?.cancel()
         statusJob = scope.launch {
             while (true) {
-                refreshPublicData()
                 delay(60_000)
+                withContext(Dispatchers.IO) { refreshPublicData() }
             }
         }
     }
@@ -201,12 +230,13 @@ class LauncherViewModel(
     private fun handleError(error: Throwable) {
         when (error) {
             is StarlitApiException -> {
-                errorMessage = error.message
-                if (error.cabinetBlocked) {
-                    errorMessage = buildString {
+                errorMessage = if (error.cabinetBlocked) {
+                    buildString {
                         append(error.message)
-                        error.applicationStatus?.let { append(" (статус заявки: $it)") }
+                        error.applicationStatus?.let { append(" (заявка: $it)") }
                     }
+                } else {
+                    error.message
                 }
             }
             else -> errorMessage = error.message ?: "Неизвестная ошибка"

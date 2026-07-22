@@ -20,6 +20,7 @@ object StarlitColors {
     val Online = Color(0xFF4ADE80)
     val Offline = Color(0xFFF87171)
     val Moon = Color(0xFFF4F0E6)
+    val MoonShadow = Color(0xFFC8C0B0)
 }
 
 object StarlitDimens {

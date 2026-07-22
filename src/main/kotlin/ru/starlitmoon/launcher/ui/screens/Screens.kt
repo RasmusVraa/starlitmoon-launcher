@@ -12,77 +12,117 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import ru.starlitmoon.launcher.LauncherConfig
 import ru.starlitmoon.launcher.LauncherVersion
-import ru.starlitmoon.launcher.viewmodel.LauncherViewModel
 import ru.starlitmoon.launcher.api.ServerStatus
 import ru.starlitmoon.launcher.ui.components.SectionTitle
 import ru.starlitmoon.launcher.ui.components.StarlitCard
 import ru.starlitmoon.launcher.ui.components.StarlitPrimaryButton
 import ru.starlitmoon.launcher.ui.components.StarlitSecondaryButton
+import ru.starlitmoon.launcher.ui.components.StarlitTextField
 import ru.starlitmoon.launcher.ui.components.StatRow
+import ru.starlitmoon.launcher.ui.components.StatusDot
 import ru.starlitmoon.launcher.ui.theme.StarlitColors
+import ru.starlitmoon.launcher.ui.theme.StarlitTitleGradient
+import ru.starlitmoon.launcher.viewmodel.LauncherViewModel
 
 @Composable
 fun PlayScreen(vm: LauncherViewModel) {
-    val config = LauncherConfig.load()
+    val config = remember { LauncherConfig.load() }
     Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(top = 8.dp, bottom = 24.dp, end = 120.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        SectionTitle(
-            title = "StarlitMoon",
-            subtitle = "Исследуй мир под звёздным небом",
+        Text(
+            "Java Edition · Vanilla",
+            color = StarlitColors.Accent,
+            fontWeight = FontWeight.Bold,
+            fontSize = 12.sp,
+        )
+        Text(
+            "Добро пожаловать на",
+            color = StarlitColors.TextMuted,
+            fontSize = 15.sp,
+        )
+        Text(
+            "StarlitMoon",
+            fontSize = 42.sp,
+            fontWeight = FontWeight.ExtraBold,
+            style = androidx.compose.ui.text.TextStyle(brush = StarlitTitleGradient),
+        )
+        Text(
+            "Исследуй мир под звёздным небом: дружное комьюнити, ивенты и атмосфера, в которую хочется возвращаться.",
+            color = StarlitColors.TextMuted,
+            fontSize = 14.sp,
+            lineHeight = 21.sp,
+            modifier = Modifier.width(520.dp),
         )
 
-        ServerStatusCard(
-            status = vm.serverStatus,
-            version = vm.serverVersion,
-            host = config.serverHost,
-        )
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            StarlitPrimaryButton(
+                text = if (vm.isLoggedIn) "Играть" else "Войти и играть",
+                onClick = {
+                    if (vm.isLoggedIn) vm.play() else vm.currentTab = ru.starlitmoon.launcher.viewmodel.LauncherTab.Cabinet
+                },
+                modifier = Modifier.width(180.dp),
+                loading = vm.isLoading,
+            )
+            Text(
+                config.serverHost,
+                color = StarlitColors.Text,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 14.sp,
+            )
+        }
 
-        OnlinePlayersCard(players = vm.onlinePlayers)
+        if (vm.launchProgress != null) {
+            Text(vm.launchProgress!!, color = StarlitColors.Accent, fontSize = 13.sp)
+        }
+
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+            ServerStatusCard(
+                status = vm.serverStatus,
+                version = vm.serverVersion,
+                host = config.serverHost,
+                refreshing = vm.isRefreshingStatus,
+                modifier = Modifier.weight(1f),
+            )
+            OnlinePlayersCard(
+                players = vm.onlinePlayers,
+                modifier = Modifier.weight(1f),
+            )
+        }
 
         StarlitCard(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(20.dp)) {
+            Column(modifier = Modifier.padding(18.dp)) {
                 Text(
-                    "Готов к запуску",
+                    if (vm.isLoggedIn) "Аккаунт: ${vm.userName}" else "Войдите ником и паролем с сервера",
                     color = StarlitColors.Text,
                     fontWeight = FontWeight.Bold,
-                    style = MaterialTheme.typography.titleMedium,
                 )
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(6.dp))
                 Text(
-                    if (vm.isLoggedIn) "Аккаунт: ${vm.userName}" else "Войдите в аккаунт перед запуском",
+                    "После входа в игру на play.starlit-moon.ru используйте /login с паролем mcAuth.",
                     color = StarlitColors.TextMuted,
-                )
-                if (vm.launchProgress != null) {
-                    Spacer(Modifier.height(8.dp))
-                    Text(vm.launchProgress!!, color = StarlitColors.Accent)
-                }
-                Spacer(Modifier.height(16.dp))
-                StarlitPrimaryButton(
-                    text = "Играть",
-                    onClick = vm::play,
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = vm.isLoggedIn,
-                    loading = vm.isLoading,
-                )
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    "После подключения к play.starlit-moon.ru используйте /login с паролем сервера (mcAuth).",
-                    color = StarlitColors.TextMuted,
-                    style = MaterialTheme.typography.bodyMedium,
+                    fontSize = 13.sp,
+                    lineHeight = 19.sp,
                 )
             }
         }
@@ -90,30 +130,45 @@ fun PlayScreen(vm: LauncherViewModel) {
 }
 
 @Composable
-private fun ServerStatusCard(status: ServerStatus, version: String, host: String) {
-    StarlitCard(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("Сервер", color = StarlitColors.Text, fontWeight = FontWeight.Bold)
+private fun ServerStatusCard(
+    status: ServerStatus,
+    version: String,
+    host: String,
+    refreshing: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    StarlitCard(modifier = modifier) {
+        Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Сервер", color = StarlitColors.Text, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.weight(1f))
+                StatusDot(status.online)
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    if (status.online) "Онлайн" else if (refreshing) "…" else "Оффлайн",
+                    color = if (status.online) StarlitColors.Online else StarlitColors.TextMuted,
+                    fontSize = 13.sp,
+                )
+            }
             StatRow("Адрес", host)
-            StatRow("Статус", if (status.online) "Онлайн" else "Оффлайн", status.online)
-            StatRow("Игроков", "${status.playersOnline} / ${status.playersMax}", status.online)
+            StatRow("Игроков", "${status.playersOnline} / ${status.playersMax}")
             StatRow("Версия", version.ifBlank { status.version.ifBlank { "—" } })
         }
     }
 }
 
 @Composable
-private fun OnlinePlayersCard(players: List<String>) {
-    StarlitCard(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(20.dp)) {
-            Text("Сейчас на сервере", color = StarlitColors.Text, fontWeight = FontWeight.Bold)
+private fun OnlinePlayersCard(players: List<String>, modifier: Modifier = Modifier) {
+    StarlitCard(modifier = modifier) {
+        Column(modifier = Modifier.padding(18.dp)) {
+            Text("Сейчас онлайн", color = StarlitColors.Text, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(8.dp))
             if (players.isEmpty()) {
-                Text("Никого нет в списке или сервер недоступен", color = StarlitColors.TextMuted)
+                Text("Список пуст или сервер недоступен", color = StarlitColors.TextMuted, fontSize = 13.sp)
             } else {
-                LazyColumn(modifier = Modifier.height(120.dp)) {
+                LazyColumn(modifier = Modifier.height(110.dp)) {
                     items(players) { name ->
-                        Text("• $name", color = StarlitColors.Text, modifier = Modifier.padding(vertical = 2.dp))
+                        Text("• $name", color = StarlitColors.Text, fontSize = 13.sp, modifier = Modifier.padding(vertical = 2.dp))
                     }
                 }
             }
@@ -123,8 +178,8 @@ private fun OnlinePlayersCard(players: List<String>) {
 
 @Composable
 fun LoginScreen(vm: LauncherViewModel) {
-    var nickname = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf("") }
-    var password = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf("") }
+    val nickname = remember { mutableStateOf("") }
+    val password = remember { mutableStateOf("") }
 
     Column(
         modifier = Modifier.fillMaxSize().padding(24.dp),
@@ -132,14 +187,14 @@ fun LoginScreen(vm: LauncherViewModel) {
         verticalArrangement = Arrangement.Center,
     ) {
         SectionTitle("Вход в кабинет", "Ник и пароль с сервера Minecraft")
-        StarlitCard(modifier = Modifier.width(420.dp)) {
+        StarlitCard(modifier = Modifier.width(400.dp)) {
             Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                ru.starlitmoon.launcher.ui.components.StarlitTextField(
+                StarlitTextField(
                     value = nickname.value,
                     onValueChange = { nickname.value = it },
                     label = "Ник в Minecraft",
                 )
-                ru.starlitmoon.launcher.ui.components.StarlitTextField(
+                StarlitTextField(
                     value = password.value,
                     onValueChange = { password.value = it },
                     label = "Пароль",
@@ -168,20 +223,20 @@ fun CabinetScreen(vm: LauncherViewModel, apiBaseUrl: String) {
         return
     }
 
-    Column(modifier = Modifier.fillMaxSize().padding(24.dp)) {
+    Column(modifier = Modifier.fillMaxSize().padding(8.dp)) {
         SectionTitle("Личный кабинет", "Профиль и настройки аккаунта")
-        StarlitCard(modifier = Modifier.fillMaxWidth()) {
+        StarlitCard(modifier = Modifier.fillMaxWidth().padding(end = 100.dp)) {
             Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
-                        Icons.Default.PlayArrow,
+                        Icons.Default.Person,
                         contentDescription = null,
                         tint = StarlitColors.Accent,
-                        modifier = Modifier.size(32.dp),
+                        modifier = Modifier.size(36.dp),
                     )
                     Spacer(Modifier.width(12.dp))
                     Column {
-                        Text(vm.userName, color = StarlitColors.Text, fontWeight = FontWeight.ExtraBold)
+                        Text(vm.userName, color = StarlitColors.Text, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp)
                         Text(
                             if (vm.isAdmin) "Администратор" else "Игрок",
                             color = if (vm.isAdmin) StarlitColors.Accent else StarlitColors.TextMuted,
@@ -204,17 +259,16 @@ fun CabinetScreen(vm: LauncherViewModel, apiBaseUrl: String) {
 
 @Composable
 fun SettingsScreen(vm: LauncherViewModel) {
-    val config = LauncherConfig.load()
-    Column(modifier = Modifier.fillMaxSize().padding(24.dp)) {
+    val config = remember { LauncherConfig.load() }
+    Column(modifier = Modifier.fillMaxSize().padding(8.dp).verticalScroll(rememberScrollState())) {
         SectionTitle("Настройки", "Конфигурация лаунчера")
-        StarlitCard(modifier = Modifier.fillMaxWidth()) {
+        StarlitCard(modifier = Modifier.fillMaxWidth().padding(end = 100.dp)) {
             Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 StatRow("Версия лаунчера", LauncherVersion.CURRENT)
                 StatRow("GitHub", "${config.githubOwner}/${config.githubRepo}")
                 StatRow("API", config.apiBaseUrl)
                 StatRow("Сервер", config.serverHost)
-                StatRow("Папка игры", config.gameDir.toString())
-                StatRow("Minecraft version id", config.minecraftVersionId.ifBlank { "(из API: ${config.defaultMcVersion})" })
+                StatRow("Клиент Minecraft", config.minecraftVersionId)
                 StatRow("Java", config.javaPath.ifBlank { "авто" })
                 StatRow("Память", "${config.minMemoryMb}–${config.maxMemoryMb} MB")
                 Spacer(Modifier.height(8.dp))
@@ -224,13 +278,11 @@ fun SettingsScreen(vm: LauncherViewModel) {
                     enabled = !vm.isCheckingUpdates,
                     loading = vm.isCheckingUpdates,
                 )
-                if (vm.updateInfo == null && !vm.isCheckingUpdates) {
-                    Text("Обновлений нет — установлена последняя версия.", color = StarlitColors.TextMuted)
-                }
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "Измените ~/.starlitmoon-launcher/config.json и перезапустите лаунчер.",
+                    "Конфиг: %USERPROFILE%\\.starlitmoon-launcher\\config.json",
                     color = StarlitColors.TextMuted,
+                    fontSize = 12.sp,
                 )
             }
         }

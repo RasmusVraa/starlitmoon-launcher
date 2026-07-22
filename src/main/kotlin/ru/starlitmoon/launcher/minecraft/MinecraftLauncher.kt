@@ -3,8 +3,11 @@ package ru.starlitmoon.launcher.minecraft
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.engine.cio.CIO
+import io.ktor.client.plugins.HttpTimeout
+import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.get
 import io.ktor.client.statement.bodyAsText
+import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -21,8 +24,16 @@ import kotlin.io.path.writeText
 class MinecraftLauncher(
     private val config: LauncherConfig = LauncherConfig.load(),
 ) {
-    private val json = Json { ignoreUnknownKeys = true }
-    private val http = HttpClient(CIO)
+    private val json = Json { ignoreUnknownKeys = true; isLenient = true }
+
+    private val http = HttpClient(CIO) {
+        install(ContentNegotiation) { json(json) }
+        install(HttpTimeout) {
+            requestTimeoutMillis = 60_000
+            connectTimeoutMillis = 10_000
+            socketTimeoutMillis = 60_000
+        }
+    }
 
     data class LaunchResult(
         val success: Boolean,
@@ -30,52 +41,64 @@ class MinecraftLauncher(
         val process: Process? = null,
     )
 
-    suspend fun ensureVersion(versionId: String): Result<Unit> = runCatching {
-        val id = versionId.ifBlank { config.minecraftVersionId.ifBlank { config.defaultMcVersion } }
+    fun resolveClientVersion(displayVersion: String = ""): String =
+        config.minecraftVersionId.ifBlank { displayVersion.ifBlank { config.defaultMcVersion } }
+
+    suspend fun ensureVersion(versionId: String, onProgress: (String) -> Unit = {}): Result<Unit> = runCatching {
+        val id = resolveClientVersion(versionId)
         val versionDir = config.versionsDir.resolve(id)
         val versionJson = versionDir.resolve("$id.json")
-        if (versionJson.exists()) return@runCatching
+        if (versionJson.exists() && versionDir.resolve("$id.jar").exists()) {
+            onProgress("Клиент уже загружен")
+            return@runCatching
+        }
 
         versionDir.createDirectories()
         config.librariesDir.createDirectories()
         config.assetsDir.createDirectories()
 
-        val manifest = http.get("https://piston-meta.mojang.com/mc/game/version_manifest_v2.json").body<VersionManifest>()
+        onProgress("Список версий Mojang…")
+        val manifestText = http.get("https://piston-meta.mojang.com/mc/game/version_manifest_v2.json").bodyAsText()
+        val manifest = json.decodeFromString<VersionManifest>(manifestText)
         val versionUrl = manifest.versions.firstOrNull { it.id == id }?.url
             ?: throw IllegalStateException(
-                "Версия «$id» не найдена в Mojang manifest. " +
-                    "Укажите корректный minecraftVersionId в ~/.starlitmoon-launcher/config.json",
+                "Версия «$id» не найдена в Mojang. Укажите minecraftVersionId в config.json " +
+                    "(сейчас: ${config.minecraftVersionId.ifBlank { "пусто" }}).",
             )
 
-        val versionMeta = http.get(versionUrl).body<VersionMeta>()
+        onProgress("Метаданные $id…")
+        val versionMeta = json.decodeFromString<VersionMeta>(http.get(versionUrl).bodyAsText())
         versionJson.writeText(json.encodeToString(VersionMeta.serializer(), versionMeta))
 
-        for (library in versionMeta.libraries) {
-            if (!library.appliesToCurrentOs()) continue
-            val artifact = library.downloads?.artifact ?: continue
+        val libs = versionMeta.libraries.filter { it.appliesToCurrentOs() && it.downloads?.artifact != null }
+        libs.forEachIndexed { index, library ->
+            val artifact = library.downloads!!.artifact!!
             val libPath = config.librariesDir.resolve(artifact.path)
             if (!libPath.exists()) {
+                onProgress("Библиотеки ${index + 1}/${libs.size}…")
                 downloadBinary(artifact.url, libPath)
             }
         }
 
         val clientJar = versionDir.resolve("$id.jar")
-        val clientDownload = versionMeta.downloads.client
         if (!clientJar.exists()) {
-            downloadBinary(clientDownload.url, clientJar)
+            onProgress("Скачивание клиента…")
+            downloadBinary(versionMeta.downloads.client.url, clientJar)
         }
 
         val assetIndex = versionMeta.assetIndex
         val assetIndexFile = config.assetsDir.resolve("indexes").resolve("${assetIndex.id}.json")
         assetIndexFile.parent?.createDirectories()
         if (!assetIndexFile.exists()) {
+            onProgress("Индекс ассетов…")
             assetIndexFile.writeText(http.get(assetIndex.url).bodyAsText())
         }
+        onProgress("Готово")
     }
 
-    suspend fun launch(username: String, versionId: String): LaunchResult {
-        val id = versionId.ifBlank { config.minecraftVersionId.ifBlank { config.defaultMcVersion } }
-        ensureVersion(id).onFailure { return LaunchResult(false, it.message ?: "Ошибка загрузки версии") }
+    suspend fun launch(username: String, displayVersion: String = "", onProgress: (String) -> Unit = {}): LaunchResult {
+        val id = resolveClientVersion(displayVersion)
+        ensureVersion(id, onProgress).onFailure { return LaunchResult(false, it.message ?: "Ошибка загрузки версии") }
 
         val java = findJava() ?: return LaunchResult(
             false,
@@ -90,15 +113,15 @@ class MinecraftLauncher(
         val assetsDir = config.assetsDir.toAbsolutePath().toString()
         val nativesDir = config.versionsDir.resolve(id).resolve("natives").apply { createDirectories() }
 
-        val jvmArgs = mutableListOf(
+        val jvmArgs = listOf(
             "-Xms${config.minMemoryMb}M",
             "-Xmx${config.maxMemoryMb}M",
             "-Djava.library.path=${nativesDir.toAbsolutePath()}",
             "-Dminecraft.launcher.brand=starlitmoon",
-            "-Dminecraft.launcher.version=1.0.0",
+            "-Dminecraft.launcher.version=1.0.2",
         )
 
-        val gameArgs = mutableListOf(
+        val gameArgs = listOf(
             "--username", username,
             "--version", id,
             "--gameDir", gameDir,
@@ -121,6 +144,7 @@ class MinecraftLauncher(
         }
 
         return try {
+            onProgress("Запуск Minecraft…")
             val process = ProcessBuilder(command)
                 .directory(config.gameDir.toFile())
                 .inheritIO()
@@ -250,8 +274,8 @@ private fun Library.appliesToCurrentOs(): Boolean {
     return allowed
 }
 
-private fun currentOsName(): String = when (System.getProperty("os.name").lowercase()) {
-    "windows" -> "windows"
-    "mac os x", "macos" -> "osx"
+private fun currentOsName(): String = when {
+    System.getProperty("os.name").lowercase().contains("win") -> "windows"
+    System.getProperty("os.name").lowercase().contains("mac") -> "osx"
     else -> "linux"
 }
