@@ -527,23 +527,32 @@ class LauncherViewModel(
             }
             // Sync cape (or clear) so site 3D cabinet/public profile match the launcher.
             val capeFile = skinLibrary.capePath(entry)
-            val capeResult = if (capeFile != null && capeFile.exists()) {
-                val capeBytes = Files.readAllBytes(capeFile)
-                SkinLibrary.validateCape(capeBytes)?.let { error(it) }
-                val b64 = java.util.Base64.getEncoder().encodeToString(capeBytes)
-                api.uploadCape("data:image/png;base64,$b64")
-            } else {
-                api.clearCape()
+            runCatching {
+                val capeResult = if (capeFile != null && capeFile.exists()) {
+                    val capeBytes = Files.readAllBytes(capeFile)
+                    SkinLibrary.validateCape(capeBytes)?.let { error(it) }
+                    val b64 = java.util.Base64.getEncoder().encodeToString(capeBytes)
+                    api.uploadCape("data:image/png;base64,$b64")
+                } else {
+                    api.clearCape()
+                }
+                if (capeResult.cabinet != null) {
+                    meData = meData?.copy(cabinet = capeResult.cabinet)
+                }
+                if (!capeResult.message.isNullOrBlank()) {
+                    infoMessage = capeResult.message
+                }
+            }.onFailure { err ->
+                if (infoMessage.isNullOrBlank()) {
+                    infoMessage = "Скин на сайте обновлён, плащ: ${err.message ?: "ошибка синхронизации"}"
+                }
             }
-            if (capeResult.cabinet != null) {
-                meData = meData?.copy(cabinet = capeResult.cabinet)
-            }
-            if (!capeResult.message.isNullOrBlank()) {
-                infoMessage = capeResult.message
-            } else if (!uploaded.warning.isNullOrBlank()) {
-                infoMessage = uploaded.warning
-            } else if (!uploaded.message.isNullOrBlank()) {
-                infoMessage = uploaded.message
+            if (infoMessage.isNullOrBlank()) {
+                if (!uploaded.warning.isNullOrBlank()) {
+                    infoMessage = uploaded.warning
+                } else if (!uploaded.message.isNullOrBlank()) {
+                    infoMessage = uploaded.message
+                }
             }
         }
         configState = configState.copy(
@@ -575,7 +584,12 @@ class LauncherViewModel(
             .digest(prepared.bytes)
             .joinToString("") { "%02x".format(it) }
         val siteHasCustom = remoteUrl.contains("/img/skins/custom/", ignoreCase = true)
-        if (siteHasCustom && remoteHash != null && remoteHash.equals(localHash, ignoreCase = true)) {
+        val remoteCape = meData?.cabinet?.player?.capeUrl.orEmpty()
+        val localHasCape = skinLibrary.capePath(entry) != null
+        val capeMismatch =
+            localHasCape != remoteCape.contains("/img/capes/custom/", ignoreCase = true) ||
+                (!localHasCape && remoteCape.isNotBlank())
+        if (siteHasCustom && remoteHash != null && remoteHash.equals(localHash, ignoreCase = true) && !capeMismatch) {
             return
         }
         runCatching {
