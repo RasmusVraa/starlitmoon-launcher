@@ -167,12 +167,28 @@ private data class ResetPasswordBody(val password: String? = null)
 private data class SkinUploadBody(val image: String)
 
 @Serializable
+private data class CapeUploadBody(
+    val image: String? = null,
+    val clear: Boolean = false,
+)
+
+@Serializable
 data class SkinUploadResponse(
     val ok: Boolean = false,
     val skinUrl: String? = null,
     val skinTextureHash: String? = null,
     val applyJobId: String? = null,
     val warning: String? = null,
+    val message: String? = null,
+    val error: String? = null,
+    val cabinet: CabinetDto? = null,
+)
+
+@Serializable
+data class CapeUploadResponse(
+    val ok: Boolean = false,
+    val capeUrl: String? = null,
+    val capeTextureHash: String? = null,
     val message: String? = null,
     val error: String? = null,
     val cabinet: CabinetDto? = null,
@@ -320,6 +336,28 @@ class StarlitApiClient(
             header("Cookie", cookieHeader(cookie))
             contentType(ContentType.Application.Json)
             setBody(SkinUploadBody(dataUrl))
+        }
+        if (!response.status.isSuccess()) throw parseError(response)
+        return response.body()
+    }
+
+    suspend fun uploadCape(dataUrl: String): CapeUploadResponse {
+        val cookie = needCookie()
+        val response = client.post("$baseUrl/api/auth/cape") {
+            header("Cookie", cookieHeader(cookie))
+            contentType(ContentType.Application.Json)
+            setBody(CapeUploadBody(image = dataUrl, clear = false))
+        }
+        if (!response.status.isSuccess()) throw parseError(response)
+        return response.body()
+    }
+
+    suspend fun clearCape(): CapeUploadResponse {
+        val cookie = needCookie()
+        val response = client.post("$baseUrl/api/auth/cape") {
+            header("Cookie", cookieHeader(cookie))
+            contentType(ContentType.Application.Json)
+            setBody(CapeUploadBody(image = null, clear = true))
         }
         if (!response.status.isSuccess()) throw parseError(response)
         return response.body()

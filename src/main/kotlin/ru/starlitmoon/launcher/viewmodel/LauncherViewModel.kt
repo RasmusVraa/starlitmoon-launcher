@@ -47,6 +47,7 @@ import ru.starlitmoon.launcher.api.StarlitApiException
 import ru.starlitmoon.launcher.minecraft.MinecraftLauncher
 import ru.starlitmoon.launcher.minecraft.ModpackSync
 import ru.starlitmoon.launcher.minecraft.OfflineSkinBridge
+import ru.starlitmoon.launcher.minecraft.SkinLibrary
 import ru.starlitmoon.launcher.minecraft.SkinManager
 import ru.starlitmoon.launcher.update.LauncherSelfUpdater
 import ru.starlitmoon.launcher.update.UpdateChecker
@@ -467,17 +468,23 @@ class LauncherViewModel(
     fun setLibraryCape(skinId: String, capePath: String?) {
         scope.launch {
             skinBusy = true
+            errorMessage = null
             runCatching {
                 withContext(Dispatchers.IO) {
                     skinLibrary.setCape(skinId, capePath?.takeIf { it.isNotBlank() }?.let { Path.of(it) })
                     if (skinLibrary.activeId() == skinId) {
-                        applyLibrarySkin(skinId, upload = false)
+                        // Sync skin+cape to site for 3D in cabinet / public profile
+                        applyLibrarySkin(skinId, upload = true)
                     } else {
                         refreshSkinLibraryState()
                     }
                 }
             }.onSuccess {
-                infoMessage = if (capePath.isNullOrBlank()) "Плащ снят" else "Плащ установлен"
+                infoMessage = if (capePath.isNullOrBlank()) {
+                    "Плащ снят и синхронизирован с сайтом"
+                } else {
+                    infoMessage ?: "Плащ установлен и синхронизирован с сайтом"
+                }
             }.onFailure { handleError(it) }
             skinBusy = false
         }
@@ -518,7 +525,22 @@ class LauncherViewModel(
                     ?: hash
                 hash = skinTextureHash
             }
-            if (!uploaded.warning.isNullOrBlank()) {
+            // Sync cape (or clear) so site 3D cabinet/public profile match the launcher.
+            val capeFile = skinLibrary.capePath(entry)
+            val capeResult = if (capeFile != null && capeFile.exists()) {
+                val capeBytes = Files.readAllBytes(capeFile)
+                SkinLibrary.validateCape(capeBytes)?.let { error(it) }
+                val b64 = java.util.Base64.getEncoder().encodeToString(capeBytes)
+                api.uploadCape("data:image/png;base64,$b64")
+            } else {
+                api.clearCape()
+            }
+            if (capeResult.cabinet != null) {
+                meData = meData?.copy(cabinet = capeResult.cabinet)
+            }
+            if (!capeResult.message.isNullOrBlank()) {
+                infoMessage = capeResult.message
+            } else if (!uploaded.warning.isNullOrBlank()) {
                 infoMessage = uploaded.warning
             } else if (!uploaded.message.isNullOrBlank()) {
                 infoMessage = uploaded.message
