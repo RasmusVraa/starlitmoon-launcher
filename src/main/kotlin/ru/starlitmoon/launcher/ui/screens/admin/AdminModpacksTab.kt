@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
+import ru.starlitmoon.launcher.NativeFilePicker
 import ru.starlitmoon.launcher.api.ModpackDto
 import ru.starlitmoon.launcher.ui.components.StarlitPrimaryButton
 import ru.starlitmoon.launcher.ui.components.StarlitSecondaryButton
@@ -77,13 +78,8 @@ fun AdminModpacksSection(vm: LauncherViewModel) {
                     StarlitPrimaryButton(
                         text = if (pack.hasArchive) "Обновить ZIP" else "Загрузить ZIP",
                         onClick = {
-                            val chooser = javax.swing.JFileChooser().apply {
-                                fileSelectionMode = javax.swing.JFileChooser.FILES_ONLY
-                                dialogTitle = "ZIP сборки"
-                                fileFilter = javax.swing.filechooser.FileNameExtensionFilter("ZIP", "zip")
-                            }
-                            if (chooser.showOpenDialog(null) == javax.swing.JFileChooser.APPROVE_OPTION) {
-                                vm.uploadModpackUpdate(pack, chooser.selectedFile.absolutePath)
+                            NativeFilePicker.pickOpenFile("ZIP сборки", "ZIP", "zip")?.let {
+                                vm.uploadModpackUpdate(pack, it.absolutePath)
                             }
                         },
                         compact = true,

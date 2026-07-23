@@ -34,10 +34,9 @@ import ru.starlitmoon.launcher.ui.components.LocalSkinFace
 import ru.starlitmoon.launcher.ui.components.SkinPreview3D
 import ru.starlitmoon.launcher.ui.components.StarlitPrimaryButton
 import ru.starlitmoon.launcher.ui.components.StarlitSecondaryButton
+import ru.starlitmoon.launcher.NativeFilePicker
 import ru.starlitmoon.launcher.ui.theme.StarlitColors
 import ru.starlitmoon.launcher.viewmodel.LauncherViewModel
-import javax.swing.JFileChooser
-import javax.swing.filechooser.FileNameExtensionFilter
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -54,11 +53,6 @@ fun SkinsScreen(vm: LauncherViewModel) {
             fontSize = 28.sp,
             fontWeight = FontWeight.ExtraBold,
             color = StarlitColors.Text,
-        )
-        Text(
-            "Библиотека скинов и плащей · статичный 2D (скин спереди + плащ) · плащ оффлайн",
-            color = StarlitColors.TextMuted,
-            fontSize = 13.sp,
         )
 
         Row(
@@ -103,13 +97,8 @@ fun SkinsScreen(vm: LauncherViewModel) {
                 StarlitPrimaryButton(
                     text = "Добавить скин",
                     onClick = {
-                        val chooser = JFileChooser().apply {
-                            fileSelectionMode = JFileChooser.FILES_ONLY
-                            dialogTitle = "Скин PNG"
-                            fileFilter = FileNameExtensionFilter("PNG", "png")
-                        }
-                        if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
-                            vm.addSkinToLibrary(chooser.selectedFile.absolutePath)
+                        NativeFilePicker.pickOpenFile("Скин PNG", "PNG", "png")?.let {
+                            vm.addSkinToLibrary(it.absolutePath)
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
@@ -166,13 +155,8 @@ fun SkinsScreen(vm: LauncherViewModel) {
                             StarlitSecondaryButton(
                                 text = if (hasCape) "Сменить плащ" else "Добавить плащ",
                                 onClick = {
-                                    val chooser = JFileChooser().apply {
-                                        fileSelectionMode = JFileChooser.FILES_ONLY
-                                        dialogTitle = "Плащ PNG 64×32"
-                                        fileFilter = FileNameExtensionFilter("PNG", "png")
-                                    }
-                                    if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
-                                        vm.setLibraryCape(entry.id, chooser.selectedFile.absolutePath)
+                                    NativeFilePicker.pickOpenFile("Плащ PNG", "PNG", "png")?.let {
+                                        vm.setLibraryCape(entry.id, it.absolutePath)
                                     }
                                 },
                                 modifier = Modifier.fillMaxWidth(),

@@ -447,7 +447,7 @@ class LauncherViewModel(
                     entry
                 }
             }.onSuccess {
-                infoMessage = infoMessage ?: "Скин «${it.name}» добавлен и синхронизирован с сайтом"
+                infoMessage = "Скин сохранен"
             }.onFailure { handleError(it) }
             skinBusy = false
         }
@@ -459,7 +459,7 @@ class LauncherViewModel(
             runCatching {
                 withContext(Dispatchers.IO) { applyLibrarySkin(id, upload = true) }
             }.onSuccess {
-                infoMessage = infoMessage ?: "Скин выбран и синхронизирован с сайтом"
+                infoMessage = "Скин сохранен"
             }.onFailure { handleError(it) }
             skinBusy = false
         }
@@ -480,11 +480,7 @@ class LauncherViewModel(
                     }
                 }
             }.onSuccess {
-                infoMessage = if (capePath.isNullOrBlank()) {
-                    "Плащ снят и синхронизирован с сайтом"
-                } else {
-                    infoMessage ?: "Плащ установлен и синхронизирован с сайтом"
-                }
+                infoMessage = "Скин сохранен"
             }.onFailure { handleError(it) }
             skinBusy = false
         }
@@ -539,21 +535,8 @@ class LauncherViewModel(
                 if (capeResult.cabinet != null) {
                     meData = meData?.copy(cabinet = capeResult.cabinet)
                 }
-                if (!capeResult.message.isNullOrBlank()) {
-                    infoMessage = capeResult.message
-                }
-            }.onFailure { err ->
-                if (infoMessage.isNullOrBlank()) {
-                    infoMessage = "Скин на сайте обновлён, плащ: ${err.message ?: "ошибка синхронизации"}"
-                }
-            }
-            if (infoMessage.isNullOrBlank()) {
-                if (!uploaded.warning.isNullOrBlank()) {
-                    infoMessage = uploaded.warning
-                } else if (!uploaded.message.isNullOrBlank()) {
-                    infoMessage = uploaded.message
-                }
-            }
+            }.onFailure { /* скин уже залит; плащ — тихо */ }
+            infoMessage = "Скин сохранен"
         }
         configState = configState.copy(
             skinPath = path.toString(),

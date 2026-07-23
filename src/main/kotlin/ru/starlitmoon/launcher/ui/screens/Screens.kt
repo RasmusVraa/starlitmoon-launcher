@@ -81,8 +81,6 @@ import ru.starlitmoon.launcher.viewmodel.LauncherTab
 import ru.starlitmoon.launcher.viewmodel.LauncherViewModel
 import java.awt.Desktop
 import java.net.URI
-import javax.swing.JFileChooser
-import javax.swing.filechooser.FileNameExtensionFilter
 
 @Composable
 fun HomeScreen(vm: LauncherViewModel) {
