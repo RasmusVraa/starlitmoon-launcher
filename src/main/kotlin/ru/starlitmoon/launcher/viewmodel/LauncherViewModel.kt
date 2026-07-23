@@ -11,6 +11,9 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.yield
+import javax.swing.SwingUtilities
 import ru.starlitmoon.launcher.LauncherConfig
 import ru.starlitmoon.launcher.api.AdminAccountDto
 import ru.starlitmoon.launcher.api.AdminApplicationDto
@@ -332,6 +335,15 @@ class LauncherViewModel(
         }
     }
 
+    private fun reportLaunchProgress(msg: String, frac: Float? = null) {
+        val apply = {
+            launchProgress = msg
+            if (frac != null) launchProgressFraction = frac
+        }
+        if (SwingUtilities.isEventDispatchThread()) apply()
+        else SwingUtilities.invokeLater(apply)
+    }
+
     fun play() {
         if (!isLoggedIn) {
             errorMessage = "Сначала войдите"
@@ -342,12 +354,17 @@ class LauncherViewModel(
             launchProgress = "Подготовка…"
             launchProgressFraction = 0f
             errorMessage = null
+            yield()
             val pack = selectedModpack
                 ?: modpacks.firstOrNull { it.id == configState.selectedModpackId || it.slug == configState.selectedModpackId }
+            launchProgress = "Получение данных сборки…"
+            yield()
             val detail = if (pack != null) {
-                withContext(Dispatchers.IO) {
-                    runCatching { api.getModpack(pack.id ?: pack.slug.orEmpty()) }.getOrNull() ?: pack
-                }
+                withTimeoutOrNull(20_000) {
+                    withContext(Dispatchers.IO) {
+                        runCatching { api.getModpack(pack.id ?: pack.slug.orEmpty()) }.getOrNull()
+                    }
+                } ?: pack
             } else {
                 null
             }
@@ -358,16 +375,14 @@ class LauncherViewModel(
             var instanceDir: Path? = null
             if (detail != null) {
                 instanceDir = ModpackSync.packDir(configState.dataDir, detail).also { it.createDirectories() }
-                if (detail.hasArchive && detail.archive?.url != null) {
+                if (detail.hasArchive && !detail.archive?.url.isNullOrBlank()) {
                     launchProgress = "Загрузка архива сборки…"
                     launchProgressFraction = 0.01f
+                    yield()
                     val synced = runCatching {
                         withContext(Dispatchers.IO) {
                             ModpackSync.syncArchive(configState.dataDir, detail) { msg, frac ->
-                                scope.launch {
-                                    launchProgress = msg
-                                    if (frac != null) launchProgressFraction = frac
-                                }
+                                reportLaunchProgress(msg, frac)
                             }
                         }
                     }
@@ -380,12 +395,16 @@ class LauncherViewModel(
                     }
                 } else if (loader != "vanilla") {
                     launchProgress = "Загрузка модов сборки…"
+                    yield()
                     val synced = withContext(Dispatchers.IO) { syncLegacyModJars(detail, instanceDir!!) }
                     if (!synced) {
                         infoMessage = "Для «${detail.name}» ещё нет ZIP-архива. Запуск через $loader."
                     }
                 }
             }
+            launchProgress = "Подготовка клиента…"
+            launchProgressFraction = launchProgressFraction ?: 0.05f
+            yield()
             val result = withContext(Dispatchers.IO) {
                 mc.launch(
                     username = userName,
@@ -394,10 +413,7 @@ class LauncherViewModel(
                     loader = loader,
                     loaderVersion = loaderVersion,
                 ) { msg, frac ->
-                    scope.launch {
-                        launchProgress = msg
-                        launchProgressFraction = frac
-                    }
+                    reportLaunchProgress(msg, frac)
                 }
             }
             if (result.success) {

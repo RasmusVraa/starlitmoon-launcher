@@ -1,15 +1,13 @@
 package ru.starlitmoon.launcher.minecraft
 
 import ru.starlitmoon.launcher.api.ModpackDto
+import java.io.BufferedInputStream
+import java.net.HttpURLConnection
 import java.net.URI
-import java.net.http.HttpClient
-import java.net.http.HttpRequest
-import java.net.http.HttpResponse
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
-import java.time.Duration
 import java.util.zip.ZipFile
 import java.util.zip.ZipInputStream
 import kotlin.io.path.createDirectories
@@ -27,11 +25,11 @@ import kotlin.io.path.writeText
 object ModpackSync {
     private const val MARKER = ".starlit-archive.sha256"
     private const val ZIP_NAME = "pack.zip"
-
-    private val http: HttpClient = HttpClient.newBuilder()
-        .followRedirects(HttpClient.Redirect.NORMAL)
-        .connectTimeout(Duration.ofSeconds(60))
-        .build()
+    /** No bytes for this long → fail (avoids eternal «Подготовка» / silent hang). */
+    private const val READ_TIMEOUT_MS = 90_000
+    private const val CONNECT_TIMEOUT_MS = 30_000
+    /** Stale incomplete .part older than this is discarded before resume. */
+    private const val STALE_PART_MS = 6L * 60L * 60L * 1000L
 
     fun packDir(dataDir: Path, pack: ModpackDto): Path {
         val slug = pack.slug?.trim()?.ifBlank { null }
@@ -73,6 +71,7 @@ object ModpackSync {
             onProgress("Проверка архива…", 0.88f)
             val actual = sha256Hex(zipPath)
             if (actual != expectedSha) {
+                Files.deleteIfExists(zipPath)
                 error("Контрольная сумма архива не совпала (ожидали $expectedSha)")
             }
         }
@@ -110,27 +109,73 @@ object ModpackSync {
     ) {
         target.parent?.createDirectories()
         val tmp = target.resolveSibling("${target.name}.part")
-        val existing = if (tmp.exists()) tmp.fileSize() else 0L
+        var existing = if (tmp.exists()) tmp.fileSize() else 0L
 
-        val requestBuilder = HttpRequest.newBuilder(URI(url))
-            .timeout(Duration.ofHours(6))
-            .header("User-Agent", "StarlitMoonLauncher")
-            .GET()
+        // Discard ancient incomplete parts (often a hung previous attempt).
         if (existing > 0) {
-            requestBuilder.header("Range", "bytes=$existing-")
+            val ageMs = System.currentTimeMillis() - tmp.toFile().lastModified()
+            val hopeless = expectedSize != null && existing >= expectedSize
+            val stale = ageMs > STALE_PART_MS && (expectedSize == null || existing < expectedSize * 95 / 100)
+            if (hopeless || stale) {
+                Files.deleteIfExists(tmp)
+                existing = 0L
+            }
         }
 
-        val response = http.send(requestBuilder.build(), HttpResponse.BodyHandlers.ofInputStream())
-        val code = response.statusCode()
+        var attempt = 0
+        while (true) {
+            attempt++
+            try {
+                downloadOnce(url, tmp, existing, expectedSize, onProgress)
+                break
+            } catch (e: Exception) {
+                if (attempt >= 3) throw e
+                onProgress("Повтор загрузки (${e.message?.take(80) ?: "ошибка"})…", 0.01f)
+                // On failed resume, restart clean once.
+                if (existing > 0 && attempt == 2) {
+                    Files.deleteIfExists(tmp)
+                    existing = 0L
+                } else {
+                    existing = if (tmp.exists()) tmp.fileSize() else 0L
+                }
+            }
+        }
+
+        Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING)
+        val finalSize = if (target.exists()) target.fileSize() else 0L
+        onProgress("Архив скачан (${formatBytes(finalSize)})", 0.87f)
+    }
+
+    private fun downloadOnce(
+        url: String,
+        tmp: Path,
+        existing: Long,
+        expectedSize: Long?,
+        onProgress: (String, Float?) -> Unit,
+    ) {
+        val conn = (URI(url).toURL().openConnection() as HttpURLConnection).apply {
+            instanceFollowRedirects = true
+            connectTimeout = CONNECT_TIMEOUT_MS
+            readTimeout = READ_TIMEOUT_MS
+            setRequestProperty("User-Agent", "StarlitMoonLauncher")
+            if (existing > 0) {
+                setRequestProperty("Range", "bytes=$existing-")
+            }
+            requestMethod = "GET"
+            connect()
+        }
+
+        val code = conn.responseCode
         val append = code == 206 && existing > 0
         if (code !in 200..299) {
+            conn.disconnect()
             error("Не удалось скачать архив (HTTP $code)")
         }
-        if (!append && tmp.exists()) {
+        if (!append) {
             Files.deleteIfExists(tmp)
         }
 
-        val totalHeader = response.headers().firstValue("Content-Length").orElse("").toLongOrNull()
+        val totalHeader = conn.contentLengthLong.takeIf { it >= 0 }
         val total = when {
             append && expectedSize != null -> expectedSize
             append && totalHeader != null -> existing + totalHeader
@@ -154,38 +199,40 @@ object ModpackSync {
             )
         }
 
-        response.body().use { input ->
-            Files.newOutputStream(tmp, *outOptions).use { output ->
-                val buf = ByteArray(1024 * 256)
-                var lastReport = 0L
-                while (true) {
-                    val n = input.read(buf)
-                    if (n <= 0) break
-                    output.write(buf, 0, n)
-                    downloaded += n
-                    if (downloaded - lastReport >= 512 * 1024 || (total > 0 && downloaded >= total)) {
-                        lastReport = downloaded
-                        val frac = if (total > 0) {
-                            (0.02f + 0.85f * (downloaded.toFloat() / total.toFloat())).coerceIn(0.02f, 0.87f)
-                        } else {
-                            null
+        try {
+            BufferedInputStream(conn.inputStream).use { input ->
+                Files.newOutputStream(tmp, *outOptions).use { output ->
+                    val buf = ByteArray(1024 * 256)
+                    var lastReport = 0L
+                    while (true) {
+                        val n = input.read(buf)
+                        if (n <= 0) break
+                        output.write(buf, 0, n)
+                        downloaded += n
+                        if (downloaded - lastReport >= 256 * 1024 || (total > 0 && downloaded >= total)) {
+                            lastReport = downloaded
+                            val frac = if (total > 0) {
+                                (0.02f + 0.85f * (downloaded.toFloat() / total.toFloat())).coerceIn(0.02f, 0.87f)
+                            } else {
+                                null
+                            }
+                            val label = if (total > 0) {
+                                "Скачивание ${formatBytes(downloaded)} / ${formatBytes(total)}"
+                            } else {
+                                "Скачивание ${formatBytes(downloaded)}"
+                            }
+                            onProgress(label, frac)
                         }
-                        val label = if (total > 0) {
-                            "Скачивание ${formatBytes(downloaded)} / ${formatBytes(total)}"
-                        } else {
-                            "Скачивание ${formatBytes(downloaded)}"
-                        }
-                        onProgress(label, frac)
                     }
                 }
             }
+        } finally {
+            conn.disconnect()
         }
 
         if (total > 0 && downloaded < total) {
             error("Архив скачан не полностью ($downloaded из $total байт)")
         }
-        Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING)
-        onProgress("Архив скачан (${formatBytes(downloaded)})", 0.87f)
     }
 
     private fun formatBytes(n: Long): String {
@@ -232,7 +279,6 @@ object ModpackSync {
     /** If the ZIP has a single top-level folder, strip it so mods/ land at pack root. */
     private fun detectStripPrefix(zipPath: Path): String {
         val tops = linkedSetOf<String>()
-        // ZipFile is faster than scanning the whole stream for large packs.
         runCatching {
             ZipFile(zipPath.toFile()).use { zip ->
                 val entries = zip.entries()
