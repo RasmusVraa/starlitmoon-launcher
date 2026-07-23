@@ -48,7 +48,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
@@ -215,20 +214,6 @@ fun HomeScreen(vm: LauncherViewModel) {
                     actionLabel = "Открыть скины",
                     onAction = { vm.currentTab = LauncherTab.Skins },
                 )
-                HomeInfoCard(
-                    eyebrow = "ЛАУНЧЕР",
-                    title = "v${LauncherVersion.CURRENT}",
-                    subtitle = if (vm.updateInfo != null) {
-                        "Доступно обновление ${vm.updateInfo!!.latestVersion}"
-                    } else {
-                        "Клиент обновится сам при запуске игры"
-                    },
-                    actionLabel = if (vm.updateInfo != null) "Скачать" else "Проверить",
-                    onAction = {
-                        if (vm.updateInfo != null) vm.downloadUpdate()
-                        else vm.checkForUpdates(false)
-                    },
-                )
             }
         }
     }
@@ -246,24 +231,11 @@ private fun HomeInfoCard(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
-            .background(
-                Brush.verticalGradient(
-                    listOf(
-                        Color(0xF01A2030),
-                        Color(0xE8121622),
-                    ),
-                ),
-            )
-            .border(
-                1.dp,
-                Brush.verticalGradient(
-                    listOf(Color(0x55D4A84B), Color(0x28788CDC)),
-                ),
-                RoundedCornerShape(18.dp),
-            )
-            .padding(horizontal = 18.dp, vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color(0x38101828))
+            .border(1.dp, Color(0x22A8B8D8), RoundedCornerShape(16.dp))
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(5.dp),
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -272,21 +244,22 @@ private fun HomeInfoCard(
             if (accentOnline != null) {
                 Box(
                     modifier = Modifier
-                        .size(8.dp)
+                        .size(7.dp)
                         .clip(RoundedCornerShape(50))
                         .background(if (accentOnline) StarlitColors.Online else StarlitColors.Offline),
                 )
             }
             Text(
                 eyebrow,
-                color = StarlitColors.Gold,
+                color = StarlitColors.TextDim,
                 fontSize = 11.sp,
+                lineHeight = 11.sp,
                 fontWeight = FontWeight.SemiBold,
                 letterSpacing = 1.sp,
             )
         }
-        Text(title, color = StarlitColors.Text, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
-        Text(subtitle, color = StarlitColors.TextMuted, fontSize = 13.sp, lineHeight = 18.sp)
+        Text(title, color = StarlitColors.Text.copy(alpha = 0.92f), fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+        Text(subtitle, color = StarlitColors.TextMuted.copy(alpha = 0.9f), fontSize = 13.sp, lineHeight = 18.sp)
         if (actionLabel != null && onAction != null) {
             Spacer(Modifier.height(4.dp))
             StarlitSecondaryButton(
