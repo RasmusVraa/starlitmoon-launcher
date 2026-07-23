@@ -71,6 +71,20 @@ private data class RconExecBody(val command: String, val serverId: String? = nul
 private data class ResetPasswordBody(val password: String? = null)
 
 @Serializable
+private data class SkinUploadBody(val image: String)
+
+@Serializable
+data class SkinUploadResponse(
+    val ok: Boolean = false,
+    val skinUrl: String? = null,
+    val skinTextureHash: String? = null,
+    val applyJobId: String? = null,
+    val warning: String? = null,
+    val message: String? = null,
+    val error: String? = null,
+)
+
+@Serializable
 private data class TreasuryPayoutBody(
     val toCode: String,
     val amount: Long,
@@ -185,6 +199,17 @@ class StarlitApiClient(
         }
         if (!response.status.isSuccess()) throw parseError(response)
         return me(cookie)
+    }
+
+    suspend fun uploadSkin(dataUrl: String): SkinUploadResponse {
+        val cookie = needCookie()
+        val response = client.post("$baseUrl/api/auth/skin") {
+            header("Cookie", cookieHeader(cookie))
+            contentType(ContentType.Application.Json)
+            setBody(SkinUploadBody(dataUrl))
+        }
+        if (!response.status.isSuccess()) throw parseError(response)
+        return response.body()
     }
 
     suspend fun adminMe(): AdminMeResponse = authedGet("/api/admin/me")

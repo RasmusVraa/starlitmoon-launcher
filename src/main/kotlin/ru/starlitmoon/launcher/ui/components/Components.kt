@@ -1,12 +1,6 @@
 package ru.starlitmoon.launcher.ui.components
 
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -21,7 +15,6 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -34,170 +27,38 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.toComposeImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import ru.starlitmoon.launcher.ui.theme.StarlitAccentGradient
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import ru.starlitmoon.launcher.ui.theme.StarlitColors
 import ru.starlitmoon.launcher.ui.theme.StarlitDimens
-import kotlin.random.Random
 
+/** Solid, calm backdrop. No stars, no nebula, no motion. */
 @Composable
 fun StarlitBackground(content: @Composable BoxScope.() -> Unit) {
-    val stars = remember {
-        List(72) {
-            Star(
-                x = Random.nextFloat(),
-                y = Random.nextFloat(),
-                r = Random.nextFloat() * 1.4f + 0.3f,
-                phase = Random.nextFloat() * 6.28f,
-                speed = Random.nextFloat() * 1.2f + 0.5f,
-            )
-        }
-    }
-    val transition = rememberInfiniteTransition(label = "stars")
-    val t by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 6.28f,
-        animationSpec = infiniteRepeatable(tween(10000, easing = LinearEasing), RepeatMode.Restart),
-        label = "starPhase",
-    )
-    val moonPulse by transition.animateFloat(
-        initialValue = 0.96f,
-        targetValue = 1.04f,
-        animationSpec = infiniteRepeatable(tween(4200, easing = LinearEasing), RepeatMode.Reverse),
-        label = "moonPulse",
-    )
-
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    listOf(
-                        StarlitColors.Void,
-                        StarlitColors.BgDeep,
-                        Color(0xFF0E1428),
-                        StarlitColors.Void,
-                    ),
-                ),
-            ),
-    ) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            stars.forEach { star ->
-                val alpha = 0.2f + 0.35f * kotlin.math.sin(t * star.speed + star.phase).toFloat().let {
-                    (it + 1f) / 2f
-                }
-                drawCircle(
-                    color = Color(0xFFE8ECF8).copy(alpha = alpha),
-                    radius = star.r,
-                    center = Offset(star.x * size.width, star.y * size.height),
-                )
-            }
-        }
-
-        Box(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .offset(x = 60.dp, y = (-40).dp)
-                .size(340.dp)
-                .background(
-                    Brush.radialGradient(
-                        colors = listOf(
-                            StarlitColors.Violet.copy(alpha = 0.14f * moonPulse),
-                            Color.Transparent,
-                        ),
-                    ),
-                    CircleShape,
-                ),
-        )
-        Box(
-            modifier = Modifier
-                .align(Alignment.CenterStart)
-                .offset(x = (-80).dp, y = 60.dp)
-                .size(380.dp)
-                .background(
-                    Brush.radialGradient(
-                        colors = listOf(
-                            StarlitColors.Gold.copy(alpha = 0.08f),
-                            Color.Transparent,
-                        ),
-                    ),
-                    CircleShape,
-                ),
-        )
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .offset(x = 20.dp, y = 80.dp)
-                .size(260.dp)
-                .background(
-                    Brush.radialGradient(
-                        colors = listOf(
-                            StarlitColors.VioletSoft,
-                            Color.Transparent,
-                        ),
-                    ),
-                    CircleShape,
-                ),
-        )
-
-        MoonDecoration(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(top = 32.dp, end = 48.dp)
-                .size(72.dp),
-            pulse = moonPulse,
-        )
-
-        content()
-    }
+            .background(StarlitColors.Background),
+        content = content,
+    )
 }
-
-@Composable
-private fun MoonDecoration(modifier: Modifier = Modifier, pulse: Float) {
-    val moonShadow = Color(0xFFD8D0C4)
-    Canvas(modifier = modifier) {
-        val r = size.minDimension / 2f * 0.76f * pulse
-        val c = Offset(size.width / 2f, size.height / 2f)
-        drawCircle(color = StarlitColors.Violet.copy(alpha = 0.12f), radius = r * 1.4f, center = c)
-        drawCircle(
-            brush = Brush.radialGradient(
-                colors = listOf(StarlitColors.Moon, moonShadow),
-                center = c,
-                radius = r,
-            ),
-            radius = r,
-            center = c,
-        )
-        drawCircle(
-            color = StarlitColors.Void.copy(alpha = 0.15f),
-            radius = r,
-            center = Offset(c.x + r * 0.26f, c.y - r * 0.06f),
-        )
-        drawCircle(Color(0xFFC8C0B0).copy(alpha = 0.35f), r * 0.1f, Offset(c.x - r * 0.22f, c.y - r * 0.12f))
-        drawCircle(Color(0xFFC8C0B0).copy(alpha = 0.28f), r * 0.07f, Offset(c.x + r * 0.08f, c.y + r * 0.2f))
-        drawCircle(
-            color = StarlitColors.Gold.copy(alpha = 0.18f),
-            radius = r * 1.12f,
-            center = c,
-            style = Stroke(width = 1f),
-        )
-    }
-}
-
-private data class Star(val x: Float, val y: Float, val r: Float, val phase: Float, val speed: Float)
 
 @Composable
 fun StarlitCard(
@@ -207,8 +68,8 @@ fun StarlitCard(
     Surface(
         modifier = modifier
             .clip(RoundedCornerShape(StarlitDimens.Radius))
-            .border(1.dp, StarlitColors.Stroke, RoundedCornerShape(StarlitDimens.Radius)),
-        color = StarlitColors.Glass,
+            .border(1.dp, StarlitColors.Border, RoundedCornerShape(StarlitDimens.Radius)),
+        color = StarlitColors.Surface,
         shadowElevation = 0.dp,
         content = content,
     )
@@ -226,20 +87,9 @@ fun StarlitPrimaryButton(
     val active = enabled && !loading
     Box(
         modifier = modifier
-            .height(52.dp)
+            .height(48.dp)
             .clip(shape)
-            .background(
-                if (active) {
-                    StarlitAccentGradient
-                } else {
-                    Brush.horizontalGradient(
-                        listOf(
-                            StarlitColors.Gold.copy(alpha = 0.35f),
-                            StarlitColors.GoldDeep.copy(alpha = 0.35f),
-                        ),
-                    )
-                },
-            )
+            .background(if (active) StarlitColors.Gold else StarlitColors.Gold.copy(alpha = 0.35f))
             .clickable(
                 enabled = active,
                 interactionSource = remember { MutableInteractionSource() },
@@ -250,17 +100,17 @@ fun StarlitPrimaryButton(
     ) {
         if (loading) {
             CircularProgressIndicator(
-                modifier = Modifier.size(22.dp),
-                color = StarlitColors.Void,
+                modifier = Modifier.size(20.dp),
+                color = StarlitColors.OnGold,
                 strokeWidth = 2.dp,
             )
         } else {
             Text(
                 text = text,
-                fontWeight = FontWeight.ExtraBold,
+                fontWeight = FontWeight.SemiBold,
                 fontSize = 14.sp,
-                letterSpacing = 0.8.sp,
-                color = if (active) StarlitColors.Void else StarlitColors.Void.copy(alpha = 0.55f),
+                letterSpacing = 0.4.sp,
+                color = if (active) StarlitColors.OnGold else StarlitColors.OnGold.copy(alpha = 0.6f),
             )
         }
     }
@@ -276,18 +126,18 @@ fun StarlitSecondaryButton(
     val shape = RoundedCornerShape(StarlitDimens.Radius)
     Box(
         modifier = modifier
-            .height(52.dp)
+            .height(48.dp)
             .clip(shape)
-            .background(StarlitColors.Glass)
-            .border(1.dp, StarlitColors.Stroke, shape)
+            .background(StarlitColors.Surface)
+            .border(1.dp, StarlitColors.Border, shape)
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Text(
             text = text,
-            fontWeight = FontWeight.SemiBold,
+            fontWeight = FontWeight.Medium,
             fontSize = 14.sp,
-            letterSpacing = 0.4.sp,
+            letterSpacing = 0.2.sp,
             color = if (enabled) StarlitColors.Text else StarlitColors.TextMuted,
         )
     }
@@ -300,6 +150,7 @@ fun StarlitTextField(
     label: String,
     modifier: Modifier = Modifier,
     isPassword: Boolean = false,
+    readOnly: Boolean = false,
 ) {
     OutlinedTextField(
         value = value,
@@ -307,22 +158,23 @@ fun StarlitTextField(
         label = { Text(label) },
         modifier = modifier.fillMaxWidth(),
         singleLine = true,
+        readOnly = readOnly,
         visualTransformation = if (isPassword) {
             androidx.compose.ui.text.input.PasswordVisualTransformation()
         } else {
             androidx.compose.ui.text.input.VisualTransformation.None
         },
-        shape = RoundedCornerShape(StarlitDimens.Radius),
+        shape = RoundedCornerShape(StarlitDimens.RadiusSm),
         colors = OutlinedTextFieldDefaults.colors(
             focusedTextColor = StarlitColors.Text,
             unfocusedTextColor = StarlitColors.Text,
-            focusedBorderColor = StarlitColors.Violet,
-            unfocusedBorderColor = StarlitColors.Stroke,
+            focusedBorderColor = StarlitColors.Gold,
+            unfocusedBorderColor = StarlitColors.Border,
             focusedLabelColor = StarlitColors.Gold,
             unfocusedLabelColor = StarlitColors.TextMuted,
             cursorColor = StarlitColors.Gold,
-            focusedContainerColor = StarlitColors.Glass,
-            unfocusedContainerColor = StarlitColors.Glass.copy(alpha = 0.6f),
+            focusedContainerColor = StarlitColors.Surface,
+            unfocusedContainerColor = StarlitColors.Surface,
         ),
     )
 }
@@ -386,8 +238,8 @@ fun SectionTitle(title: String, subtitle: String? = null) {
     Column(modifier = Modifier.padding(bottom = 14.dp)) {
         Text(
             text = title,
-            fontSize = 28.sp,
-            fontWeight = FontWeight.ExtraBold,
+            fontSize = 24.sp,
+            fontWeight = FontWeight.SemiBold,
             color = StarlitColors.Text,
         )
         if (subtitle != null) {
@@ -422,7 +274,7 @@ fun StarlitProgressBar(
                     text = "${(progress.coerceIn(0f, 1f) * 100).toInt()}%",
                     color = StarlitColors.Gold,
                     fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
+                    fontWeight = FontWeight.SemiBold,
                 )
             }
         }
@@ -430,9 +282,9 @@ fun StarlitProgressBar(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(8.dp)
+                .height(6.dp)
                 .clip(RoundedCornerShape(50))
-                .background(StarlitColors.BgElevated),
+                .background(StarlitColors.Surface),
         ) {
             if (progress != null) {
                 Box(
@@ -440,11 +292,7 @@ fun StarlitProgressBar(
                         .fillMaxHeight()
                         .fillMaxWidth(progress.coerceIn(0f, 1f))
                         .clip(RoundedCornerShape(50))
-                        .background(
-                            Brush.horizontalGradient(
-                                listOf(StarlitColors.Gold, StarlitColors.GoldDeep, StarlitColors.Violet),
-                            ),
-                        ),
+                        .background(StarlitColors.Gold),
                 )
             }
         }
@@ -460,14 +308,12 @@ fun StarlitToggle(
 ) {
     Box(
         modifier = modifier
-            .size(width = 50.dp, height = 28.dp)
+            .size(width = 44.dp, height = 26.dp)
             .clip(RoundedCornerShape(50))
-            .background(
-                if (checked) StarlitColors.GoldSoft else StarlitColors.BgElevated,
-            )
+            .background(if (checked) StarlitColors.GoldMuted else StarlitColors.Surface)
             .border(
                 1.dp,
-                if (checked) StarlitColors.Gold.copy(alpha = 0.55f) else StarlitColors.Stroke,
+                if (checked) StarlitColors.Gold.copy(alpha = 0.5f) else StarlitColors.Border,
                 RoundedCornerShape(50),
             )
             .clickable(enabled = enabled) { onCheckedChange(!checked) }
@@ -475,12 +321,10 @@ fun StarlitToggle(
     ) {
         Box(
             modifier = Modifier
-                .size(22.dp)
+                .size(18.dp)
                 .align(if (checked) Alignment.CenterEnd else Alignment.CenterStart)
                 .clip(CircleShape)
-                .background(
-                    if (checked) StarlitColors.Gold else StarlitColors.TextDim,
-                ),
+                .background(if (checked) StarlitColors.Gold else StarlitColors.TextDim),
         )
     }
 }
@@ -502,11 +346,11 @@ fun SettingsRow(
         if (icon != null) {
             Box(
                 modifier = Modifier
-                    .size(42.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(StarlitColors.VioletSoft)
-                    .border(1.dp, StarlitColors.StrokeSoft, RoundedCornerShape(12.dp))
-                    .padding(9.dp),
+                    .size(38.dp)
+                    .clip(RoundedCornerShape(StarlitDimens.RadiusSm))
+                    .background(StarlitColors.Surface)
+                    .border(1.dp, StarlitColors.Border, RoundedCornerShape(StarlitDimens.RadiusSm))
+                    .padding(8.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 icon()
@@ -517,7 +361,7 @@ fun SettingsRow(
             Text(
                 text = title,
                 color = StarlitColors.Text,
-                fontWeight = FontWeight.SemiBold,
+                fontWeight = FontWeight.Medium,
                 fontSize = 15.sp,
             )
             if (subtitle != null) {
@@ -536,32 +380,113 @@ fun SettingsRow(
 }
 
 @Composable
-fun BrandMark(modifier: Modifier = Modifier) {
-    Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        Box(
-            modifier = Modifier
-                .size(52.dp)
-                .clip(RoundedCornerShape(16.dp))
-                .background(StarlitAccentGradient),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text("★", color = StarlitColors.Void, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+fun BrandMark(modifier: Modifier = Modifier, size: Dp = 44.dp) {
+    val icon = remember {
+        runCatching {
+            val stream = object {}.javaClass.getResourceAsStream("/icon.png")
+                ?: error("missing /icon.png")
+            org.jetbrains.skia.Image.makeFromEncoded(stream.readBytes()).toComposeImageBitmap()
+        }.getOrNull()
+    }
+    Box(
+        modifier = modifier
+            .size(size)
+            .clip(RoundedCornerShape(StarlitDimens.RadiusSm))
+            .background(StarlitColors.Surface)
+            .border(1.dp, StarlitColors.Border, RoundedCornerShape(StarlitDimens.RadiusSm)),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (icon != null) {
+            Image(
+                bitmap = icon,
+                contentDescription = "StarlitMoon",
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+            )
+        } else {
+            Text(
+                "SM",
+                color = StarlitColors.Gold,
+                fontSize = (size.value * 0.32f).sp,
+                fontWeight = FontWeight.Bold,
+            )
         }
-        Spacer(Modifier.height(10.dp))
+    }
+}
+
+@Composable
+fun BrandWordmark(modifier: Modifier = Modifier) {
+    Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
         Text(
             "Starlit",
             color = StarlitColors.Text,
-            fontWeight = FontWeight.ExtraBold,
-            fontSize = 14.sp,
-            letterSpacing = 0.5.sp,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 17.sp,
         )
         Text(
             "Moon",
             color = StarlitColors.Gold,
-            fontWeight = FontWeight.Bold,
-            fontSize = 13.sp,
-            letterSpacing = 1.sp,
-            textAlign = TextAlign.Center,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 17.sp,
         )
+    }
+}
+
+/**
+ * Loads an avatar image from [url] on a background thread and renders it.
+ * Falls back to a flat placeholder box with the first letter of [fallbackName] on failure.
+ */
+@Composable
+fun NetworkAvatar(
+    url: String,
+    fallbackName: String,
+    modifier: Modifier = Modifier,
+    size: Dp = 96.dp,
+) {
+    var bitmap by remember(url) { mutableStateOf<ImageBitmap?>(null) }
+    var loading by remember(url) { mutableStateOf(true) }
+
+    LaunchedEffect(url) {
+        loading = true
+        bitmap = null
+        val loaded = withContext(Dispatchers.IO) {
+            runCatching {
+                val bytes = java.net.URI(url).toURL().openStream().use { it.readBytes() }
+                org.jetbrains.skia.Image.makeFromEncoded(bytes).toComposeImageBitmap()
+            }.getOrNull()
+        }
+        bitmap = loaded
+        loading = false
+    }
+
+    Box(
+        modifier = modifier
+            .size(size)
+            .clip(RoundedCornerShape(StarlitDimens.RadiusSm))
+            .background(StarlitColors.Surface)
+            .border(1.dp, StarlitColors.Border, RoundedCornerShape(StarlitDimens.RadiusSm)),
+        contentAlignment = Alignment.Center,
+    ) {
+        val bmp = bitmap
+        when {
+            bmp != null -> Image(
+                bitmap = bmp,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+            )
+            loading -> CircularProgressIndicator(
+                modifier = Modifier.size(size / 4),
+                color = StarlitColors.Gold,
+                strokeWidth = 2.dp,
+            )
+            else -> Text(
+                fallbackName.trim().take(1).uppercase().ifBlank { "?" },
+                color = StarlitColors.Gold,
+                fontWeight = FontWeight.Bold,
+                fontSize = (size.value * 0.32f).sp,
+                textAlign = TextAlign.Center,
+            )
+        }
     }
 }

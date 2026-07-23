@@ -29,8 +29,12 @@ import ru.starlitmoon.launcher.api.ServerStatus
 import ru.starlitmoon.launcher.api.StarlitApiClient
 import ru.starlitmoon.launcher.api.StarlitApiException
 import ru.starlitmoon.launcher.minecraft.MinecraftLauncher
+import ru.starlitmoon.launcher.minecraft.SkinManager
 import ru.starlitmoon.launcher.update.UpdateChecker
 import ru.starlitmoon.launcher.update.UpdateInfo
+import java.awt.Toolkit
+import java.awt.datatransfer.StringSelection
+import java.nio.file.Path
 
 enum class LauncherTab { Play, Cabinet, Admin, Settings }
 
@@ -89,6 +93,14 @@ class LauncherViewModel(
     var statusDraft by mutableStateOf("")
     var notifyTitle by mutableStateOf("")
     var notifyMessage by mutableStateOf("")
+
+    var skinBusy by mutableStateOf(false)
+    var skinCommand by mutableStateOf(
+        configState.skinTextureUrl.let { if (it.isNotBlank()) "/skin set $it" else "" },
+    )
+    var skinLocalPath by mutableStateOf(configState.skinPath)
+
+    private var skins = SkinManager(configState.skinsDir)
 
     private var statusJob: Job? = null
     private var booted = false
@@ -187,7 +199,55 @@ class LauncherViewModel(
         configState = newConfig
         mc.close()
         mc = MinecraftLauncher(configState)
+        skins.close()
+        skins = SkinManager(configState.skinsDir)
         infoMessage = "Настройки сохранены"
+    }
+
+    fun installSkin(filePath: String) {
+        if (filePath.isBlank()) {
+            errorMessage = "Выберите файл скина"
+            return
+        }
+        if (userName.isBlank()) {
+            errorMessage = "Сначала войдите"
+            return
+        }
+        scope.launch {
+            skinBusy = true
+            errorMessage = null
+            runCatching {
+                val prepared = withContext(Dispatchers.IO) {
+                    skins.prepareFromFile(userName, Path.of(filePath))
+                }
+                val uploaded = api.uploadSkin(prepared.dataUrl)
+                prepared to uploaded
+            }.onSuccess { (prepared, uploaded) ->
+                val url = uploaded.skinUrl.orEmpty()
+                configState = configState.copy(
+                    skinPath = prepared.localPath.toString(),
+                    skinTextureUrl = url,
+                )
+                LauncherConfig.save(configState)
+                skinLocalPath = prepared.localPath.toString()
+                skinCommand = if (url.isNotBlank()) "/skin set $url" else ""
+                infoMessage = uploaded.message
+                    ?: uploaded.warning
+                    ?: "Скин загружен на сайт"
+                runCatching { withContext(Dispatchers.IO) { api.me() } }
+                    .onSuccess { meData = it }
+            }.onFailure { handleError(it) }
+            skinBusy = false
+        }
+    }
+
+    fun copySkinCommand() {
+        val cmd = skinCommand
+        if (cmd.isBlank()) return
+        runCatching {
+            Toolkit.getDefaultToolkit().systemClipboard.setContents(StringSelection(cmd), null)
+        }.onSuccess { infoMessage = "Команда скопирована" }
+            .onFailure { errorMessage = "Не удалось скопировать команду" }
     }
 
     fun play() {
@@ -620,6 +680,7 @@ class LauncherViewModel(
         statusJob?.cancel()
         api.close()
         mc.close()
+        skins.close()
         updateChecker.close()
     }
 }

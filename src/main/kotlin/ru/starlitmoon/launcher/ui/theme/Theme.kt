@@ -1,7 +1,6 @@
 package ru.starlitmoon.launcher.ui.theme
 
 import androidx.compose.material3.Typography
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -9,55 +8,49 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
+/**
+ * Flat, calm, premium palette. No gradients, no glass, no animated decoration.
+ */
 object StarlitColors {
-    val Void = Color(0xFF05070F)
-    val BgDeep = Color(0xFF0B1020)
-    val BgElevated = Color(0xFF12182C)
-    val Glass = Color(0xB3141C32)
-    val GlassStrong = Color(0xD9182238)
-    val Stroke = Color(0x33A8B8E0)
-    val StrokeSoft = Color(0x1AFFFFFF)
-    val Text = Color(0xFFF2F4FA)
-    val TextMuted = Color(0xFF8B98B8)
-    val TextDim = Color(0xFF6A7694)
-    val Gold = Color(0xFFE0B84A)
-    val GoldDeep = Color(0xFFC9A227)
-    val GoldSoft = Color(0x33E0B84A)
-    val Violet = Color(0xFF7B6CF0)
-    val VioletSoft = Color(0x337B6CF0)
-    val Online = Color(0xFF3DDC97)
-    val Offline = Color(0xFFFF6B7A)
-    val Moon = Color(0xFFF7F3EA)
+    val Background = Color(0xFF07090F)
+    val Surface = Color(0xFF121622)
+    val SurfaceHover = Color(0xFF161C2B)
+    val Border = Color(0xFF1E2433)
+    val BorderStrong = Color(0xFF2A3245)
+
+    val Gold = Color(0xFFD4A84B)
+    val GoldMuted = Color(0x26D4A84B)
+    val GoldDim = Color(0xFF9C7B37)
+    val OnGold = Color(0xFF16130B)
+
+    val Text = Color(0xFFEDEFF4)
+    val TextMuted = Color(0xFF8A93A8)
+    val TextDim = Color(0xFF565F73)
+
+    val Online = Color(0xFF3ECE8A)
+    val Offline = Color(0xFFE5636F)
 }
 
 object StarlitDimens {
-    val Radius = 16.dp
-    val RadiusSm = 12.dp
+    val Radius = 12.dp
+    val RadiusSm = 10.dp
     val RadiusPill = 999.dp
     val WindowMinWidth = 1080.dp
     val WindowMinHeight = 680.dp
 }
 
-val StarlitTitleGradient = Brush.linearGradient(
-    colors = listOf(Color(0xFFFFFFFF), StarlitColors.Gold, StarlitColors.Violet),
-)
-
-val StarlitAccentGradient = Brush.horizontalGradient(
-    colors = listOf(StarlitColors.GoldDeep, StarlitColors.Gold, StarlitColors.Violet),
-)
-
 val StarlitTypography = Typography(
     displayLarge = TextStyle(
         fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.Black,
-        fontSize = 56.sp,
-        letterSpacing = (-0.5).sp,
+        fontWeight = FontWeight.Bold,
+        fontSize = 52.sp,
+        letterSpacing = (-0.3).sp,
         color = StarlitColors.Text,
     ),
     headlineMedium = TextStyle(
         fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.ExtraBold,
-        fontSize = 28.sp,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 26.sp,
         color = StarlitColors.Text,
     ),
     titleMedium = TextStyle(
@@ -75,9 +68,9 @@ val StarlitTypography = Typography(
     ),
     labelLarge = TextStyle(
         fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.Bold,
+        fontWeight = FontWeight.SemiBold,
         fontSize = 13.sp,
-        letterSpacing = 0.6.sp,
+        letterSpacing = 0.4.sp,
         color = StarlitColors.Text,
     ),
 )

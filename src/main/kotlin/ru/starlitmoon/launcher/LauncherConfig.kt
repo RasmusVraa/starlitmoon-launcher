@@ -28,12 +28,17 @@ data class LauncherConfig(
     val vsync: Boolean = true,
     /** Пустая строка = ~/.starlitmoon-launcher/game */
     val gamePath: String = "",
+    val skinPath: String = "",
+    val skinTextureUrl: String = "",
     val githubOwner: String = "RasmusVraa",
     val githubRepo: String = "starlitmoon-launcher",
     val checkUpdatesOnStart: Boolean = true,
 ) {
     val dataDir: Path
         get() = Path.of(System.getProperty("user.home"), ".starlitmoon-launcher")
+
+    val skinsDir: Path
+        get() = dataDir.resolve("skins")
 
     val gameDir: Path
         get() = if (gamePath.isNotBlank()) Path.of(gamePath) else dataDir.resolve("game")
