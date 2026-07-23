@@ -1466,27 +1466,20 @@ class LauncherViewModel(
         )
     }
 
-    /** Public HTTPS avatar for Discord RPC (max ~300 chars). */
+    /** Public HTTPS avatar for Discord RPC (max ~256 chars). Keep short — long urls break presence. */
     private fun discordAvatarImageUrl(): String? {
         if (!isLoggedIn || userName.isBlank()) return null
         val hash = skinTextureHash
             ?: meData?.cabinet?.player?.skinTextureHash
             ?: configState.skinTextureUrl.substringAfter("v=", "").takeIf { it.isNotBlank() }
-        val skinUrl = configState.skinTextureUrl.trim().takeIf { it.isNotBlank() }
-            ?: meData?.cabinet?.player?.skinUrl?.trim()?.takeIf { it.isNotBlank() }
-        // Prefer short /api/avatar (site resolves stored custom skin). Include url only if it fits.
-        val withUrl = if (skinUrl != null) {
-            api.avatarUrl(userName, userUuid, hash, skinUrl, size = 128)
-        } else {
-            null
-        }
-        val candidates = listOfNotNull(
-            withUrl?.takeIf { it.length in 12..300 },
+        // Do not append skinUrl — Discord often rejects long/complex image URLs and hides RPC entirely.
+        // Site /api/avatar resolves the stored custom skin by player/uuid/hash.
+        val candidates = listOf(
             api.avatarUrl(userName, userUuid, hash, skinUrl = null, size = 128),
             api.avatarUrl(userName, userUuid, null, skinUrl = null, size = 128),
             api.avatarUrl(userName, null, null, skinUrl = null, size = 128),
         )
-        return candidates.firstOrNull { it.length in 12..300 }
+        return candidates.firstOrNull { it.length in 12..256 }
     }
 
     private suspend fun refreshPublicData() {
@@ -1534,7 +1527,7 @@ class LauncherViewModel(
         gameWatchJob?.cancel()
         runCatching { gameProcess?.destroyForcibly() }
         clearGameProcess()
-        discordPresence.stop()
+        runCatching { discordPresence.close() }
         api.close()
         mc.close()
         skins.close()
