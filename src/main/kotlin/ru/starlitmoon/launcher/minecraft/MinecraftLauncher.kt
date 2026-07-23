@@ -19,6 +19,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -371,22 +372,18 @@ class MinecraftLauncher(
                     ),
                 )
             }
-            // Drop demo/quick-play feature args that weren't filled, then apply settings.
+            // Drop demo / quick-play leftovers (never enabled in this launcher).
             removeAll { it == "--demo" }
+            removeFlagAndValue("--quickPlayPath")
+            removeFlagAndValue("--quickPlaySingleplayer")
+            removeFlagAndValue("--quickPlayMultiplayer")
+            removeFlagAndValue("--quickPlayRealms")
             if (config.fullscreen && none { it == "--fullscreen" }) {
                 add("--fullscreen")
             }
             // Never auto-join server — player connects from multiplayer list.
-            val qi = indexOf("--quickPlayMultiplayer")
-            if (qi >= 0) {
-                removeAt(qi)
-                if (qi < size) removeAt(qi)
-            }
-            val si = indexOf("--server")
-            if (si >= 0) {
-                removeAt(si)
-                if (si < size) removeAt(si)
-            }
+            removeFlagAndValue("--server")
+            removeFlagAndValue("--port")
         }
 
         val command = buildList {
@@ -462,6 +459,18 @@ class MinecraftLauncher(
         onProgress("Ресурсы готовы", 0.70f)
     }
 
+    private fun MutableList<String>.removeFlagAndValue(flag: String) {
+        var i = indexOf(flag)
+        while (i >= 0) {
+            removeAt(i)
+            // Only drop the following token if it is a value, not another flag.
+            if (i < size && !this[i].startsWith("-")) {
+                removeAt(i)
+            }
+            i = indexOf(flag)
+        }
+    }
+
     private fun resolveArgList(elements: List<JsonElement>?, vars: Map<String, String>): List<String> {
         if (elements == null) return emptyList()
         val out = mutableListOf<String>()
@@ -481,7 +490,25 @@ class MinecraftLauncher(
                 else -> Unit
             }
         }
-        return out.filter { it.isNotBlank() && !it.contains("\${") }
+        // Drop unresolved templates and orphan flags whose value was a template.
+        val filtered = mutableListOf<String>()
+        var i = 0
+        val raw = out.filter { it.isNotBlank() }
+        while (i < raw.size) {
+            val cur = raw[i]
+            val next = raw.getOrNull(i + 1)
+            if (next != null && next.contains("\${")) {
+                i += 2
+                continue
+            }
+            if (cur.contains("\${")) {
+                i++
+                continue
+            }
+            filtered += cur
+            i++
+        }
+        return filtered
     }
 
     private fun rulesAllow(rulesEl: JsonElement?): Boolean {
@@ -496,16 +523,15 @@ class MinecraftLauncher(
                 name == null || name == currentOsName()
             }
             val features = obj["features"]?.jsonObject
+            // Launcher never enables quick-play / demo features → require exact match to false defaults.
             val featuresOk = if (features == null) {
                 true
             } else {
-                features.entries.all { (k, v) ->
-                    val enabled = v.jsonPrimitive.contentOrNull == "true" || v.toString() == "true"
-                    when (k) {
-                        "is_quick_play_multiplayer" -> enabled
-                        "has_quick_plays_support" -> enabled
-                        else -> !enabled
-                    }
+                features.entries.all { (_, v) ->
+                    val want = v.jsonPrimitive.booleanOrNull
+                        ?: (v.jsonPrimitive.contentOrNull?.equals("true", ignoreCase = true) == true)
+                    val have = false
+                    want == have
                 }
             }
             if (osMatch && featuresOk) allowed = action == "allow"

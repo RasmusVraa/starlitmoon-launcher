@@ -728,12 +728,7 @@ class LauncherViewModel(
                         if (infoMessage.isNullOrBlank()) infoMessage = "Игра остановлена"
                     }
                     looksLikeCrash && !logTail.isNullOrBlank() -> {
-                        val hint = logTail.lineSequence()
-                            .map { it.trim() }
-                            .filter { it.isNotEmpty() }
-                            .lastOrNull()
-                            ?: "См. лог запуска"
-                        errorMessage = "Игра закрылась. $hint"
+                        errorMessage = "Игра закрылась. ${extractLaunchFailureHint(logTail)}"
                     }
                     !stoppedByUser -> {
                         infoMessage = "Игра закрыта"
@@ -753,6 +748,26 @@ class LauncherViewModel(
         activeSkinBridge?.close()
         activeSkinBridge = null
         refreshDiscordPresence()
+    }
+
+    private fun extractLaunchFailureHint(logTail: String): String {
+        val lines = logTail.lineSequence().map { it.trim() }.filter { it.isNotEmpty() }.toList()
+        val exception = lines.lastOrNull { line ->
+            line.startsWith("Exception ") ||
+                line.startsWith("Error ") ||
+                line.contains("Exception:") ||
+                line.contains("Error:") ||
+                (line.contains("Missing required option") && !line.startsWith("at "))
+        }
+        if (exception != null) {
+            return exception
+                .substringAfter("Exception in thread \"main\" ")
+                .substringAfter("Exception: ")
+                .take(220)
+        }
+        return lines.lastOrNull { !it.startsWith("at ") }
+            ?: lines.lastOrNull()
+            ?: "См. лог запуска"
     }
 
     /** Legacy fallback: per-jar mods into the pack instance mods/ folder. */
