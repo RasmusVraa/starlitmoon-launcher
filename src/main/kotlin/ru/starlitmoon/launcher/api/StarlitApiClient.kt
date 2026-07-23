@@ -175,6 +175,7 @@ data class SkinUploadResponse(
     val warning: String? = null,
     val message: String? = null,
     val error: String? = null,
+    val cabinet: CabinetDto? = null,
 )
 
 @Serializable

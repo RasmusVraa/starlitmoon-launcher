@@ -446,7 +446,7 @@ class LauncherViewModel(
                     entry
                 }
             }.onSuccess {
-                infoMessage = "Скин «${it.name}» добавлен в библиотеку"
+                infoMessage = infoMessage ?: "Скин «${it.name}» добавлен и синхронизирован с сайтом"
             }.onFailure { handleError(it) }
             skinBusy = false
         }
@@ -458,7 +458,7 @@ class LauncherViewModel(
             runCatching {
                 withContext(Dispatchers.IO) { applyLibrarySkin(id, upload = true) }
             }.onSuccess {
-                infoMessage = "Скин выбран"
+                infoMessage = infoMessage ?: "Скин выбран и синхронизирован с сайтом"
             }.onFailure { handleError(it) }
             skinBusy = false
         }
@@ -508,9 +508,21 @@ class LauncherViewModel(
         var hash = skinTextureHash
         if (upload) {
             val uploaded = api.uploadSkin(prepared.dataUrl)
-            url = uploaded.skinUrl.orEmpty()
-            hash = uploaded.skinTextureHash
+            url = uploaded.skinUrl.orEmpty().ifBlank { url }
+            hash = uploaded.skinTextureHash ?: hash
             skinCommand = if (url.isNotBlank()) "/skin set $url" else ""
+            if (uploaded.cabinet != null) {
+                meData = meData?.copy(cabinet = uploaded.cabinet)
+                skinTextureHash = uploaded.cabinet.player?.skinTextureHash
+                    ?: uploaded.cabinet.skinTextureHash
+                    ?: hash
+                hash = skinTextureHash
+            }
+            if (!uploaded.warning.isNullOrBlank()) {
+                infoMessage = uploaded.warning
+            } else if (!uploaded.message.isNullOrBlank()) {
+                infoMessage = uploaded.message
+            }
         }
         configState = configState.copy(
             skinPath = path.toString(),
@@ -521,6 +533,34 @@ class LauncherViewModel(
         refreshSkinLibraryState()
         avatarRevision++
         refreshDiscordPresence()
+    }
+
+    /** Push local active skin to the website if the site still has no custom skin (or hash differs). */
+    private suspend fun syncActiveSkinToSite() {
+        if (!isLoggedIn || userName.isBlank()) return
+        val activeId = skinLibrary.activeId() ?: return
+        val entry = skinLibrary.list().firstOrNull { it.id == activeId } ?: return
+        val path = skinLibrary.skinPath(entry)
+        if (!path.exists()) return
+        val remoteUrl = meData?.cabinet?.player?.skinUrl.orEmpty()
+            .ifBlank { meData?.cabinet?.skinUrl.orEmpty() }
+            .ifBlank { configState.skinTextureUrl }
+        val remoteHash = meData?.cabinet?.player?.skinTextureHash
+            ?: meData?.cabinet?.skinTextureHash
+            ?: skinTextureHash
+        val prepared = skins.prepareFromFile(userName, path)
+        val localHash = java.security.MessageDigest.getInstance("SHA-256")
+            .digest(prepared.bytes)
+            .joinToString("") { "%02x".format(it) }
+        val siteHasCustom = remoteUrl.contains("/img/skins/custom/", ignoreCase = true)
+        if (siteHasCustom && remoteHash != null && remoteHash.equals(localHash, ignoreCase = true)) {
+            return
+        }
+        runCatching {
+            applyLibrarySkin(activeId, upload = true)
+        }.onFailure {
+            // Don't block login on sync failure; user can re-select the skin.
+        }
     }
 
     fun copySkinCommand() {
@@ -1447,6 +1487,7 @@ class LauncherViewModel(
             withContext(Dispatchers.IO) {
                 skinLibrary.importActiveIfEmpty(userName)
                 refreshSkinLibraryState()
+                syncActiveSkinToSite()
             }
             notifications = withContext(Dispatchers.IO) {
                 runCatching { api.notifications() }.getOrDefault(emptyList())
