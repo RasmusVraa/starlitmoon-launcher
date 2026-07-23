@@ -60,6 +60,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import ru.starlitmoon.launcher.ui.theme.PlayerRanks
 import ru.starlitmoon.launcher.ui.theme.StarlitColors
 import ru.starlitmoon.launcher.ui.theme.StarlitDimens
 import ru.starlitmoon.launcher.update.UpdateInfo
@@ -628,17 +629,8 @@ fun SidebarNav(vm: LauncherViewModel) {
             .border(width = 1.dp, color = StarlitColors.Border),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Spacer(Modifier.height(16.dp))
-        BrandMark(size = 40.dp)
-        Spacer(Modifier.height(28.dp))
+        Spacer(Modifier.height(18.dp))
 
-        SidebarIcon(
-            icon = Icons.Default.Person,
-            selected = vm.currentTab == LauncherTab.Cabinet,
-            contentDescription = "Кабинет",
-            onClick = { vm.currentTab = LauncherTab.Cabinet },
-        )
-        Spacer(Modifier.height(10.dp))
         SidebarIcon(
             icon = Icons.Default.Home,
             selected = vm.currentTab == LauncherTab.Home,
@@ -654,17 +646,17 @@ fun SidebarNav(vm: LauncherViewModel) {
         )
         Spacer(Modifier.height(10.dp))
         SidebarIcon(
+            icon = Icons.Default.Person,
+            selected = vm.currentTab == LauncherTab.Cabinet,
+            contentDescription = "Кабинет",
+            onClick = { vm.currentTab = LauncherTab.Cabinet },
+        )
+        Spacer(Modifier.height(10.dp))
+        SidebarIcon(
             icon = Icons.Default.Checkroom,
             selected = vm.currentTab == LauncherTab.Skins,
             contentDescription = "Скины",
             onClick = { vm.currentTab = LauncherTab.Skins },
-        )
-        Spacer(Modifier.height(10.dp))
-        SidebarIcon(
-            icon = Icons.Default.Settings,
-            selected = vm.currentTab == LauncherTab.Settings,
-            contentDescription = "Настройки",
-            onClick = { vm.currentTab = LauncherTab.Settings },
         )
         if (vm.isAdmin) {
             Spacer(Modifier.height(10.dp))
@@ -678,6 +670,13 @@ fun SidebarNav(vm: LauncherViewModel) {
 
         Spacer(Modifier.weight(1f))
         SidebarIcon(
+            icon = Icons.Default.Settings,
+            selected = vm.currentTab == LauncherTab.Settings,
+            contentDescription = "Настройки",
+            onClick = { vm.currentTab = LauncherTab.Settings },
+        )
+        Spacer(Modifier.height(10.dp))
+        SidebarIcon(
             icon = Icons.AutoMirrored.Filled.Logout,
             selected = false,
             contentDescription = "Выйти",
@@ -685,7 +684,7 @@ fun SidebarNav(vm: LauncherViewModel) {
                 val ok = javax.swing.JOptionPane.showConfirmDialog(
                     null,
                     "Выйти из аккаунта?",
-                    "StarlitMoon",
+                    "Выход",
                     javax.swing.JOptionPane.YES_NO_OPTION,
                 ) == javax.swing.JOptionPane.YES_OPTION
                 if (ok) vm.logout()
@@ -744,22 +743,18 @@ fun TopStatusBar(
     windowControls: (@Composable () -> Unit)? = null,
     dragModifier: Modifier = Modifier,
 ) {
+    val ranks = PlayerRanks.normalize(
+        vm.meData?.cabinet?.player?.ranks.orEmpty(),
+    )
+    val primaryRank = ranks.firstOrNull()
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .height(56.dp)
             .then(dragModifier)
-            .padding(start = 20.dp),
+            .padding(start = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        BrandMark(size = 28.dp)
-        Spacer(Modifier.width(12.dp))
-        Text(
-            "StarlitMoon",
-            color = StarlitColors.Text,
-            fontWeight = FontWeight.SemiBold,
-            fontSize = 14.sp,
-        )
         Spacer(Modifier.weight(1f))
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -773,12 +768,21 @@ fun TopStatusBar(
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 13.sp,
                 )
-                Text(
-                    "StarlitMoon",
-                    color = StarlitColors.Gold,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Medium,
-                )
+                if (primaryRank != null) {
+                    Text(
+                        primaryRank.labelRu,
+                        color = primaryRank.foreground,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                } else {
+                    Text(
+                        "Игрок",
+                        color = StarlitColors.TextMuted,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium,
+                    )
+                }
             }
             if (vm.activeSkinPath != null) {
                 LocalSkinFace(

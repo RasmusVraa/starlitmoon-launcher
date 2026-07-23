@@ -39,7 +39,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -50,6 +49,7 @@ import ru.starlitmoon.launcher.ui.components.StarlitPrimaryButton
 import ru.starlitmoon.launcher.ui.components.StarlitSecondaryButton
 import ru.starlitmoon.launcher.ui.components.StarlitTextField
 import ru.starlitmoon.launcher.ui.components.StarlitToggle
+import ru.starlitmoon.launcher.ui.theme.PlayerRanks
 import ru.starlitmoon.launcher.ui.theme.StarlitColors
 import ru.starlitmoon.launcher.ui.theme.StarlitDimens
 import ru.starlitmoon.launcher.viewmodel.LauncherTab
@@ -106,28 +106,19 @@ fun CabinetScreen(vm: LauncherViewModel) {
             color = StarlitColors.Text,
         )
 
-        // —— cabinet-shell ——
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(20.dp))
-                .background(
-                    Brush.linearGradient(
-                        listOf(Color(0xF5161C30), Color(0xF00A0E1C)),
-                    ),
-                )
-                .border(1.dp, Color(0x33788CDC), RoundedCornerShape(20.dp)),
+        // —— cabinet content (без обводки «под фон») ——
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.Top,
+            horizontalArrangement = Arrangement.spacedBy(20.dp),
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.Top,
-            ) {
                 // —— left column ——
                 Column(
                     modifier = Modifier
                         .width(300.dp)
-                        .fillMaxHeight()
-                        .border(width = 1.dp, color = Color(0x1F788CDC)),
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(StarlitColors.Surface)
+                        .border(1.dp, StarlitColors.Border, RoundedCornerShape(16.dp)),
                 ) {
                     Box(
                         modifier = Modifier
@@ -201,6 +192,9 @@ fun CabinetScreen(vm: LauncherViewModel) {
                 Column(
                     modifier = Modifier
                         .weight(1f)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(StarlitColors.Surface)
+                        .border(1.dp, StarlitColors.Border, RoundedCornerShape(16.dp))
                         .padding(20.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
@@ -257,10 +251,10 @@ fun CabinetScreen(vm: LauncherViewModel) {
                             fontSize = 13.sp,
                         )
                     } else {
-                        val ranks = player?.ranks.orEmpty()
+                        val ranks = PlayerRanks.normalize(player?.ranks.orEmpty())
                         if (ranks.isNotEmpty()) {
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                ranks.forEach { RankPill(it) }
+                                ranks.forEach { RankPill(it.id) }
                             }
                         }
 
@@ -391,18 +385,18 @@ fun CabinetScreen(vm: LauncherViewModel) {
             }
         }
     }
-}
 
 @Composable
 private fun RankPill(text: String) {
+    val style = PlayerRanks.styleFor(text) ?: return
     Box(
         modifier = Modifier
             .clip(RoundedCornerShape(999.dp))
-            .background(StarlitColors.PurpleMuted)
-            .border(1.dp, StarlitColors.Purple.copy(alpha = 0.35f), RoundedCornerShape(999.dp))
+            .background(style.background)
+            .border(1.dp, style.border, RoundedCornerShape(999.dp))
             .padding(horizontal = 10.dp, vertical = 4.dp),
     ) {
-        Text(text, color = StarlitColors.Text, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+        Text(style.labelRu, color = style.foreground, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 
@@ -431,16 +425,27 @@ private fun BadgeChoice(label: String, selected: Boolean, onClick: () -> Unit) {
 
 @Composable
 private fun WarnDots(count: Int) {
-    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        repeat(5) { i ->
+    val limit = 3
+    val filled = count.coerceIn(0, limit)
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        repeat(limit) { i ->
             Box(
                 modifier = Modifier
                     .size(10.dp)
                     .clip(CircleShape)
-                    .background(if (i < count) StarlitColors.Offline else StarlitColors.BorderStrong),
+                    .background(
+                        when {
+                            filled >= limit -> StarlitColors.Offline
+                            i < filled -> Color(0xFFFB923C)
+                            else -> StarlitColors.BorderStrong
+                        },
+                    ),
             )
         }
-        Text("$count / 5", color = StarlitColors.TextMuted, fontSize = 12.sp)
+        Text("$filled / $limit", color = StarlitColors.TextMuted, fontSize = 12.sp)
     }
 }
 

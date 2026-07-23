@@ -584,13 +584,6 @@ fun SettingsScreen(vm: LauncherViewModel) {
         verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
         Text(
-            "STARLITMOON CRAFT",
-            color = StarlitColors.Purple,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.SemiBold,
-            letterSpacing = 1.4.sp,
-        )
-        Text(
             "НАСТРОЙКИ",
             color = StarlitColors.Text,
             fontSize = 28.sp,
