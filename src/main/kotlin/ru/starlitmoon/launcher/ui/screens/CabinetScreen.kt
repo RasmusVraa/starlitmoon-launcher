@@ -146,8 +146,7 @@ fun CabinetScreen(vm: LauncherViewModel) {
                             slim = vm.activeSkinSlim,
                             previewSize = 248.dp,
                             modifier = Modifier.fillMaxWidth(),
-                            skinUrl = vm.configState.skinTextureUrl,
-                            username = vm.userName,
+                            revision = vm.avatarRevision,
                         )
                     }
 

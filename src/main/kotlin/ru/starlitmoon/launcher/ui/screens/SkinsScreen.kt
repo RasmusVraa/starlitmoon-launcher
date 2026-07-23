@@ -59,7 +59,7 @@ fun SkinsScreen(vm: LauncherViewModel) {
             ),
         )
         Text(
-            "Библиотека скинов и плащей · 3D через VZGE/Starlight · потяните мышью · плащ оффлайн",
+            "Библиотека скинов и плащей · статичный 2D (скин спереди + плащ) · плащ оффлайн",
             color = StarlitColors.TextMuted,
             fontSize = 13.sp,
         )
@@ -94,9 +94,7 @@ fun SkinsScreen(vm: LauncherViewModel) {
                         capePath = vm.activeCapePath,
                         slim = vm.activeSkinSlim,
                         previewSize = 340.dp,
-                        animated = true,
-                        skinUrl = vm.configState.skinTextureUrl,
-                        username = vm.userName,
+                        revision = vm.avatarRevision,
                     )
                 }
                 Text(
