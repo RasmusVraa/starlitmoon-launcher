@@ -97,8 +97,10 @@ object LauncherSelfUpdater {
     }
 
     /**
-     * Spawns a detached helper that waits for [launcherPid] to exit, runs silent Setup,
-     * then starts the launcher again.
+     * Spawns a detached hidden PowerShell helper that waits for [launcherPid] to exit,
+     * runs silent Setup, then starts the launcher again.
+     *
+     * Avoids `cmd start "title"` quirks that open a visible console and mis-parse `/min`.
      */
     fun scheduleInstallAndRestart(
         installer: Path,
@@ -107,42 +109,51 @@ object LauncherSelfUpdater {
         launcherPid: Long,
     ) {
         require(installer.exists()) { "Установщик не найден" }
-        val helper = Files.createTempFile("starlit-update-", ".cmd")
+        val helper = Files.createTempFile("starlit-update-", ".ps1")
         val setup = installer.toAbsolutePath().normalize().pathString
         val dir = installDir.toAbsolutePath().normalize().pathString
         val exe = relaunchExe.toAbsolutePath().normalize().pathString
+        val altExe = installDir.resolve(EXE_NAME).toAbsolutePath().normalize().pathString
+
+        fun psLiteral(path: String): String = "'" + path.replace("'", "''") + "'"
+
         val script = """
-            @echo off
-            setlocal
-            set "PID=$launcherPid"
-            set "SETUP=$setup"
-            set "DIR=$dir"
-            set "EXE=$exe"
-            :wait
-            tasklist /FI "PID eq %PID%" 2>NUL | find "%PID%" >NUL
-            if not errorlevel 1 (
-              timeout /t 1 /nobreak >NUL
-              goto wait
+            ${'$'}ErrorActionPreference = 'SilentlyContinue'
+            ${'$'}pidToWait = $launcherPid
+            ${'$'}setup = ${psLiteral(setup)}
+            ${'$'}dir = ${psLiteral(dir)}
+            ${'$'}exe = ${psLiteral(exe)}
+            ${'$'}altExe = ${psLiteral(altExe)}
+            while (Get-Process -Id ${'$'}pidToWait -ErrorAction SilentlyContinue) {
+              Start-Sleep -Seconds 1
+            }
+            Start-Sleep -Seconds 1
+            ${'$'}args = @(
+              '/VERYSILENT',
+              '/SUPPRESSMSGBOXES',
+              '/NORESTART',
+              '/CLOSEAPPLICATIONS',
+              '/FORCECLOSEAPPLICATIONS',
+              ('/DIR=' + ${'$'}dir)
             )
-            timeout /t 1 /nobreak >NUL
-            start /wait "" "%SETUP%" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS /FORCECLOSEAPPLICATIONS /DIR="%DIR%"
-            timeout /t 1 /nobreak >NUL
-            if exist "%EXE%" (
-              start "" "%EXE%"
-            ) else if exist "%DIR%\$EXE_NAME" (
-              start "" "%DIR%\$EXE_NAME"
-            )
-            del /f /q "%SETUP%" >NUL 2>&1
-            del /f /q "%~f0" >NUL 2>&1
+            Start-Process -FilePath ${'$'}setup -ArgumentList ${'$'}args -Wait -WindowStyle Hidden
+            Start-Sleep -Seconds 1
+            if (Test-Path -LiteralPath ${'$'}exe) {
+              Start-Process -FilePath ${'$'}exe
+            } elseif (Test-Path -LiteralPath ${'$'}altExe) {
+              Start-Process -FilePath ${'$'}altExe
+            }
+            Remove-Item -LiteralPath ${'$'}setup -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath ${'$'}MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyContinue
         """.trimIndent().replace("\n", "\r\n")
         Files.writeString(helper, script)
+
         ProcessBuilder(
-            "cmd.exe",
-            "/c",
-            "start",
-            "\"StarlitMoon Update\"",
-            "/min",
-            helper.toAbsolutePath().normalize().pathString,
+            "powershell.exe",
+            "-NoProfile",
+            "-ExecutionPolicy", "Bypass",
+            "-WindowStyle", "Hidden",
+            "-File", helper.toAbsolutePath().normalize().pathString,
         ).apply {
             redirectOutput(ProcessBuilder.Redirect.DISCARD)
             redirectError(ProcessBuilder.Redirect.DISCARD)

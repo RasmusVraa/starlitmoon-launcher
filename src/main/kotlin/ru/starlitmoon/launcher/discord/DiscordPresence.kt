@@ -7,6 +7,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -117,21 +119,29 @@ class DiscordPresence(
 
     fun clear() {
         val c = client ?: return
-        scope.launch(Dispatchers.IO) {
-            runCatching { c.update(null) }
+        runBlocking {
+            withTimeoutOrNull(1_500) {
+                runCatching { c.update(null) }
+            }
         }
     }
 
+    /**
+     * Clears activity and disconnects. Must finish before process exit,
+     * otherwise Discord keeps the last Rich Presence.
+     */
     fun stop() {
         started.set(false)
         playStartedAt = null
         val c = client
         client = null
-        if (c != null) {
-            scope.launch(Dispatchers.IO) {
+        if (c == null) return
+        runBlocking {
+            withTimeoutOrNull(2_500) {
+                runCatching { c.update(null) }
                 runCatching { c.disconnect().await() }
-                runCatching { c.close() }
             }
+            runCatching { c.close() }
         }
     }
 

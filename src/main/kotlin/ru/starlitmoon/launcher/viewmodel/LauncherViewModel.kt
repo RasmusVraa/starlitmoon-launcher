@@ -1472,7 +1472,16 @@ class LauncherViewModel(
         val hash = skinTextureHash
             ?: meData?.cabinet?.player?.skinTextureHash
             ?: configState.skinTextureUrl.substringAfter("v=", "").takeIf { it.isNotBlank() }
-        val candidates = listOf(
+        val skinUrl = configState.skinTextureUrl.trim().takeIf { it.isNotBlank() }
+            ?: meData?.cabinet?.player?.skinUrl?.trim()?.takeIf { it.isNotBlank() }
+        // Prefer short /api/avatar (site resolves stored custom skin). Include url only if it fits.
+        val withUrl = if (skinUrl != null) {
+            api.avatarUrl(userName, userUuid, hash, skinUrl, size = 128)
+        } else {
+            null
+        }
+        val candidates = listOfNotNull(
+            withUrl?.takeIf { it.length in 12..300 },
             api.avatarUrl(userName, userUuid, hash, skinUrl = null, size = 128),
             api.avatarUrl(userName, userUuid, null, skinUrl = null, size = 128),
             api.avatarUrl(userName, null, null, skinUrl = null, size = 128),
