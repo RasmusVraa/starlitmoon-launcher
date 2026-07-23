@@ -1,5 +1,4 @@
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
-import java.io.File
 
 plugins {
     kotlin("jvm") version "2.1.10"
@@ -9,7 +8,7 @@ plugins {
 }
 
 group = "ru.starlitmoon"
-version = "1.1.15"
+version = "1.1.16"
 
 repositories {
     google()
@@ -34,26 +33,11 @@ dependencies {
 
     implementation("net.java.dev.jna:jna:5.15.0")
     implementation("net.java.dev.jna:jna-platform:5.15.0")
-
-    // skinview3d WebGL preview (same engine as the site LK)
-    val javafxVer = "21.0.5"
-    val javafxOs = "win"
-    listOf("base", "graphics", "controls", "swing", "web", "media").forEach { name ->
-        implementation("org.openjfx:javafx-$name:$javafxVer:$javafxOs")
-    }
 }
 
 kotlin {
     jvmToolchain(17)
 }
-
-val javafxModules =
-    "javafx.base,javafx.graphics,javafx.controls,javafx.swing,javafx.web,javafx.media"
-
-fun javafxModulePath(): String =
-    configurations.named("runtimeClasspath").get().files
-        .filter { it.name.startsWith("javafx-") }
-        .joinToString(File.pathSeparator) { it.absolutePath }
 
 compose.desktop {
     application {
@@ -66,10 +50,17 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Exe)
             packageName = "StarlitMoonLauncher"
-            packageVersion = "1.1.15"
+            packageVersion = "1.1.16"
             description = "StarlitMoon Minecraft Launcher"
             vendor = "StarlitMoon"
             copyright = "StarlitMoon"
+
+            modules(
+                "java.instrument",
+                "java.net.http",
+                "jdk.unsupported",
+                "jdk.unsupported.desktop",
+            )
 
             windows {
                 menuGroup = "StarlitMoon"
@@ -81,28 +72,3 @@ compose.desktop {
         }
     }
 }
-
-afterEvaluate {
-    val mp = javafxModulePath()
-    tasks.withType<JavaExec>().configureEach {
-        jvmArgs("--module-path", mp, "--add-modules", javafxModules)
-    }
-    // Packaged EXE: $APPDIR is the folder with dependency jars (incl. JavaFX)
-    compose.desktop.application.jvmArgs.clear()
-    compose.desktop.application.jvmArgs.addAll(
-        listOf(
-            "--module-path", "\$APPDIR",
-            "--add-modules", javafxModules,
-        ),
-    )
-}
-
-compose.desktop.application.nativeDistributions.modules(
-    "java.instrument",
-    "java.net.http",
-    "jdk.unsupported",
-    "jdk.unsupported.desktop",
-    "jdk.jsobject",
-    "jdk.xml.dom",
-)
-

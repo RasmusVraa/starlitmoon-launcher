@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.window.WindowDraggableArea
@@ -38,17 +37,13 @@ import androidx.compose.ui.window.WindowPlacement
 import androidx.compose.ui.window.WindowState
 import org.jetbrains.skia.Image
 import ru.starlitmoon.launcher.LauncherVersion
+import ru.starlitmoon.launcher.ui.theme.StarlitColors
 
-/** Soft mint title bar matching the Windows chrome look from the launcher screenshot. */
-private val TitleBarBg = Color(0xFFC8D9C4)
-private val TitleBarText = Color(0xFF1C2420)
-private val TitleBarIcon = Color(0xFF3A4540)
-private val TitleBarHover = Color(0x33000000)
+/** Custom title bar integrated into the dark launcher chrome (no system light bar). */
+private val TitleBarBg = Color(0xFF0A0C12)
+private val TitleBarHover = Color(0x22FFFFFF)
 private val TitleBarCloseHover = Color(0xFFE81123)
 
-/**
- * Custom Windows title bar (undecorated window): icon + title + min/max/close.
- */
 @Composable
 fun FrameWindowScope.StarlitTitleBar(
     windowState: WindowState,
@@ -65,27 +60,27 @@ fun FrameWindowScope.StarlitTitleBar(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(36.dp)
-                .background(TitleBarBg)
-                .padding(start = 10.dp),
+                .background(TitleBarBg),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            Spacer(Modifier.width(12.dp))
             if (iconPainter != null) {
                 Image(
                     painter = iconPainter,
                     contentDescription = null,
                     modifier = Modifier.size(18.dp),
                 )
+                Spacer(Modifier.width(8.dp))
             }
-            Spacer(Modifier.width(8.dp))
             Text(
                 "StarlitMoon Launcher v${LauncherVersion.CURRENT}",
-                color = TitleBarText,
+                color = StarlitColors.TextMuted,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Medium,
             )
             Spacer(Modifier.weight(1f))
             TitleBarButton(onClick = { window.isMinimized = true }) {
-                Icon(Icons.Default.Remove, null, tint = TitleBarIcon, modifier = Modifier.size(16.dp))
+                Icon(Icons.Default.Remove, null, tint = StarlitColors.TextMuted, modifier = Modifier.size(16.dp))
             }
             TitleBarButton(
                 onClick = {
@@ -103,12 +98,12 @@ fun FrameWindowScope.StarlitTitleBar(
                         Icons.Default.CropSquare
                     },
                     contentDescription = null,
-                    tint = TitleBarIcon,
+                    tint = StarlitColors.TextMuted,
                     modifier = Modifier.size(13.dp),
                 )
             }
             TitleBarButton(onClick = onClose, danger = true) {
-                Icon(Icons.Default.Close, null, tint = TitleBarIcon, modifier = Modifier.size(15.dp))
+                Icon(Icons.Default.Close, null, tint = StarlitColors.TextMuted, modifier = Modifier.size(15.dp))
             }
         }
     }
