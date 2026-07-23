@@ -1,8 +1,13 @@
 package ru.starlitmoon.launcher.ui.screens
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -10,35 +15,47 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Login
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Fullscreen
-import androidx.compose.material.icons.filled.Login
 import androidx.compose.material.icons.filled.Memory
-import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.VideogameAsset
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import ru.starlitmoon.launcher.LauncherConfig
 import ru.starlitmoon.launcher.LauncherVersion
+import ru.starlitmoon.launcher.api.ModpackDto
 import ru.starlitmoon.launcher.ui.components.BrandMark
+import ru.starlitmoon.launcher.ui.components.HeroBackground
+import ru.starlitmoon.launcher.ui.components.MessageBanner
 import ru.starlitmoon.launcher.ui.components.NetworkAvatar
 import ru.starlitmoon.launcher.ui.components.SectionTitle
 import ru.starlitmoon.launcher.ui.components.SettingsRow
@@ -53,69 +70,232 @@ import ru.starlitmoon.launcher.ui.components.StatusDot
 import ru.starlitmoon.launcher.ui.theme.StarlitColors
 import ru.starlitmoon.launcher.viewmodel.LauncherTab
 import ru.starlitmoon.launcher.viewmodel.LauncherViewModel
+import java.awt.Desktop
+import java.net.URI
 import java.net.URLEncoder
 import javax.swing.JFileChooser
 import javax.swing.filechooser.FileNameExtensionFilter
 
 @Composable
-fun PlayScreen(vm: LauncherViewModel) {
-    val config = vm.configState
+fun HomeScreen(vm: LauncherViewModel) {
     val showProgress = vm.launchProgress != null || vm.isLoading
+    val packName = vm.selectedModpack?.name ?: "Vanilla"
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    HeroBackground {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(bottom = 24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
+                .padding(horizontal = 48.dp, vertical = 28.dp),
             verticalArrangement = Arrangement.Center,
         ) {
-            BrandMark(size = 56.dp)
-            Spacer(Modifier.height(24.dp))
             Text(
                 "STARLITMOON",
-                fontSize = 40.sp,
+                fontSize = 56.sp,
                 fontWeight = FontWeight.Bold,
                 color = StarlitColors.Text,
-                letterSpacing = 2.sp,
+                letterSpacing = 4.sp,
             )
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(14.dp))
             Text(
-                "Ванильный сервер под звёздным небом.",
+                "Ванильный сервер под звёздным небом.\nСборка: $packName · Minecraft ${vm.configState.minecraftVersionId}",
                 color = StarlitColors.TextMuted,
-                fontSize = 15.sp,
-                lineHeight = 22.sp,
+                fontSize = 16.sp,
+                lineHeight = 24.sp,
             )
             Spacer(Modifier.height(36.dp))
-            StarlitPrimaryButton(
-                text = "ИГРАТЬ",
-                onClick = {
-                    if (vm.isLoggedIn) vm.play() else vm.currentTab = LauncherTab.Cabinet
-                },
-                modifier = Modifier.width(220.dp),
-                loading = vm.isLoading,
-            )
+            Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                StarlitPrimaryButton(
+                    text = "ИГРАТЬ",
+                    onClick = { vm.play() },
+                    modifier = Modifier.width(180.dp),
+                    loading = vm.isLoading,
+                )
+                StarlitSecondaryButton(
+                    text = "НАСТРОИТЬ",
+                    onClick = { vm.currentTab = LauncherTab.Settings },
+                    modifier = Modifier.width(180.dp),
+                )
+            }
             if (showProgress) {
-                Spacer(Modifier.height(24.dp))
+                Spacer(Modifier.height(28.dp))
                 StarlitProgressBar(
                     progress = vm.launchProgressFraction,
                     label = vm.launchProgress ?: "Запуск…",
-                    modifier = Modifier.width(360.dp),
+                    modifier = Modifier.widthIn(max = 420.dp).fillMaxWidth(0.55f),
                 )
             }
-            Spacer(Modifier.height(28.dp))
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                StatusDot(vm.serverStatus.online)
-                Text(
-                    "${config.serverHost} · ${vm.serverStatus.playersOnline}/${vm.serverStatus.playersMax} онлайн · v${LauncherVersion.CURRENT}",
-                    color = StarlitColors.TextDim,
-                    fontSize = 12.sp,
-                )
+            Spacer(Modifier.height(48.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+                FooterLink("Telegram") {
+                    openUrl("https://t.me/starlitmoon")
+                }
+                FooterLink("Сайт") {
+                    openUrl("https://starlit-moon.ru")
+                }
             }
         }
+    }
+}
+
+@Composable
+private fun FooterLink(label: String, onClick: () -> Unit) {
+    Text(
+        text = label,
+        color = StarlitColors.Purple,
+        fontSize = 13.sp,
+        fontWeight = FontWeight.Medium,
+        modifier = Modifier.clickable(onClick = onClick),
+    )
+}
+
+private fun openUrl(url: String) {
+    runCatching { Desktop.getDesktop().browse(URI(url)) }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun BuildsScreen(vm: LauncherViewModel) {
+    LaunchedEffect(Unit) { vm.fetchModpacks() }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        Text(
+            "СПИСОК СЕРВЕРОВ",
+            color = StarlitColors.Purple,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            letterSpacing = 1.2.sp,
+        )
+        Spacer(Modifier.height(6.dp))
+        Text(
+            "ВЫБЕРИ СВОЙ МИР",
+            color = StarlitColors.Text,
+            fontSize = 28.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 1.sp,
+        )
+        Spacer(Modifier.height(6.dp))
+        Text(
+            "Официальные сборки StarlitMoon. Выбранная сборка сохраняется в настройках.",
+            color = StarlitColors.TextMuted,
+            fontSize = 14.sp,
+        )
+        Spacer(Modifier.height(20.dp))
+
+        when {
+            vm.isLoadingModpacks -> {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = StarlitColors.Gold, strokeWidth = 2.dp)
+                }
+            }
+            vm.modpacks.isEmpty() -> {
+                StarlitCard(modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Сборки пока недоступны", color = StarlitColors.Text, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "API /api/modpacks не ответил. Попробуйте обновить позже.",
+                            color = StarlitColors.TextMuted,
+                            fontSize = 13.sp,
+                        )
+                        StarlitSecondaryButton(
+                            text = "Обновить",
+                            onClick = { vm.fetchModpacks() },
+                            modifier = Modifier.width(140.dp),
+                        )
+                    }
+                }
+            }
+            else -> {
+                LazyVerticalGrid(
+                    columns = GridCells.Adaptive(minSize = 240.dp),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    items(vm.modpacks, key = { it.id ?: it.slug ?: it.name.orEmpty() }) { pack ->
+                        ModpackCard(
+                            pack = pack,
+                            selected = pack.id == vm.selectedModpack?.id ||
+                                (pack.slug != null && pack.slug == vm.selectedModpack?.slug),
+                            online = vm.serverStatus.online,
+                            onClick = { vm.selectModpack(pack) },
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ModpackCard(
+    pack: ModpackDto,
+    selected: Boolean,
+    online: Boolean,
+    onClick: () -> Unit,
+) {
+    StarlitCard(
+        selected = selected,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+    ) {
+        Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    pack.name ?: pack.slug ?: "Сборка",
+                    color = StarlitColors.Text,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 16.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    StatusDot(online)
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        if (online) "Онлайн" else "Оффлайн",
+                        color = StarlitColors.TextDim,
+                        fontSize = 11.sp,
+                    )
+                }
+            }
+            Text(
+                pack.description?.ifBlank { null } ?: "Без описания",
+                color = StarlitColors.TextMuted,
+                fontSize = 13.sp,
+                lineHeight = 18.sp,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+            )
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                TagChip(pack.loader?.uppercase() ?: "VANILLA")
+                TagChip("MC ${pack.mcVersion ?: "—"}")
+                TagChip("${pack.modsCount} модов")
+                pack.tags.take(3).forEach { TagChip(it) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TagChip(text: String) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .background(StarlitColors.PurpleMuted)
+            .border(1.dp, StarlitColors.Purple.copy(alpha = 0.35f), RoundedCornerShape(50))
+            .padding(horizontal = 10.dp, vertical = 4.dp),
+    ) {
+        Text(text, color = StarlitColors.Text, fontSize = 11.sp, fontWeight = FontWeight.Medium)
     }
 }
 
@@ -123,42 +303,50 @@ fun PlayScreen(vm: LauncherViewModel) {
 fun LoginScreen(vm: LauncherViewModel) {
     var nickname by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState()),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        BrandMark(size = 44.dp)
-        Spacer(Modifier.height(24.dp))
-        Text(
-            "Вход",
-            fontSize = 26.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = StarlitColors.Text,
-        )
-        Spacer(Modifier.height(6.dp))
-        Text(
-            "Ник и пароль с сервера StarlitMoon",
-            color = StarlitColors.TextMuted,
-            fontSize = 14.sp,
-        )
-        Spacer(Modifier.height(28.dp))
-        StarlitCard(modifier = Modifier.width(400.dp)) {
-            Column(
-                modifier = Modifier.padding(28.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
-            ) {
-                StarlitTextField(nickname, { nickname = it }, "Ник")
-                StarlitTextField(password, { password = it }, "Пароль", isPassword = true)
-                Spacer(Modifier.height(4.dp))
-                StarlitPrimaryButton(
-                    text = "Войти",
-                    onClick = { vm.login(nickname, password) },
-                    modifier = Modifier.fillMaxWidth(),
-                    loading = vm.isLoading,
-                )
+    HeroBackground {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            BrandMark(size = 64.dp)
+            Spacer(Modifier.height(20.dp))
+            Text(
+                "STARLITMOON",
+                fontSize = 32.sp,
+                fontWeight = FontWeight.Bold,
+                color = StarlitColors.Text,
+                letterSpacing = 3.sp,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Войдите, чтобы открыть лаунчер",
+                color = StarlitColors.TextMuted,
+                fontSize = 14.sp,
+            )
+            Spacer(Modifier.height(28.dp))
+            vm.errorMessage?.let {
+                MessageBanner(it, true, vm::clearMessages)
+                Spacer(Modifier.height(8.dp))
+            }
+            StarlitCard(modifier = Modifier.width(400.dp)) {
+                Column(
+                    modifier = Modifier.padding(28.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    StarlitTextField(nickname, { nickname = it }, "Ник")
+                    StarlitTextField(password, { password = it }, "Пароль", isPassword = true)
+                    Spacer(Modifier.height(4.dp))
+                    StarlitPrimaryButton(
+                        text = "Войти",
+                        onClick = { vm.login(nickname, password) },
+                        modifier = Modifier.fillMaxWidth(),
+                        loading = vm.isLoading,
+                    )
+                }
             }
         }
     }
@@ -170,7 +358,7 @@ fun CabinetScreen(vm: LauncherViewModel) {
         LoginScreen(vm)
         return
     }
-    androidx.compose.runtime.LaunchedEffect(Unit) { vm.refreshCabinet() }
+    LaunchedEffect(Unit) { vm.refreshCabinet() }
     val player = vm.meData?.cabinet?.player
     val sections = vm.meData?.cabinet?.sections.orEmpty().ifEmpty {
         listOf(
@@ -322,6 +510,14 @@ fun CabinetScreen(vm: LauncherViewModel) {
                 }
             }
         }
+
+        if (vm.isAdmin) {
+            StarlitSecondaryButton(
+                text = "Открыть админ-панель",
+                onClick = { vm.currentTab = LauncherTab.Admin },
+                modifier = Modifier.width(220.dp),
+            )
+        }
     }
 }
 
@@ -444,7 +640,25 @@ fun SettingsScreen(vm: LauncherViewModel) {
             .padding(bottom = 28.dp),
         verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
-        SectionTitle(title = "Настройки", subtitle = "Клиент, память и папка игры")
+        Text(
+            "STARLITMOON CRAFT",
+            color = StarlitColors.Purple,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            letterSpacing = 1.4.sp,
+        )
+        Text(
+            "НАСТРОЙКИ",
+            color = StarlitColors.Text,
+            fontSize = 28.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 1.sp,
+        )
+        Text(
+            "Клиент, память и папка игры",
+            color = StarlitColors.TextMuted,
+            fontSize = 14.sp,
+        )
 
         StarlitCard(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp)) {
@@ -492,7 +706,7 @@ fun SettingsScreen(vm: LauncherViewModel) {
                 SettingsRow(
                     title = "Авто-подключение",
                     subtitle = "Подключаться к ${base.serverHost} после запуска",
-                    icon = { Icon(Icons.Default.OpenInNew, null, tint = StarlitColors.Gold) },
+                    icon = { Icon(Icons.AutoMirrored.Filled.OpenInNew, null, tint = StarlitColors.Gold) },
                 ) {
                     StarlitToggle(checked = autoJoinServer, onCheckedChange = { autoJoinServer = it })
                 }
@@ -512,7 +726,7 @@ fun SettingsScreen(vm: LauncherViewModel) {
                 SettingsRow(
                     title = "Авто-вход на сервере",
                     subtitle = "Команда /login после входа в мир",
-                    icon = { Icon(Icons.Default.Login, null, tint = StarlitColors.Gold) },
+                    icon = { Icon(Icons.AutoMirrored.Filled.Login, null, tint = StarlitColors.Gold) },
                 ) {
                     StarlitToggle(checked = autoLogin, onCheckedChange = { autoLogin = it })
                 }
@@ -580,6 +794,7 @@ fun SettingsScreen(vm: LauncherViewModel) {
                 Text("Обновления", color = StarlitColors.Text, fontWeight = FontWeight.SemiBold)
                 StatRow("Версия лаунчера", LauncherVersion.CURRENT)
                 StatRow("Клиент", base.minecraftVersionId)
+                StatRow("Сборка", vm.selectedModpack?.name ?: base.selectedModpackId.ifBlank { "—" })
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     StarlitPrimaryButton(
                         text = if (vm.isCheckingUpdates) "Проверка…" else "Проверить обновления",

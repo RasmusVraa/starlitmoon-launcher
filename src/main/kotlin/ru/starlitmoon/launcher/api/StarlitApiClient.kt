@@ -362,6 +362,20 @@ class StarlitApiClient(
         return response.body()
     }
 
+    suspend fun listModpacks(): List<ModpackDto> {
+        val response = client.get("$baseUrl/api/modpacks")
+        if (!response.status.isSuccess()) return emptyList()
+        return runCatching { response.body<ModpacksResponse>().packs }.getOrDefault(emptyList())
+    }
+
+    suspend fun getModpack(idOrSlug: String): ModpackDto? {
+        val key = idOrSlug.trim()
+        if (key.isEmpty()) return null
+        val response = client.get("$baseUrl/api/modpacks/${encodePath(key)}")
+        if (!response.status.isSuccess()) return null
+        return runCatching { response.body<ModpackResponse>().pack }.getOrNull()
+    }
+
     fun avatarUrl(player: String, uuid: String? = null): String {
         val p = java.net.URLEncoder.encode(player, Charsets.UTF_8)
         return if (uuid.isNullOrBlank()) "$baseUrl/api/avatar?player=$p&size=64"

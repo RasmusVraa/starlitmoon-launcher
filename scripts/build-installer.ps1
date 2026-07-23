@@ -1,5 +1,5 @@
 #Requires -Version 5
-param([string]$Version = "1.0.7")
+param([string]$Version = "1.0.8")
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 Set-Location $Root

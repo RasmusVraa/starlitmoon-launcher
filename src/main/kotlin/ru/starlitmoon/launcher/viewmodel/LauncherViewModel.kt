@@ -24,6 +24,7 @@ import ru.starlitmoon.launcher.api.AdminProductDto
 import ru.starlitmoon.launcher.api.AdminStatsResponse
 import ru.starlitmoon.launcher.api.AdminTreasuryResponse
 import ru.starlitmoon.launcher.api.MeResponse
+import ru.starlitmoon.launcher.api.ModpackDto
 import ru.starlitmoon.launcher.api.NotificationDto
 import ru.starlitmoon.launcher.api.ServerStatus
 import ru.starlitmoon.launcher.api.StarlitApiClient
@@ -34,9 +35,14 @@ import ru.starlitmoon.launcher.update.UpdateChecker
 import ru.starlitmoon.launcher.update.UpdateInfo
 import java.awt.Toolkit
 import java.awt.datatransfer.StringSelection
+import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.StandardCopyOption
+import kotlin.io.path.createDirectories
+import kotlin.io.path.exists
+import kotlin.io.path.writeBytes
 
-enum class LauncherTab { Play, Cabinet, Admin, Settings }
+enum class LauncherTab { Home, Builds, Cabinet, Settings, Admin }
 
 class LauncherViewModel(
     private val scope: CoroutineScope,
@@ -57,8 +63,11 @@ class LauncherViewModel(
     var userUuid by mutableStateOf<String?>(null)
     var errorMessage by mutableStateOf<String?>(null)
     var infoMessage by mutableStateOf<String?>(null)
-    var currentTab by mutableStateOf(LauncherTab.Play)
+    var currentTab by mutableStateOf(LauncherTab.Home)
     var adminSubTab by mutableStateOf(0)
+    var modpacks by mutableStateOf<List<ModpackDto>>(emptyList())
+    var isLoadingModpacks by mutableStateOf(false)
+    var selectedModpack by mutableStateOf<ModpackDto?>(null)
     var serverStatus by mutableStateOf(ServerStatus.offline(initialConfig.serverHost))
     var serverVersion by mutableStateOf(initialConfig.defaultMcVersion)
     var meData by mutableStateOf<MeResponse?>(null)
@@ -115,7 +124,44 @@ class LauncherViewModel(
             val restored = sessionJob.await()
             if (restored?.user != null) applySession(restored)
             publicJob.await()
+            fetchModpacks()
             startStatusPolling()
+        }
+    }
+
+    fun fetchModpacks() {
+        scope.launch {
+            isLoadingModpacks = true
+            runCatching { withContext(Dispatchers.IO) { api.listModpacks() } }
+                .onSuccess { packs ->
+                    modpacks = packs
+                    val selectedId = configState.selectedModpackId
+                    selectedModpack = packs.firstOrNull { it.id == selectedId || it.slug == selectedId }
+                        ?: packs.firstOrNull()
+                    selectedModpack?.let { pack ->
+                        if (configState.selectedModpackId.isBlank() ||
+                            packs.none { it.id == selectedId || it.slug == selectedId }
+                        ) {
+                            selectModpack(pack, persistOnly = true)
+                        }
+                    }
+                }
+                .onFailure { /* keep empty list until API is live */ }
+            isLoadingModpacks = false
+        }
+    }
+
+    fun selectModpack(pack: ModpackDto, persistOnly: Boolean = false) {
+        selectedModpack = pack
+        val mcVer = pack.mcVersion?.trim().orEmpty()
+        val next = configState.copy(
+            selectedModpackId = pack.id.orEmpty().ifBlank { pack.slug.orEmpty() },
+            minecraftVersionId = mcVer.ifBlank { configState.minecraftVersionId },
+        )
+        LauncherConfig.save(next)
+        configState = next
+        if (!persistOnly) {
+            infoMessage = "Выбрана сборка: ${pack.name ?: pack.slug ?: "—"}"
         }
     }
 
@@ -157,7 +203,8 @@ class LauncherViewModel(
                 .onSuccess {
                     applySession(it)
                     infoMessage = "Вход выполнен"
-                    currentTab = LauncherTab.Play
+                    currentTab = LauncherTab.Home
+                    fetchModpacks()
                 }
                 .onFailure { handleError(it) }
             isLoading = false
@@ -189,7 +236,7 @@ class LauncherViewModel(
             adminRconResponse = ""
             lastResetPassword = null
             notifications = emptyList()
-            currentTab = LauncherTab.Play
+            currentTab = LauncherTab.Home
             isLoading = false
         }
     }
@@ -253,7 +300,6 @@ class LauncherViewModel(
     fun play() {
         if (!isLoggedIn) {
             errorMessage = "Сначала войдите"
-            currentTab = LauncherTab.Cabinet
             return
         }
         scope.launch {
@@ -261,8 +307,21 @@ class LauncherViewModel(
             launchProgress = "Подготовка…"
             launchProgressFraction = 0f
             errorMessage = null
+            val pack = selectedModpack
+                ?: modpacks.firstOrNull { it.id == configState.selectedModpackId || it.slug == configState.selectedModpackId }
+            val versionId = pack?.mcVersion?.trim()?.ifBlank { null }
+                ?: configState.minecraftVersionId
+            val loader = pack?.loader?.lowercase().orEmpty()
+            if (pack != null && loader.isNotBlank() && loader != "vanilla") {
+                launchProgress = "Загрузка модов сборки…"
+                val synced = withContext(Dispatchers.IO) { syncModpackMods(pack) }
+                if (!synced) {
+                    infoMessage =
+                        "Моды сборки «${pack.name}» будут скачиваться в следующих версиях. Запуск с версией $versionId."
+                }
+            }
             val result = withContext(Dispatchers.IO) {
-                mc.launch(userName, configState.minecraftVersionId) { msg, frac ->
+                mc.launch(userName, versionId) { msg, frac ->
                     scope.launch {
                         launchProgress = msg
                         launchProgressFraction = frac
@@ -294,6 +353,35 @@ class LauncherViewModel(
             launchProgressFraction = null
             isLoading = false
         }
+    }
+
+    /** Downloads pack mods into game/mods when the API returns file URLs. */
+    private suspend fun syncModpackMods(pack: ModpackDto): Boolean {
+        val detail = runCatching {
+            api.getModpack(pack.id ?: pack.slug.orEmpty())
+        }.getOrNull() ?: pack
+        val mods = detail.mods.filter { !it.url.isNullOrBlank() && !it.fileName.isNullOrBlank() }
+        if (mods.isEmpty()) return false
+        val modsDir = configState.gameDir.resolve("mods")
+        modsDir.createDirectories()
+        var ok = 0
+        for (mod in mods) {
+            val url = mod.url ?: continue
+            val name = mod.fileName ?: continue
+            runCatching {
+                val target = modsDir.resolve(name)
+                if (target.exists() && mod.sha256.isNullOrBlank()) {
+                    ok++
+                    return@runCatching
+                }
+                val bytes = java.net.URI(url).toURL().openStream().use { it.readBytes() }
+                val tmp = modsDir.resolve("$name.part")
+                tmp.writeBytes(bytes)
+                Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING)
+                ok++
+            }
+        }
+        return ok > 0
     }
 
     fun refreshCabinet() {

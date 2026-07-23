@@ -20,7 +20,15 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.filled.Apps
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -35,8 +43,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -48,8 +59,19 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import ru.starlitmoon.launcher.ui.theme.StarlitColors
 import ru.starlitmoon.launcher.ui.theme.StarlitDimens
+import ru.starlitmoon.launcher.update.UpdateInfo
+import ru.starlitmoon.launcher.viewmodel.LauncherTab
+import ru.starlitmoon.launcher.viewmodel.LauncherViewModel
 
-/** Solid, calm backdrop. No stars, no nebula, no motion. */
+@Composable
+fun rememberBrandLogo(): ImageBitmap? = remember {
+    runCatching {
+        val stream = object {}.javaClass.getResourceAsStream("/brand-logo.png")
+            ?: error("missing /brand-logo.png")
+        org.jetbrains.skia.Image.makeFromEncoded(stream.readBytes()).toComposeImageBitmap()
+    }.getOrNull()
+}
+
 @Composable
 fun StarlitBackground(content: @Composable BoxScope.() -> Unit) {
     Box(
@@ -60,15 +82,64 @@ fun StarlitBackground(content: @Composable BoxScope.() -> Unit) {
     )
 }
 
+/** Full-bleed brand logo with dark cinematic overlay. */
+@Composable
+fun HeroBackground(
+    modifier: Modifier = Modifier,
+    content: @Composable BoxScope.() -> Unit,
+) {
+    val logo = rememberBrandLogo()
+    Box(modifier = modifier.fillMaxSize()) {
+        if (logo != null) {
+            Image(
+                bitmap = logo,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+                alpha = 0.22f,
+            )
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color(0xE605060A),
+                            Color(0xCC07090F),
+                            Color(0xF207090F),
+                        ),
+                    ),
+                ),
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.horizontalGradient(
+                        colors = listOf(
+                            Color(0x9907090F),
+                            Color.Transparent,
+                            Color(0x6607090F),
+                        ),
+                    ),
+                ),
+        )
+        content()
+    }
+}
+
 @Composable
 fun StarlitCard(
     modifier: Modifier = Modifier,
+    selected: Boolean = false,
     content: @Composable () -> Unit,
 ) {
+    val borderColor = if (selected) StarlitColors.Gold else StarlitColors.Border
     Surface(
         modifier = modifier
             .clip(RoundedCornerShape(StarlitDimens.Radius))
-            .border(1.dp, StarlitColors.Border, RoundedCornerShape(StarlitDimens.Radius)),
+            .border(if (selected) 2.dp else 1.dp, borderColor, RoundedCornerShape(StarlitDimens.Radius)),
         color = StarlitColors.Surface,
         shadowElevation = 0.dp,
         content = content,
@@ -129,7 +200,7 @@ fun StarlitSecondaryButton(
             .height(48.dp)
             .clip(shape)
             .background(StarlitColors.Surface)
-            .border(1.dp, StarlitColors.Border, shape)
+            .border(1.dp, StarlitColors.Purple.copy(alpha = 0.45f), shape)
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
@@ -381,13 +452,7 @@ fun SettingsRow(
 
 @Composable
 fun BrandMark(modifier: Modifier = Modifier, size: Dp = 44.dp) {
-    val icon = remember {
-        runCatching {
-            val stream = object {}.javaClass.getResourceAsStream("/icon.png")
-                ?: error("missing /icon.png")
-            org.jetbrains.skia.Image.makeFromEncoded(stream.readBytes()).toComposeImageBitmap()
-        }.getOrNull()
-    }
+    val logo = rememberBrandLogo()
     Box(
         modifier = modifier
             .size(size)
@@ -396,9 +461,9 @@ fun BrandMark(modifier: Modifier = Modifier, size: Dp = 44.dp) {
             .border(1.dp, StarlitColors.Border, RoundedCornerShape(StarlitDimens.RadiusSm)),
         contentAlignment = Alignment.Center,
     ) {
-        if (icon != null) {
+        if (logo != null) {
             Image(
-                bitmap = icon,
+                bitmap = logo,
                 contentDescription = "StarlitMoon",
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop,
@@ -432,10 +497,248 @@ fun BrandWordmark(modifier: Modifier = Modifier) {
     }
 }
 
-/**
- * Loads an avatar image from [url] on a background thread and renders it.
- * Falls back to a flat placeholder box with the first letter of [fallbackName] on failure.
- */
+@Composable
+fun SidebarNav(vm: LauncherViewModel) {
+    Column(
+        modifier = Modifier
+            .width(StarlitDimens.SidebarWidth)
+            .fillMaxHeight()
+            .background(Color(0xFF0A0C12))
+            .border(width = 1.dp, color = StarlitColors.Border),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Spacer(Modifier.height(16.dp))
+        BrandMark(size = 40.dp)
+        Spacer(Modifier.height(28.dp))
+
+        SidebarIcon(
+            icon = Icons.Default.Person,
+            selected = vm.currentTab == LauncherTab.Cabinet,
+            contentDescription = "Кабинет",
+            onClick = { vm.currentTab = LauncherTab.Cabinet },
+        )
+        Spacer(Modifier.height(10.dp))
+        SidebarIcon(
+            icon = Icons.Default.Home,
+            selected = vm.currentTab == LauncherTab.Home,
+            contentDescription = "Главная",
+            onClick = { vm.currentTab = LauncherTab.Home },
+        )
+        Spacer(Modifier.height(10.dp))
+        SidebarIcon(
+            icon = Icons.Default.Apps,
+            selected = vm.currentTab == LauncherTab.Builds,
+            contentDescription = "Сборки",
+            onClick = { vm.currentTab = LauncherTab.Builds },
+        )
+        Spacer(Modifier.height(10.dp))
+        SidebarIcon(
+            icon = Icons.Default.Settings,
+            selected = vm.currentTab == LauncherTab.Settings,
+            contentDescription = "Настройки",
+            onClick = { vm.currentTab = LauncherTab.Settings },
+        )
+        if (vm.isAdmin) {
+            Spacer(Modifier.height(10.dp))
+            SidebarIcon(
+                icon = Icons.Default.Security,
+                selected = vm.currentTab == LauncherTab.Admin,
+                contentDescription = "Админ",
+                onClick = { vm.currentTab = LauncherTab.Admin },
+            )
+        }
+
+        Spacer(Modifier.weight(1f))
+        SidebarIcon(
+            icon = Icons.AutoMirrored.Filled.Logout,
+            selected = false,
+            contentDescription = "Выйти",
+            onClick = vm::logout,
+            tintOverride = StarlitColors.TextMuted,
+        )
+        Spacer(Modifier.height(18.dp))
+    }
+}
+
+@Composable
+private fun SidebarIcon(
+    icon: ImageVector,
+    selected: Boolean,
+    contentDescription: String,
+    onClick: () -> Unit,
+    tintOverride: Color? = null,
+) {
+    val shape = RoundedCornerShape(14.dp)
+    Box(
+        modifier = Modifier
+            .size(44.dp)
+            .clip(shape)
+            .then(
+                if (selected) {
+                    Modifier
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(
+                                    StarlitColors.Gold.copy(alpha = 0.35f),
+                                    StarlitColors.Purple.copy(alpha = 0.45f),
+                                ),
+                            ),
+                        )
+                        .border(1.dp, StarlitColors.Gold.copy(alpha = 0.55f), shape)
+                } else {
+                    Modifier
+                },
+            )
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = tintOverride
+                ?: if (selected) StarlitColors.Gold else StarlitColors.TextMuted,
+            modifier = Modifier.size(22.dp),
+        )
+    }
+}
+
+@Composable
+fun TopStatusBar(vm: LauncherViewModel) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(56.dp)
+            .padding(horizontal = 20.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        StatusPill(
+            text = "Сейчас играют ${vm.serverStatus.playersOnline}",
+            online = vm.serverStatus.online,
+            emphasize = true,
+        )
+        Spacer(Modifier.width(10.dp))
+        StatusPill(
+            text = if (vm.serverStatus.online) "Сервер онлайн" else "Сервер оффлайн",
+            online = vm.serverStatus.online,
+        )
+        Spacer(Modifier.weight(1f))
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    vm.userName.ifBlank { "Игрок" },
+                    color = StarlitColors.Text,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 13.sp,
+                )
+                Text(
+                    "StarlitMoon",
+                    color = StarlitColors.Gold,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
+            NetworkAvatar(
+                url = vm.avatarUrl(),
+                fallbackName = vm.userName,
+                size = 36.dp,
+            )
+        }
+    }
+}
+
+@Composable
+private fun StatusPill(
+    text: String,
+    online: Boolean,
+    emphasize: Boolean = false,
+) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .background(StarlitColors.Surface)
+            .border(1.dp, StarlitColors.Border, RoundedCornerShape(50))
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        StatusDot(online)
+        Spacer(Modifier.width(8.dp))
+        Text(
+            text,
+            color = if (emphasize) StarlitColors.Text else StarlitColors.TextMuted,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium,
+        )
+    }
+}
+@Composable
+fun UpdateOverlay(
+    update: UpdateInfo,
+    onDownload: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(StarlitColors.OverlayScrim)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onDismiss,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        StarlitCard(
+            modifier = Modifier
+                .width(420.dp)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = {},
+                ),
+        ) {
+            Column(
+                modifier = Modifier.padding(24.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(
+                    "Доступно обновление",
+                    color = StarlitColors.Gold,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp,
+                )
+                Text(
+                    "Версия ${update.latestVersion} (сейчас ${update.currentVersion})",
+                    color = StarlitColors.TextMuted,
+                    fontSize = 14.sp,
+                )
+                if (update.releaseNotes.isNotBlank()) {
+                    Text(
+                        update.releaseNotes.lines().take(6).joinToString("\n"),
+                        color = StarlitColors.Text,
+                        fontSize = 13.sp,
+                        lineHeight = 18.sp,
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    StarlitPrimaryButton(
+                        text = "Обновить",
+                        onClick = onDownload,
+                        modifier = Modifier.width(140.dp),
+                    )
+                    StarlitSecondaryButton(
+                        text = "Позже",
+                        onClick = onDismiss,
+                        modifier = Modifier.width(120.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
 @Composable
 fun NetworkAvatar(
     url: String,

@@ -30,6 +30,7 @@ data class LauncherConfig(
     val gamePath: String = "",
     val skinPath: String = "",
     val skinTextureUrl: String = "",
+    val selectedModpackId: String = "",
     val githubOwner: String = "RasmusVraa",
     val githubRepo: String = "starlitmoon-launcher",
     val checkUpdatesOnStart: Boolean = true,

@@ -9,12 +9,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /**
- * Flat, calm, premium palette. No gradients, no glass, no animated decoration.
+ * Cinematic dark palette — gold primary, purple secondary accents.
  */
 object StarlitColors {
     val Background = Color(0xFF07090F)
     val Surface = Color(0xFF121622)
     val SurfaceHover = Color(0xFF161C2B)
+    val SurfaceElevated = Color(0xFF1A1F2E)
     val Border = Color(0xFF1E2433)
     val BorderStrong = Color(0xFF2A3245)
 
@@ -23,18 +24,24 @@ object StarlitColors {
     val GoldDim = Color(0xFF9C7B37)
     val OnGold = Color(0xFF16130B)
 
+    val Purple = Color(0xFF7B5EA7)
+    val PurpleMuted = Color(0x337B5EA7)
+    val PurpleDim = Color(0xFF5A4478)
+
     val Text = Color(0xFFEDEFF4)
     val TextMuted = Color(0xFF8A93A8)
     val TextDim = Color(0xFF565F73)
 
     val Online = Color(0xFF3ECE8A)
     val Offline = Color(0xFFE5636F)
+    val OverlayScrim = Color(0xCC05060A)
 }
 
 object StarlitDimens {
-    val Radius = 12.dp
+    val Radius = 14.dp
     val RadiusSm = 10.dp
     val RadiusPill = 999.dp
+    val SidebarWidth = 72.dp
     val WindowMinWidth = 1080.dp
     val WindowMinHeight = 680.dp
 }

@@ -322,3 +322,42 @@ data class AdminOrderDto(
     val delivered: Boolean = false,
     val createdAt: String? = null,
 )
+
+@Serializable
+data class ModpacksResponse(
+    val ok: Boolean = false,
+    val packs: List<ModpackDto> = emptyList(),
+)
+
+@Serializable
+data class ModpackResponse(
+    val ok: Boolean = false,
+    val pack: ModpackDto? = null,
+)
+
+@Serializable
+data class ModpackDto(
+    val id: String? = null,
+    val slug: String? = null,
+    val name: String? = null,
+    val description: String? = null,
+    val loader: String? = null,
+    val mcVersion: String? = null,
+    val tags: List<String> = emptyList(),
+    val coverUrl: String? = null,
+    val enabled: Boolean = true,
+    val sortOrder: Int = 0,
+    val createdAt: String? = null,
+    val updatedAt: String? = null,
+    val modsCount: Int = 0,
+    val mods: List<ModpackModDto> = emptyList(),
+)
+
+@Serializable
+data class ModpackModDto(
+    val id: String? = null,
+    val fileName: String? = null,
+    val size: Long? = null,
+    val sha256: String? = null,
+    val url: String? = null,
+)
