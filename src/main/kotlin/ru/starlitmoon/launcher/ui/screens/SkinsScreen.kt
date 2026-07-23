@@ -32,7 +32,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import ru.starlitmoon.launcher.ui.components.LocalSkinFace
 import ru.starlitmoon.launcher.ui.components.SkinPreview3D
-import ru.starlitmoon.launcher.ui.components.StarlitIconButton
 import ru.starlitmoon.launcher.ui.components.StarlitPrimaryButton
 import ru.starlitmoon.launcher.ui.components.StarlitSecondaryButton
 import ru.starlitmoon.launcher.ui.theme.StarlitColors
@@ -131,9 +130,10 @@ fun SkinsScreen(vm: LauncherViewModel) {
                 ) {
                     vm.skinLibraryEntries.forEach { entry ->
                         val selected = entry.id == vm.activeSkinId
+                        val hasCape = entry.capeFileName != null
                         Column(
                             modifier = Modifier
-                                .width(168.dp)
+                                .width(180.dp)
                                 .clip(RoundedCornerShape(14.dp))
                                 .background(if (selected) StarlitColors.GoldMuted else Color(0x22101828))
                                 .border(
@@ -142,7 +142,7 @@ fun SkinsScreen(vm: LauncherViewModel) {
                                     RoundedCornerShape(14.dp),
                                 )
                                 .clickable { vm.selectLibrarySkin(entry.id) }
-                                .padding(10.dp),
+                                .padding(12.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
@@ -160,37 +160,39 @@ fun SkinsScreen(vm: LauncherViewModel) {
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
+                            if (selected) {
+                                Text("Активный", color = StarlitColors.Gold, fontSize = 11.sp)
+                            }
+                            StarlitSecondaryButton(
+                                text = if (hasCape) "Сменить плащ" else "Добавить плащ",
+                                onClick = {
+                                    val chooser = JFileChooser().apply {
+                                        fileSelectionMode = JFileChooser.FILES_ONLY
+                                        dialogTitle = "Плащ PNG 64×32"
+                                        fileFilter = FileNameExtensionFilter("PNG", "png")
+                                    }
+                                    if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
+                                        vm.setLibraryCape(entry.id, chooser.selectedFile.absolutePath)
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                compact = true,
+                            )
+                            if (hasCape) {
                                 StarlitSecondaryButton(
-                                    text = if (entry.capeFileName != null) "Плащ ✓" else "Плащ",
-                                    onClick = {
-                                        val chooser = JFileChooser().apply {
-                                            fileSelectionMode = JFileChooser.FILES_ONLY
-                                            dialogTitle = "Плащ PNG 64×32"
-                                            fileFilter = FileNameExtensionFilter("PNG", "png")
-                                        }
-                                        if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
-                                            vm.setLibraryCape(entry.id, chooser.selectedFile.absolutePath)
-                                        }
-                                    },
-                                    modifier = Modifier.weight(1f),
+                                    text = "Убрать плащ",
+                                    onClick = { vm.setLibraryCape(entry.id, null) },
+                                    modifier = Modifier.fillMaxWidth(),
                                     compact = true,
                                 )
-                                if (entry.capeFileName != null) {
-                                    StarlitIconButton(
-                                        text = "−",
-                                        onClick = { vm.setLibraryCape(entry.id, null) },
-                                    )
-                                }
-                                StarlitIconButton(
-                                    text = "×",
-                                    onClick = { vm.removeLibrarySkin(entry.id) },
-                                    danger = true,
-                                )
                             }
+                            StarlitPrimaryButton(
+                                text = "Удалить скин",
+                                onClick = { vm.removeLibrarySkin(entry.id) },
+                                modifier = Modifier.fillMaxWidth(),
+                                compact = true,
+                                danger = true,
+                            )
                         }
                     }
                 }

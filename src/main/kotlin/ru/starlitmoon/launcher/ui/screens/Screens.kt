@@ -380,14 +380,17 @@ private fun NetworkCover(
 ) {
     var bitmap by remember(url) { mutableStateOf<ImageBitmap?>(null) }
     LaunchedEffect(url) {
-        bitmap = null
-        if (url.isBlank()) return@LaunchedEffect
+        if (url.isBlank()) {
+            bitmap = null
+            return@LaunchedEffect
+        }
+        // Keep previous frame while refreshing so cached banners don't flicker.
         bitmap = withContext(Dispatchers.IO) {
             runCatching {
-                val bytes = java.net.URI(url).toURL().openStream().use { it.readBytes() }
+                val bytes = ru.starlitmoon.launcher.util.ImageDiskCache.loadOrFetch(url) ?: return@runCatching null
                 org.jetbrains.skia.Image.makeFromEncoded(bytes).toComposeImageBitmap()
             }.getOrNull()
-        }
+        } ?: bitmap
     }
     Box(
         modifier = modifier
