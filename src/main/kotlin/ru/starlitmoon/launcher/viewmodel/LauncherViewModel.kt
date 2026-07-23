@@ -344,15 +344,20 @@ class LauncherViewModel(
             errorMessage = null
             val pack = selectedModpack
                 ?: modpacks.firstOrNull { it.id == configState.selectedModpackId || it.slug == configState.selectedModpackId }
-            val versionId = pack?.mcVersion?.trim()?.ifBlank { null }
-                ?: configState.minecraftVersionId
-            var instanceDir: Path? = null
-            if (pack != null) {
-                val detail = withContext(Dispatchers.IO) {
+            val detail = if (pack != null) {
+                withContext(Dispatchers.IO) {
                     runCatching { api.getModpack(pack.id ?: pack.slug.orEmpty()) }.getOrNull() ?: pack
                 }
+            } else {
+                null
+            }
+            val versionId = detail?.mcVersion?.trim()?.ifBlank { null }
+                ?: configState.minecraftVersionId
+            val loader = detail?.loader?.lowercase()?.ifBlank { null } ?: "vanilla"
+            val loaderVersion = detail?.loaderVersion?.trim()?.ifBlank { null }
+            var instanceDir: Path? = null
+            if (detail != null) {
                 instanceDir = ModpackSync.packDir(configState.dataDir, detail).also { it.createDirectories() }
-                val loader = detail.loader?.lowercase().orEmpty()
                 if (detail.hasArchive && detail.archive?.url != null) {
                     launchProgress = "Загрузка архива сборки…"
                     val synced = runCatching {
@@ -369,17 +374,22 @@ class LauncherViewModel(
                         isLoading = false
                         return@launch
                     }
-                } else if (loader.isNotBlank() && loader != "vanilla") {
+                } else if (loader != "vanilla") {
                     launchProgress = "Загрузка модов сборки…"
                     val synced = withContext(Dispatchers.IO) { syncLegacyModJars(detail, instanceDir!!) }
                     if (!synced) {
-                        infoMessage =
-                            "Для «${detail.name}» ещё нет ZIP-архива. Запуск с версией $versionId."
+                        infoMessage = "Для «${detail.name}» ещё нет ZIP-архива. Запуск через $loader."
                     }
                 }
             }
             val result = withContext(Dispatchers.IO) {
-                mc.launch(userName, versionId, instanceDir) { msg, frac ->
+                mc.launch(
+                    username = userName,
+                    preferredVersion = versionId,
+                    instanceDir = instanceDir,
+                    loader = loader,
+                    loaderVersion = loaderVersion,
+                ) { msg, frac ->
                     scope.launch {
                         launchProgress = msg
                         launchProgressFraction = frac
@@ -387,7 +397,7 @@ class LauncherViewModel(
                 }
             }
             if (result.success) {
-                infoMessage = "Игра запущена. На сервере: /login"
+                infoMessage = "Игра запущена ($loader). На сервере: /login"
                 if (!configState.keepLauncherOpen) {
                     requestExit = true
                 }

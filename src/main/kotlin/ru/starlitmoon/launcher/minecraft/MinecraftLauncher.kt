@@ -57,6 +57,38 @@ class MinecraftLauncher(
         val process: Process? = null,
     )
 
+    data class PreparedVersion(
+        val id: String,
+        val meta: VersionMeta,
+        /** Каталог/имя jar клиента (обычно ванильный parent при inheritsFrom). */
+        val clientJarId: String,
+    )
+
+    private val loaderInstaller = ModLoaderInstaller(
+        http = http,
+        config = config,
+        json = json,
+        resolveJava = { minMajor ->
+            findSystemJava()?.takeIf { javaMajorVersion(it) >= minMajor }
+                ?: runCatching {
+                    javaRuntimes.ensureRuntime("java-runtime-epsilon") { _, _ -> }
+                        .toAbsolutePath().toString()
+                        .takeIf { javaMajorVersion(it) >= minMajor }
+                }.getOrNull()
+                ?: error("Нужна Java $minMajor+ для установки модлоадера")
+        },
+    )
+
+    /**
+     * Устанавливает профиль Fabric/NeoForge при необходимости и возвращает id версии для запуска.
+     */
+    suspend fun resolveLaunchVersionId(
+        mcVersion: String,
+        loader: String = "vanilla",
+        loaderVersion: String? = null,
+        onProgress: (String, Float?) -> Unit = { _, _ -> },
+    ): String = loaderInstaller.ensureLoaderProfile(loader, mcVersion, loaderVersion, onProgress)
+
     suspend fun resolveClientVersion(preferred: String = ""): String {
         val manifest = loadManifest()
         val candidates = listOf(
@@ -67,42 +99,35 @@ class MinecraftLauncher(
         ).map { it.trim() }.filter { it.isNotEmpty() }.distinct()
         for (id in candidates) {
             if (manifest.versions.any { it.id == id }) return id
+            if (isInstalledProfile(id)) return id
         }
         return manifest.versions.firstOrNull { it.type == "release" }?.id ?: "26.2"
     }
 
-    suspend fun ensureVersion(preferred: String = "", onProgress: (String, Float?) -> Unit = { _, _ -> }): Result<Pair<String, VersionMeta>> =
+    private fun isInstalledProfile(id: String): Boolean =
+        config.versionsDir.resolve(id).resolve("$id.json").exists()
+
+    suspend fun ensureVersion(preferred: String = "", onProgress: (String, Float?) -> Unit = { _, _ -> }): Result<PreparedVersion> =
         runCatching {
             onProgress("Определение версии…", 0.01f)
-            val id = resolveClientVersion(preferred)
-            val versionDir = config.versionsDir.resolve(id)
-            val versionJson = versionDir.resolve("$id.json")
-            versionDir.createDirectories()
+            val id = resolveEnsureId(preferred)
             config.librariesDir.createDirectories()
             config.assetsDir.createDirectories()
 
-            val versionMeta = if (versionJson.exists()) {
-                json.decodeFromString<VersionMeta>(versionJson.readText())
-            } else {
-                onProgress("Список версий…", 0.03f)
-                val manifest = loadManifest()
-                val url = manifest.versions.firstOrNull { it.id == id }?.url
-                    ?: error("Версия $id недоступна")
-                onProgress("Метаданные $id…", 0.05f)
-                val meta = json.decodeFromString<VersionMeta>(http.get(url).bodyAsText())
-                versionJson.writeText(json.encodeToString(VersionMeta.serializer(), meta))
-                meta
-            }
-
+            onProgress("Метаданные $id…", 0.05f)
+            val chain = loadVersionChain(id, onProgress)
+            val (merged, clientJarId) = mergeVersionChain(chain)
+            val versionDir = config.versionsDir.resolve(id).apply { createDirectories() }
             val nativesDir = versionDir.resolve("natives").apply { createDirectories() }
-            val libs = versionMeta.libraries.filter { it.appliesToCurrentOs() }
+
+            val libs = merged.libraries.filter { it.appliesToCurrentOs() }
             val totalLibs = libs.size.coerceAtLeast(1)
             val libSem = Semaphore(12)
             coroutineScope {
                 libs.mapIndexed { index, library ->
                     async(Dispatchers.IO) {
                         libSem.withPermit {
-                            val artifact = library.downloads?.artifact ?: return@withPermit
+                            val artifact = library.resolvedArtifact() ?: return@withPermit
                             val libPath = if (artifact.path.isNotBlank()) {
                                 config.librariesDir.resolve(artifact.path)
                             } else {
@@ -123,16 +148,17 @@ class MinecraftLauncher(
                 }.awaitAll()
             }
 
-            val clientJar = versionDir.resolve("$id.jar")
-            val clientUrl = versionMeta.downloads?.client?.url
-                ?: error("Нет ссылки на клиент")
+            val clientDir = config.versionsDir.resolve(clientJarId).apply { createDirectories() }
+            val clientJar = clientDir.resolve("$clientJarId.jar")
+            val clientUrl = merged.downloads?.client?.url
+                ?: error("Нет ссылки на клиентский jar (профиль $id → $clientJarId)")
             if (!clientJar.exists()) {
-                onProgress("Скачивание клиента…", 0.42f)
+                onProgress("Скачивание клиента $clientJarId…", 0.42f)
                 downloadBinaryWithRetry(clientUrl, clientJar)
             }
             onProgress("Клиент готов", 0.45f)
 
-            val assetIndex = versionMeta.assetIndex ?: error("Нет индекса ассетов")
+            val assetIndex = merged.assetIndex ?: error("Нет индекса ассетов")
             val assetIndexFile = config.assetsDir.resolve("indexes").resolve("${assetIndex.id}.json")
             assetIndexFile.parent?.createDirectories()
             if (!assetIndexFile.exists()) {
@@ -141,24 +167,97 @@ class MinecraftLauncher(
             }
             downloadAssets(assetIndexFile, onProgress)
 
-            id to versionMeta
+            PreparedVersion(id, merged, clientJarId)
         }
+
+    private suspend fun resolveEnsureId(preferred: String): String {
+        val raw = preferred.trim()
+        if (raw.isNotEmpty() && (isLoaderProfileId(raw) || isInstalledProfile(raw))) return raw
+        return resolveClientVersion(raw)
+    }
+
+    private fun isLoaderProfileId(id: String): Boolean =
+        id.startsWith("fabric-loader-") || id.startsWith("neoforge-") || id.contains("-forge-")
+
+    private suspend fun loadVersionChain(id: String, onProgress: (String, Float?) -> Unit): List<VersionMeta> {
+        val chain = mutableListOf<VersionMeta>()
+        val seen = linkedSetOf<String>()
+        var current = id
+        while (true) {
+            check(seen.add(current)) { "Цикл inheritsFrom около $current" }
+            chain += loadOrFetchVersionMeta(current, onProgress)
+            val parent = chain.last().inheritsFrom?.trim().orEmpty()
+            if (parent.isEmpty()) break
+            current = parent
+        }
+        return chain
+    }
+
+    private suspend fun loadOrFetchVersionMeta(id: String, onProgress: (String, Float?) -> Unit): VersionMeta {
+        val versionDir = config.versionsDir.resolve(id).apply { createDirectories() }
+        val versionJson = versionDir.resolve("$id.json")
+        if (versionJson.exists()) {
+            return json.decodeFromString(versionJson.readText())
+        }
+        onProgress("Список версий (Mojang)…", 0.03f)
+        val manifest = loadManifest()
+        val url = manifest.versions.firstOrNull { it.id == id }?.url
+            ?: error("Версия $id недоступна (нет локального профиля и нет в манифесте Mojang)")
+        onProgress("Метаданные $id…", 0.05f)
+        val meta = json.decodeFromString<VersionMeta>(http.get(url).bodyAsText())
+        versionJson.writeText(json.encodeToString(VersionMeta.serializer(), meta))
+        return meta
+    }
+
+    private fun mergeVersionChain(chain: List<VersionMeta>): Pair<VersionMeta, String> {
+        require(chain.isNotEmpty())
+        val child = chain.first()
+        val libraries = chain.asReversed().flatMap { it.libraries }
+        val jvm = chain.asReversed().flatMap { it.arguments?.resolvedJvm().orEmpty() }
+        val game = chain.asReversed().flatMap { it.arguments?.game.orEmpty() }
+        val merged = VersionMeta(
+            id = child.id,
+            type = child.type,
+            mainClass = child.mainClass,
+            libraries = libraries,
+            downloads = chain.firstNotNullOfOrNull { it.downloads },
+            assetIndex = chain.firstNotNullOfOrNull { it.assetIndex },
+            arguments = VersionArguments(jvm = jvm, game = game),
+            javaVersion = chain.firstNotNullOfOrNull { it.javaVersion },
+            inheritsFrom = null,
+        )
+        val jarId = chain.asReversed().firstOrNull { it.downloads?.client?.url != null }?.id
+            ?: chain.last().id
+        return merged to jarId
+    }
 
     /**
      * @param instanceDir каталог инстанса (сборка): mods/config и т.п.
      * Версии/библиотеки/ассеты остаются в общем [LauncherConfig.gameDir].
+     * @param loader fabric / neoforge / vanilla — при fabric/neoforge ставится профиль лоадера.
      */
     suspend fun launch(
         username: String,
         preferredVersion: String = "",
         instanceDir: Path? = null,
+        loader: String = "vanilla",
+        loaderVersion: String? = null,
         onProgress: (String, Float?) -> Unit = { _, _ -> },
     ): LaunchResult {
-        val prepared = ensureVersion(preferredVersion, onProgress)
+        val mcVersion = preferredVersion.ifBlank { config.minecraftVersionId }
+        val versionId = try {
+            resolveLaunchVersionId(mcVersion, loader, loaderVersion, onProgress)
+        } catch (e: Exception) {
+            return LaunchResult(false, e.message ?: "Не удалось подготовить модлоадер")
+        }
+        val prepared = ensureVersion(versionId, onProgress)
         if (prepared.isFailure) {
             return LaunchResult(false, prepared.exceptionOrNull()?.message ?: "Ошибка подготовки")
         }
-        val (id, versionMeta) = prepared.getOrThrow()
+        val preparedVersion = prepared.getOrThrow()
+        val id = preparedVersion.id
+        val versionMeta = preparedVersion.meta
+        val clientJarId = preparedVersion.clientJarId
 
         val component = versionMeta.javaVersion?.component ?: "java-runtime-epsilon"
         val requiredMajor = versionMeta.javaVersion?.majorVersion ?: 25
@@ -177,7 +276,7 @@ class MinecraftLauncher(
 
         val gameDirectory = (instanceDir ?: config.gameDir).also { it.createDirectories() }
         val nativesDir = config.versionsDir.resolve(id).resolve("natives")
-        val classpath = buildClasspath(id, versionMeta)
+        val classpath = buildClasspath(clientJarId, versionMeta)
         val uuid = offlineUuid(username)
         val vars = mapOf(
             "auth_player_name" to username,
@@ -192,6 +291,7 @@ class MinecraftLauncher(
             "user_type" to "legacy",
             "version_type" to versionMeta.type,
             "natives_directory" to nativesDir.toAbsolutePath().toString(),
+            "library_directory" to config.librariesDir.toAbsolutePath().toString(),
             "launcher_name" to "starlitmoon",
             "launcher_version" to LauncherVersion.CURRENT,
             "classpath" to classpath,
@@ -408,16 +508,15 @@ class MinecraftLauncher(
         throw last ?: IllegalStateException("Не удалось скачать $url")
     }
 
-    private fun buildClasspath(versionId: String, meta: VersionMeta): String {
+    private fun buildClasspath(clientJarId: String, meta: VersionMeta): String {
         val paths = buildList {
             for (library in meta.libraries) {
                 if (!library.appliesToCurrentOs()) continue
-                // LWJGL 3 natives jars must stay on the classpath; DLLs are also extracted to natives/.
-                val artifact = library.downloads?.artifact ?: continue
+                val artifact = library.resolvedArtifact() ?: continue
                 if (artifact.path.isBlank()) continue
                 add(config.librariesDir.resolve(artifact.path))
             }
-            add(config.versionsDir.resolve(versionId).resolve("$versionId.jar"))
+            add(config.versionsDir.resolve(clientJarId).resolve("$clientJarId.jar"))
         }
         return paths.joinToString(File.pathSeparator) { it.toAbsolutePath().toString() }
     }
@@ -480,6 +579,7 @@ data class VersionMeta(
     @SerialName("assetIndex") val assetIndex: AssetIndex? = null,
     val arguments: VersionArguments? = null,
     val javaVersion: JavaVersionInfo? = null,
+    val inheritsFrom: String? = null,
 )
 
 @Serializable
@@ -507,6 +607,8 @@ data class AssetIndex(val id: String, val url: String)
 data class Library(
     val name: String,
     val downloads: LibraryDownloads? = null,
+    /** Maven base URL (Fabric Meta style), used when [downloads] is absent. */
+    val url: String? = null,
     val rules: List<LibraryRule>? = null,
 )
 
@@ -521,6 +623,34 @@ data class LibraryRule(val action: String, val os: LibraryOs? = null)
 
 @Serializable
 data class LibraryOs(val name: String? = null)
+
+private fun Library.resolvedArtifact(): DownloadArtifact? {
+    downloads?.artifact?.let { art ->
+        if (art.url.isNotBlank()) {
+            val path = art.path.ifBlank { mavenPathFromName(name) ?: "" }
+            return art.copy(path = path)
+        }
+    }
+    val path = mavenPathFromName(name) ?: return null
+    val base = url?.trimEnd('/') ?: "https://libraries.minecraft.net"
+    return DownloadArtifact(path = path, url = "$base/$path")
+}
+
+/** `group:artifact:version` or `group:artifact:version:classifier` → Maven relative path. */
+private fun mavenPathFromName(name: String): String? {
+    val parts = name.split(':')
+    if (parts.size < 3) return null
+    val group = parts[0].replace('.', '/')
+    val artifact = parts[1]
+    val version = parts[2]
+    val classifier = parts.getOrNull(3)
+    val file = if (classifier.isNullOrBlank()) {
+        "$artifact-$version.jar"
+    } else {
+        "$artifact-$version-$classifier.jar"
+    }
+    return "$group/$artifact/$version/$file"
+}
 
 private fun Library.appliesToCurrentOs(): Boolean {
     val rules = rules ?: return true

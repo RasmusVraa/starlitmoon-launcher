@@ -353,6 +353,8 @@ data class ModpackDto(
     val archive: ModpackArchiveDto? = null,
     val modsCount: Int = 0,
     val mods: List<ModpackModDto> = emptyList(),
+    /** Опционально: версия Fabric Loader / NeoForge. Пусто = последняя подходящая. */
+    val loaderVersion: String? = null,
 )
 
 @Serializable
