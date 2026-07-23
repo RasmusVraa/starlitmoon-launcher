@@ -159,7 +159,7 @@ fun BuildsScreen(vm: LauncherViewModel) {
 
     Column(modifier = Modifier.fillMaxSize()) {
         Text(
-            "СПИСОК СЕРВЕРОВ",
+            "ОФИЦИАЛЬНЫЕ СБОРКИ",
             color = StarlitColors.Purple,
             fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold,
@@ -167,7 +167,7 @@ fun BuildsScreen(vm: LauncherViewModel) {
         )
         Spacer(Modifier.height(6.dp))
         Text(
-            "ВЫБЕРИ СВОЙ МИР",
+            "ВЫБЕРИ СБОРКУ",
             color = StarlitColors.Text,
             fontSize = 28.sp,
             fontWeight = FontWeight.Bold,
@@ -175,10 +175,23 @@ fun BuildsScreen(vm: LauncherViewModel) {
         )
         Spacer(Modifier.height(6.dp))
         Text(
-            "Официальные сборки StarlitMoon. Выбранная сборка сохраняется в настройках.",
+            "Это клиентские сборки для одного сервера StarlitMoon — не отдельные миры. ZIP распаковывается в папку сборки.",
             color = StarlitColors.TextMuted,
             fontSize = 14.sp,
         )
+        Spacer(Modifier.height(12.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            StarlitSecondaryButton(
+                text = "Папка сборки",
+                onClick = { vm.openPackFolder() },
+                modifier = Modifier.width(150.dp),
+            )
+            StarlitSecondaryButton(
+                text = "Обновить список",
+                onClick = { vm.fetchModpacks() },
+                modifier = Modifier.width(160.dp),
+            )
+        }
         Spacer(Modifier.height(20.dp))
 
         when {
@@ -216,8 +229,8 @@ fun BuildsScreen(vm: LauncherViewModel) {
                             pack = pack,
                             selected = pack.id == vm.selectedModpack?.id ||
                                 (pack.slug != null && pack.slug == vm.selectedModpack?.slug),
-                            online = vm.serverStatus.online,
-                            onClick = { vm.selectModpack(pack) },
+                            onSelect = { vm.selectModpack(pack) },
+                            onOpenFolder = { vm.openPackFolder(pack) },
                         )
                     }
                 }
@@ -231,40 +244,24 @@ fun BuildsScreen(vm: LauncherViewModel) {
 private fun ModpackCard(
     pack: ModpackDto,
     selected: Boolean,
-    online: Boolean,
-    onClick: () -> Unit,
+    onSelect: () -> Unit,
+    onOpenFolder: () -> Unit,
 ) {
     StarlitCard(
         selected = selected,
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
+            .clickable(onClick = onSelect),
     ) {
         Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    pack.name ?: pack.slug ?: "Сборка",
-                    color = StarlitColors.Text,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 16.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    StatusDot(online)
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        if (online) "Онлайн" else "Оффлайн",
-                        color = StarlitColors.TextDim,
-                        fontSize = 11.sp,
-                    )
-                }
-            }
+            Text(
+                pack.name ?: pack.slug ?: "Сборка",
+                color = StarlitColors.Text,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 16.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
             Text(
                 pack.description?.ifBlank { null } ?: "Без описания",
                 color = StarlitColors.TextMuted,
@@ -279,11 +276,29 @@ private fun ModpackCard(
             ) {
                 TagChip(pack.loader?.uppercase() ?: "VANILLA")
                 TagChip("MC ${pack.mcVersion ?: "—"}")
-                TagChip("${pack.modsCount} модов")
+                when {
+                    pack.hasArchive -> TagChip(formatArchiveSize(pack.archive?.size))
+                    pack.modsCount > 0 -> TagChip("${pack.modsCount} модов")
+                    else -> TagChip("Без архива")
+                }
                 pack.tags.take(3).forEach { TagChip(it) }
+            }
+            if (selected) {
+                Text("Выбрана", color = StarlitColors.Gold, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                StarlitSecondaryButton(
+                    text = "Открыть папку",
+                    onClick = onOpenFolder,
+                    modifier = Modifier.width(140.dp),
+                )
             }
         }
     }
+}
+
+private fun formatArchiveSize(bytes: Long?): String {
+    if (bytes == null || bytes <= 0L) return "ZIP"
+    val mb = bytes / (1024.0 * 1024.0)
+    return if (mb >= 10) "ZIP ${mb.toInt()} МБ" else "ZIP ${"%.1f".format(mb)} МБ"
 }
 
 @Composable
@@ -760,7 +775,7 @@ fun SettingsScreen(vm: LauncherViewModel) {
             ) {
                 SettingsRow(
                     title = "Папка игры",
-                    subtitle = "Minecraft, assets и версии",
+                    subtitle = "Общие assets и версии клиента",
                     icon = { Icon(Icons.Default.FolderOpen, null, tint = StarlitColors.Gold) },
                 ) {
                     StarlitSecondaryButton(
@@ -783,6 +798,17 @@ fun SettingsScreen(vm: LauncherViewModel) {
                     onValueChange = { gamePath = it },
                     label = "Путь (пусто = по умолчанию)",
                 )
+                SettingsRow(
+                    title = "Папка сборки",
+                    subtitle = "ZIP модпака: mods, resourcepacks, config",
+                    icon = { Icon(Icons.Default.FolderOpen, null, tint = StarlitColors.Gold) },
+                ) {
+                    StarlitSecondaryButton(
+                        text = "Открыть",
+                        onClick = { vm.openPackFolder() },
+                        modifier = Modifier.width(100.dp),
+                    )
+                }
             }
         }
 

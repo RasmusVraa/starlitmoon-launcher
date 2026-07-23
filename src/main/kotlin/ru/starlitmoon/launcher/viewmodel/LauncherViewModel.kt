@@ -30,9 +30,11 @@ import ru.starlitmoon.launcher.api.ServerStatus
 import ru.starlitmoon.launcher.api.StarlitApiClient
 import ru.starlitmoon.launcher.api.StarlitApiException
 import ru.starlitmoon.launcher.minecraft.MinecraftLauncher
+import ru.starlitmoon.launcher.minecraft.ModpackSync
 import ru.starlitmoon.launcher.minecraft.SkinManager
 import ru.starlitmoon.launcher.update.UpdateChecker
 import ru.starlitmoon.launcher.update.UpdateInfo
+import java.awt.Desktop
 import java.awt.Toolkit
 import java.awt.datatransfer.StringSelection
 import java.nio.file.Files
@@ -316,6 +318,20 @@ class LauncherViewModel(
             .onFailure { errorMessage = "Не удалось скопировать команду" }
     }
 
+    fun packFolder(pack: ModpackDto? = selectedModpack): Path {
+        val p = pack ?: return configState.packsDir.also { it.createDirectories() }
+        return ModpackSync.packDir(configState.dataDir, p).also { it.createDirectories() }
+    }
+
+    fun openPackFolder(pack: ModpackDto? = selectedModpack) {
+        val target = packFolder(pack)
+        runCatching {
+            Desktop.getDesktop().open(target.toFile())
+        }.onFailure {
+            errorMessage = "Не удалось открыть папку: ${target.toAbsolutePath()}"
+        }
+    }
+
     fun play() {
         if (!isLoggedIn) {
             errorMessage = "Сначала войдите"
@@ -330,17 +346,40 @@ class LauncherViewModel(
                 ?: modpacks.firstOrNull { it.id == configState.selectedModpackId || it.slug == configState.selectedModpackId }
             val versionId = pack?.mcVersion?.trim()?.ifBlank { null }
                 ?: configState.minecraftVersionId
-            val loader = pack?.loader?.lowercase().orEmpty()
-            if (pack != null && loader.isNotBlank() && loader != "vanilla") {
-                launchProgress = "Загрузка модов сборки…"
-                val synced = withContext(Dispatchers.IO) { syncModpackMods(pack) }
-                if (!synced) {
-                    infoMessage =
-                        "Моды сборки «${pack.name}» будут скачиваться в следующих версиях. Запуск с версией $versionId."
+            var instanceDir: Path? = null
+            if (pack != null) {
+                val detail = withContext(Dispatchers.IO) {
+                    runCatching { api.getModpack(pack.id ?: pack.slug.orEmpty()) }.getOrNull() ?: pack
+                }
+                instanceDir = ModpackSync.packDir(configState.dataDir, detail).also { it.createDirectories() }
+                val loader = detail.loader?.lowercase().orEmpty()
+                if (detail.hasArchive && detail.archive?.url != null) {
+                    launchProgress = "Загрузка архива сборки…"
+                    val synced = runCatching {
+                        withContext(Dispatchers.IO) {
+                            ModpackSync.syncArchive(configState.dataDir, detail) { msg ->
+                                scope.launch { launchProgress = msg }
+                            }
+                        }
+                    }
+                    if (synced.isFailure) {
+                        errorMessage = synced.exceptionOrNull()?.message ?: "Не удалось скачать сборку"
+                        launchProgress = null
+                        launchProgressFraction = null
+                        isLoading = false
+                        return@launch
+                    }
+                } else if (loader.isNotBlank() && loader != "vanilla") {
+                    launchProgress = "Загрузка модов сборки…"
+                    val synced = withContext(Dispatchers.IO) { syncLegacyModJars(detail, instanceDir!!) }
+                    if (!synced) {
+                        infoMessage =
+                            "Для «${detail.name}» ещё нет ZIP-архива. Запуск с версией $versionId."
+                    }
                 }
             }
             val result = withContext(Dispatchers.IO) {
-                mc.launch(userName, versionId) { msg, frac ->
+                mc.launch(userName, versionId, instanceDir) { msg, frac ->
                     scope.launch {
                         launchProgress = msg
                         launchProgressFraction = frac
@@ -374,14 +413,11 @@ class LauncherViewModel(
         }
     }
 
-    /** Downloads pack mods into game/mods when the API returns file URLs. */
-    private suspend fun syncModpackMods(pack: ModpackDto): Boolean {
-        val detail = runCatching {
-            api.getModpack(pack.id ?: pack.slug.orEmpty())
-        }.getOrNull() ?: pack
-        val mods = detail.mods.filter { !it.url.isNullOrBlank() && !it.fileName.isNullOrBlank() }
+    /** Legacy fallback: per-jar mods into the pack instance mods/ folder. */
+    private suspend fun syncLegacyModJars(pack: ModpackDto, instanceDir: Path): Boolean {
+        val mods = pack.mods.filter { !it.url.isNullOrBlank() && !it.fileName.isNullOrBlank() }
         if (mods.isEmpty()) return false
-        val modsDir = configState.gameDir.resolve("mods")
+        val modsDir = instanceDir.resolve("mods")
         modsDir.createDirectories()
         var ok = 0
         for (mod in mods) {

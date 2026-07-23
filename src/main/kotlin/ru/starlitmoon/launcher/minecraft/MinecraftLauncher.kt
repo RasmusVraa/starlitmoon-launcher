@@ -144,7 +144,16 @@ class MinecraftLauncher(
             id to versionMeta
         }
 
-    suspend fun launch(username: String, preferredVersion: String = "", onProgress: (String, Float?) -> Unit = { _, _ -> }): LaunchResult {
+    /**
+     * @param instanceDir каталог инстанса (сборка): mods/config и т.п.
+     * Версии/библиотеки/ассеты остаются в общем [LauncherConfig.gameDir].
+     */
+    suspend fun launch(
+        username: String,
+        preferredVersion: String = "",
+        instanceDir: Path? = null,
+        onProgress: (String, Float?) -> Unit = { _, _ -> },
+    ): LaunchResult {
         val prepared = ensureVersion(preferredVersion, onProgress)
         if (prepared.isFailure) {
             return LaunchResult(false, prepared.exceptionOrNull()?.message ?: "Ошибка подготовки")
@@ -166,13 +175,14 @@ class MinecraftLauncher(
             )
         }
 
+        val gameDirectory = (instanceDir ?: config.gameDir).also { it.createDirectories() }
         val nativesDir = config.versionsDir.resolve(id).resolve("natives")
         val classpath = buildClasspath(id, versionMeta)
         val uuid = offlineUuid(username)
         val vars = mapOf(
             "auth_player_name" to username,
             "version_name" to id,
-            "game_directory" to config.gameDir.toAbsolutePath().toString(),
+            "game_directory" to gameDirectory.toAbsolutePath().toString(),
             "assets_root" to config.assetsDir.toAbsolutePath().toString(),
             "assets_index_name" to (versionMeta.assetIndex?.id ?: ""),
             "auth_uuid" to uuid,
@@ -252,9 +262,8 @@ class MinecraftLauncher(
         val logFile = config.dataDir.resolve("last-launch.log")
         return try {
             onProgress("Запуск Minecraft…", 0.98f)
-            config.gameDir.createDirectories()
             val pb = ProcessBuilder(command)
-                .directory(config.gameDir.toFile())
+                .directory(gameDirectory.toFile())
                 .redirectErrorStream(true)
                 .redirectOutput(logFile.toFile())
             val process = pb.start()

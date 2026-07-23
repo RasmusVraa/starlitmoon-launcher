@@ -41,6 +41,9 @@ data class LauncherConfig(
     val skinsDir: Path
         get() = dataDir.resolve("skins")
 
+    val packsDir: Path
+        get() = dataDir.resolve("packs")
+
     val gameDir: Path
         get() = if (gamePath.isNotBlank()) Path.of(gamePath) else dataDir.resolve("game")
 
