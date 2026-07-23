@@ -56,8 +56,8 @@ fun SkinPreview3D(
     previewSize: Dp = 220.dp,
     animated: Boolean = true,
 ) {
-    var yaw by remember { mutableFloatStateOf(32f) }
-    var pitch by remember { mutableFloatStateOf(-10f) }
+    var yaw by remember { mutableFloatStateOf(28f) }
+    var pitch by remember { mutableFloatStateOf(-12f) }
     var atlas by remember(skinPath) { mutableStateOf<BufferedImage?>(null) }
     var capeAtlas by remember(capePath) { mutableStateOf<BufferedImage?>(null) }
     var frame by remember { mutableStateOf<ImageBitmap?>(null) }
@@ -107,8 +107,8 @@ fun SkinPreview3D(
                             skin = a,
                             cape = capeAtlas,
                             slim = slim,
-                            yawDeg = y,
-                            pitchDeg = p,
+                            yawDeg = if (animated) y else 28f,
+                            pitchDeg = if (animated) p else -12f,
                             walkPhase = phase,
                             outSize = if (animated) 512 else 256,
                         ),
@@ -337,34 +337,67 @@ private fun renderSkin3D(
     addBox(faces, skin, 0f, 28f, 0f, 8f, 8f, 8f, 8, 8, 8, 8, 24, 8, 0, 8, 8, 8, 16, 8, 8, 8, 8, 0, 8, 8, 16, 0)
     addBox(faces, skin, 0f, 28f, 0f, 8f, 8f, 8f, 40, 8, 8, 8, 56, 8, 32, 8, 8, 8, 48, 8, 8, 8, 40, 0, 8, 8, 48, 0, inflate = 0.5f)
 
-    // Cape
+    // Cape — thin box behind torso (Minecraft cape UV 64×32)
     if (cape != null && cape.width >= 22 && cape.height >= 17) {
-        runCatching { cape.getSubimage(1, 1, 10, 16) }.getOrNull()?.let { capeFront ->
-            val capeSwing = 12f + cos(walkPhase.toDouble()).toFloat() * 10f
+        val capeFront = runCatching { cape.getSubimage(1, 1, 10, 16) }.getOrNull()
+        val capeBack = runCatching { cape.getSubimage(12, 1, 10, 16) }.getOrNull()
+        if (capeFront != null) {
+            // Hang away from body; slight walk bob
+            val capeAngle = 18f + cos(walkPhase.toDouble()).toFloat() * 8f
             val hinge = Vec3(0f, 8f, 0f)
             fun local(x: Float, y: Float, z: Float): Vec3 {
                 var p = Vec3(x, y, z) - hinge
-                p = rotX(p, capeSwing)
+                p = rotX(p, capeAngle) // tip toward -Z (behind)
                 p = p + hinge
-                return Vec3(p.x, p.y + 20f, p.z - 3.5f)
+                // Attach under neck on back of body (body center z=0, back at z≈-2)
+                return Vec3(p.x, p.y + 20f, p.z - 2.2f)
             }
+            val hx = 5f
+            val hy = 8f
+            val hz = 0.55f
+            // Outer side (away from body, -Z) — main visible cape art
             faces += Face3(
-                local(-5f, -8f, 0.4f), local(5f, -8f, 0.4f), local(5f, 8f, 0.4f), local(-5f, 8f, 0.4f),
-                capeFront, 0.88f,
+                local(hx, -hy, -hz), local(-hx, -hy, -hz), local(-hx, hy, -hz), local(hx, hy, -hz),
+                capeFront, 1f,
             )
+            // Inner side (+Z, toward body)
+            val inner = capeBack ?: shadeImg(capeFront, 0.75f)
+            faces += Face3(
+                local(-hx, -hy, hz), local(hx, -hy, hz), local(hx, hy, hz), local(-hx, hy, hz),
+                inner, 0.78f,
+            )
+            // Side edges (thin)
+            runCatching { cape.getSubimage(0, 1, 1, 16) }.getOrNull()?.let { edge ->
+                faces += Face3(
+                    local(-hx, -hy, -hz), local(-hx, -hy, hz), local(-hx, hy, hz), local(-hx, hy, -hz),
+                    edge, 0.7f,
+                )
+                faces += Face3(
+                    local(hx, -hy, hz), local(hx, -hy, -hz), local(hx, hy, -hz), local(hx, hy, hz),
+                    edge, 0.7f,
+                )
+            }
         }
     }
 
-    val camDist = 58f
-    val fov = 520f
+    // Closer camera + stronger FOV → larger character in frame
+    val camDist = 40f
+    val fov = 620f
     val cx = outSize / 2f
-    val cy = outSize / 2f + 28f
+    val cy = outSize / 2f + 18f
 
     fun world(v: Vec3): Vec3 {
-        var p = Vec3(v.x, v.y - 18f, v.z)
+        var p = Vec3(v.x, v.y - 16f, v.z)
         p = rotY(p, -yawDeg)
         p = rotX(p, pitchDeg)
-        return Vec3(p.x, p.y, p.z + camDist)
+        // Front (+Z) must face the camera (smaller depth = closer)
+        return Vec3(p.x, p.y, camDist - p.z)
+    }
+
+    fun worldNormal(n: Vec3): Vec3 {
+        var p = rotY(n, -yawDeg)
+        p = rotX(p, pitchDeg)
+        return Vec3(p.x, p.y, -p.z)
     }
 
     fun project(v: Vec3): Pair<Float, Float> {
@@ -374,14 +407,11 @@ private fun renderSkin3D(
     }
 
     val sorted = faces.mapNotNull { face ->
-        var n = face.normal()
-        n = rotY(n, -yawDeg)
-        n = rotX(n, pitchDeg)
-        // camera looks toward -Z in view space after transform… faces with normal pointing toward camera (negative Z in world after cam)
-        val viewZ = world(face.center())
-        val toCam = Vec3(-viewZ.x, -viewZ.y, -viewZ.z).normalized()
+        val n = worldNormal(face.normal())
+        val view = world(face.center())
+        val toCam = Vec3(-view.x, -view.y, -view.z).normalized()
         if (n.dot(toCam) < 0.02f) return@mapNotNull null
-        Triple(face, viewZ.z, n.dot(toCam))
+        Triple(face, view.z, n.dot(toCam))
     }.sortedByDescending { it.second }
 
     for ((face, _, _) in sorted) {
