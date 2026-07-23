@@ -48,6 +48,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
@@ -68,6 +69,7 @@ import ru.starlitmoon.launcher.ui.components.MessageBanner
 import ru.starlitmoon.launcher.ui.components.SectionTitle
 import ru.starlitmoon.launcher.ui.components.SettingsRow
 import ru.starlitmoon.launcher.ui.components.StarlitCard
+import ru.starlitmoon.launcher.ui.components.StarlitConfirmDialog
 import ru.starlitmoon.launcher.ui.components.StarlitPrimaryButton
 import ru.starlitmoon.launcher.ui.components.StarlitProgressBar
 import ru.starlitmoon.launcher.ui.components.StarlitSecondaryButton
@@ -86,12 +88,15 @@ import javax.swing.filechooser.FileNameExtensionFilter
 @Composable
 fun HomeScreen(vm: LauncherViewModel) {
     val showProgress = vm.launchProgress != null
-    val packName = vm.selectedModpack?.name ?: "Vanilla"
-    val packLoader = vm.selectedModpack?.loader?.replaceFirstChar { it.uppercase() } ?: "Vanilla"
+    val packName = vm.selectedModpack?.name ?: "Не выбрана"
+    val packLoader = vm.selectedModpack?.loader?.replaceFirstChar { it.uppercase() } ?: "—"
     val mcVer = vm.selectedModpack?.mcVersion?.trim()?.ifBlank { null }
         ?: vm.configState.minecraftVersionId
     val online = vm.serverStatus.online
     val players = vm.serverStatus.playersOnline
+    val rank = ru.starlitmoon.launcher.ui.theme.PlayerRanks.highest(
+        vm.meData?.cabinet?.player?.ranks.orEmpty(),
+    )
 
     HeroBackground {
         Row(
@@ -116,13 +121,15 @@ fun HomeScreen(vm: LauncherViewModel) {
                     fontWeight = FontWeight.Bold,
                     color = StarlitColors.Text,
                 )
-                Spacer(Modifier.height(10.dp))
-                Text(
-                    "Ванильный сервер под звёздным небом",
-                    color = StarlitColors.TextMuted,
-                    fontSize = 16.sp,
-                    lineHeight = 24.sp,
-                )
+                if (rank != null) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        rank.labelRu,
+                        color = rank.foreground,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
                 Spacer(Modifier.height(28.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                     if (vm.isGameRunning) {
@@ -178,29 +185,48 @@ fun HomeScreen(vm: LauncherViewModel) {
                 modifier = Modifier
                     .weight(0.9f)
                     .widthIn(max = 420.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 HomeInfoCard(
-                    title = if (online) "Сервер онлайн" else "Сервер оффлайн",
+                    eyebrow = "СЕРВЕР",
+                    title = if (online) "Онлайн" else "Оффлайн",
                     subtitle = if (online) {
-                        "Сейчас играют: $players"
+                        "Игроков сейчас: $players · ${vm.configState.serverHost}"
                     } else {
                         vm.configState.serverHost
                     },
                     accentOnline = online,
                 )
                 HomeInfoCard(
-                    title = "Текущая сборка",
-                    subtitle = "$packName\n$packLoader · Minecraft $mcVer",
+                    eyebrow = "СБОРКА",
+                    title = packName,
+                    subtitle = "$packLoader · Minecraft $mcVer",
                     actionLabel = "Выбрать другую",
                     onAction = { vm.currentTab = LauncherTab.Builds },
                 )
                 HomeInfoCard(
-                    title = if (vm.isGameRunning) "Игра запущена" else "Готов к запуску",
-                    subtitle = if (vm.isGameRunning) {
-                        "Можно остановить игру кнопкой слева"
+                    eyebrow = "ПРОФИЛЬ",
+                    title = "Скин и плащ",
+                    subtitle = if (vm.activeSkinPath != null) {
+                        "Активный скин из библиотеки"
                     } else {
-                        "Клиент и сборка подтянутся при нажатии «Играть»"
+                        "Добавь скин в библиотеку — он появится в игре"
+                    },
+                    actionLabel = "Открыть скины",
+                    onAction = { vm.currentTab = LauncherTab.Skins },
+                )
+                HomeInfoCard(
+                    eyebrow = "ЛАУНЧЕР",
+                    title = "v${LauncherVersion.CURRENT}",
+                    subtitle = if (vm.updateInfo != null) {
+                        "Доступно обновление ${vm.updateInfo!!.latestVersion}"
+                    } else {
+                        "Клиент обновится сам при запуске игры"
+                    },
+                    actionLabel = if (vm.updateInfo != null) "Скачать" else "Проверить",
+                    onAction = {
+                        if (vm.updateInfo != null) vm.downloadUpdate()
+                        else vm.checkForUpdates(false)
                     },
                 )
             }
@@ -210,6 +236,7 @@ fun HomeScreen(vm: LauncherViewModel) {
 
 @Composable
 private fun HomeInfoCard(
+    eyebrow: String,
     title: String,
     subtitle: String,
     accentOnline: Boolean? = null,
@@ -219,33 +246,54 @@ private fun HomeInfoCard(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(StarlitColors.Surface.copy(alpha = 0.82f))
-            .border(1.dp, StarlitColors.BorderStrong, RoundedCornerShape(16.dp))
-            .padding(18.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+            .clip(RoundedCornerShape(18.dp))
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        Color(0xF01A2030),
+                        Color(0xE8121622),
+                    ),
+                ),
+            )
+            .border(
+                1.dp,
+                Brush.verticalGradient(
+                    listOf(Color(0x55D4A84B), Color(0x28788CDC)),
+                ),
+                RoundedCornerShape(18.dp),
+            )
+            .padding(horizontal = 18.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             if (accentOnline != null) {
                 Box(
                     modifier = Modifier
-                        .size(10.dp)
+                        .size(8.dp)
                         .clip(RoundedCornerShape(50))
                         .background(if (accentOnline) StarlitColors.Online else StarlitColors.Offline),
                 )
             }
-            Text(title, color = StarlitColors.Text, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+            Text(
+                eyebrow,
+                color = StarlitColors.Gold,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 1.sp,
+            )
         }
-        Text(subtitle, color = StarlitColors.TextMuted, fontSize = 13.sp, lineHeight = 19.sp)
+        Text(title, color = StarlitColors.Text, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+        Text(subtitle, color = StarlitColors.TextMuted, fontSize = 13.sp, lineHeight = 18.sp)
         if (actionLabel != null && onAction != null) {
+            Spacer(Modifier.height(4.dp))
             StarlitSecondaryButton(
                 text = actionLabel,
                 onClick = onAction,
                 compact = true,
-                modifier = Modifier.width(160.dp),
+                modifier = Modifier.width(168.dp),
             )
         }
     }
@@ -270,85 +318,93 @@ private fun openUrl(url: String) {
 @Composable
 fun BuildsScreen(vm: LauncherViewModel) {
     LaunchedEffect(Unit) { vm.fetchModpacks(force = false) }
+    var reinstallTarget by remember { mutableStateOf<ModpackDto?>(null) }
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        Text(
-            "ОФИЦИАЛЬНЫЕ СБОРКИ",
-            color = StarlitColors.Purple,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.SemiBold,
-            letterSpacing = 1.2.sp,
-        )
-        Spacer(Modifier.height(6.dp))
-        Text(
-            "ВЫБЕРИ СБОРКУ",
-            color = StarlitColors.Text,
-            fontSize = 28.sp,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 1.sp,
-        )
-        Spacer(Modifier.height(6.dp))
-        Text(
-            "Клиентские сборки для сервера StarlitMoon.",
-            color = StarlitColors.TextMuted,
-            fontSize = 14.sp,
-        )
-        Spacer(Modifier.height(12.dp))
-        StarlitSecondaryButton(
-            text = "Обновить список",
-            onClick = { vm.fetchModpacks(force = true) },
-            modifier = Modifier.width(160.dp),
-        )
-        Spacer(Modifier.height(20.dp))
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Text(
+                "ВЫБЕРИ СБОРКУ",
+                color = StarlitColors.Text,
+                fontSize = 28.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.sp,
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "Клиентские сборки для сервера.",
+                color = StarlitColors.TextMuted,
+                fontSize = 14.sp,
+            )
+            Spacer(Modifier.height(12.dp))
+            StarlitSecondaryButton(
+                text = "Обновить список",
+                onClick = { vm.fetchModpacks(force = true) },
+                modifier = Modifier.width(160.dp),
+            )
+            Spacer(Modifier.height(20.dp))
 
-        when {
-            vm.isLoadingModpacks && vm.modpacks.isEmpty() -> {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = StarlitColors.Gold, strokeWidth = 2.dp)
+            when {
+                vm.isLoadingModpacks && vm.modpacks.isEmpty() -> {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = StarlitColors.Gold, strokeWidth = 2.dp)
+                    }
                 }
-            }
-            vm.modpacks.isEmpty() -> {
-                StarlitCard(modifier = Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Сборки пока недоступны", color = StarlitColors.Text, fontWeight = FontWeight.SemiBold)
-                        Text(
-                            "API /api/modpacks не ответил. Попробуйте обновить позже.",
-                            color = StarlitColors.TextMuted,
-                            fontSize = 13.sp,
-                        )
-                        StarlitSecondaryButton(
-                            text = "Обновить",
-                            onClick = { vm.fetchModpacks(force = true) },
-                            modifier = Modifier.width(140.dp),
-                        )
+                vm.modpacks.isEmpty() -> {
+                    StarlitCard(modifier = Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("Сборки пока недоступны", color = StarlitColors.Text, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                "API /api/modpacks не ответил. Попробуйте обновить позже.",
+                                color = StarlitColors.TextMuted,
+                                fontSize = 13.sp,
+                            )
+                            StarlitSecondaryButton(
+                                text = "Обновить",
+                                onClick = { vm.fetchModpacks(force = true) },
+                                modifier = Modifier.width(140.dp),
+                            )
+                        }
+                    }
+                }
+                else -> {
+                    LazyVerticalGrid(
+                        columns = GridCells.Adaptive(minSize = 260.dp),
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp),
+                        modifier = Modifier.fillMaxSize(),
+                    ) {
+                        items(vm.modpacks, key = { it.id ?: it.slug ?: it.name.orEmpty() }) { pack ->
+                            ModpackCard(
+                                pack = pack,
+                                selected = pack.id == vm.selectedModpack?.id ||
+                                    (pack.slug != null && pack.slug == vm.selectedModpack?.slug),
+                                needsUpdate = run {
+                                    vm.packUiRevision
+                                    vm.packNeedsUpdate(pack)
+                                },
+                                onSelect = { vm.selectModpack(pack) },
+                                onOpenFolder = { vm.openPackFolder(pack) },
+                                onReinstall = { reinstallTarget = pack },
+                                apiBaseUrl = vm.configState.apiBaseUrl,
+                                busy = vm.launchProgress != null,
+                            )
+                        }
                     }
                 }
             }
-            else -> {
-                LazyVerticalGrid(
-                    columns = GridCells.Adaptive(minSize = 260.dp),
-                    horizontalArrangement = Arrangement.spacedBy(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
-                    modifier = Modifier.fillMaxSize(),
-                ) {
-                    items(vm.modpacks, key = { it.id ?: it.slug ?: it.name.orEmpty() }) { pack ->
-                        ModpackCard(
-                            pack = pack,
-                            selected = pack.id == vm.selectedModpack?.id ||
-                                (pack.slug != null && pack.slug == vm.selectedModpack?.slug),
-                            needsUpdate = run {
-                                vm.packUiRevision
-                                vm.packNeedsUpdate(pack)
-                            },
-                            onSelect = { vm.selectModpack(pack) },
-                            onOpenFolder = { vm.openPackFolder(pack) },
-                            onReinstall = { vm.reinstallModpack(pack) },
-                            apiBaseUrl = vm.configState.apiBaseUrl,
-                            busy = vm.launchProgress != null,
-                        )
-                    }
-                }
-            }
+        }
+
+        reinstallTarget?.let { pack ->
+            val name = pack.name ?: pack.slug ?: "сборку"
+            StarlitConfirmDialog(
+                title = "Переустановка сборки",
+                message = "Переустановить «$name»?\nТекущие файлы сборки (кроме сохранений) будут заменены.",
+                confirmText = "Переустановить",
+                cancelText = "Отмена",
+                danger = true,
+                onConfirm = { vm.reinstallModpack(pack) },
+                onDismiss = { reinstallTarget = null },
+            )
         }
     }
 }
@@ -566,12 +622,20 @@ private fun formatArchiveSize(bytes: Long?): String {
 private fun TagChip(text: String) {
     Box(
         modifier = Modifier
+            .height(22.dp)
             .clip(RoundedCornerShape(50))
             .background(StarlitColors.PurpleMuted)
             .border(1.dp, StarlitColors.Purple.copy(alpha = 0.35f), RoundedCornerShape(50))
-            .padding(horizontal = 10.dp, vertical = 4.dp),
+            .padding(horizontal = 10.dp),
+        contentAlignment = Alignment.Center,
     ) {
-        Text(text, color = StarlitColors.Text, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+        Text(
+            text,
+            color = StarlitColors.Text,
+            fontSize = 11.sp,
+            lineHeight = 11.sp,
+            fontWeight = FontWeight.Medium,
+        )
     }
 }
 

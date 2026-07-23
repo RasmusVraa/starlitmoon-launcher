@@ -66,6 +66,7 @@ private data class PlayerPatchBody(
     val banReason: String? = null,
     val warnCount: Int? = null,
     val profileStatus: String? = null,
+    val ranks: List<String>? = null,
 )
 
 @Serializable
@@ -77,8 +78,84 @@ private data class NotifySendBody(
     val players: List<String> = emptyList(),
     val title: String,
     val message: String,
+    val href: String? = null,
     val deliverIngame: Boolean = true,
 )
+
+@Serializable
+private data class BadgeCreateBody(
+    val emoji: String,
+    val name: String,
+    val description: String? = null,
+)
+
+@Serializable
+private data class ProductBody(
+    val id: String? = null,
+    val name: String,
+    val price: Int,
+    val description: String? = null,
+    val icon: String? = null,
+    val commands: List<String> = emptyList(),
+)
+
+@Serializable
+private data class MapSettingsBody(val visibility: String)
+
+@Serializable
+private data class MapMarkerBody(
+    val ownerName: String,
+    val name: String,
+    val world: String,
+    val x: Double,
+    val y: Double,
+    val z: Double,
+    val iconId: String? = null,
+)
+
+@Serializable
+private data class ContestEntryPatchBody(val status: String? = null, val adminNote: String? = null)
+
+@Serializable
+private data class ContestSettingsBody(val enabled: Boolean? = null, val page: ContestPagePatch? = null)
+
+@Serializable
+private data class ContestPagePatch(val title: String? = null, val seasonName: String? = null)
+
+@Serializable
+private data class WikiPageCreateBody(val title: String, val slug: String? = null, val published: Boolean = false)
+
+@Serializable
+private data class WikiPagePatchBody(
+    val title: String? = null,
+    val slug: String? = null,
+    val published: Boolean? = null,
+    val blocks: List<WikiBlockPatch>? = null,
+)
+
+@Serializable
+private data class WikiBlockPatch(val type: String, val data: WikiBlockDataPatch)
+
+@Serializable
+private data class WikiBlockDataPatch(val text: String)
+
+@Serializable
+private data class ModpackCreateBody(
+    val name: String,
+    val slug: String? = null,
+    val loader: String = "vanilla",
+    val mcVersion: String,
+    val description: String? = null,
+)
+
+@Serializable
+private data class ModpackPatchBody(val name: String? = null, val enabled: Boolean? = null)
+
+@Serializable
+private data class SiteSettingsBody(val serverVersion: String)
+
+@Serializable
+private data class AdminAccessBody(val nickname: String? = null, val permissions: List<String>)
 
 @Serializable
 private data class RconExecBody(val command: String, val serverId: String? = null)
@@ -255,15 +332,168 @@ class StarlitApiClient(
     suspend fun adminPlayer(id: String): AdminPlayerDetailDto? =
         authedGet<AdminPlayerDetailResponse>("/api/admin/players/$id").player
 
-    suspend fun patchAdminPlayer(id: String, banned: Boolean? = null, banReason: String? = null, warnCount: Int? = null, profileStatus: String? = null) {
+    suspend fun patchAdminPlayer(
+        id: String,
+        banned: Boolean? = null,
+        banReason: String? = null,
+        warnCount: Int? = null,
+        profileStatus: String? = null,
+        ranks: List<String>? = null,
+    ) {
         val cookie = needCookie()
-        val response = client.patch("$baseUrl/api/admin/players/$id") {
+        val response = client.patch("$baseUrl/api/admin/players/${encodePath(id)}") {
             header("Cookie", cookieHeader(cookie))
             contentType(ContentType.Application.Json)
-            setBody(PlayerPatchBody(banned, banReason, warnCount, profileStatus))
+            setBody(PlayerPatchBody(banned, banReason, warnCount, profileStatus, ranks))
         }
         if (!response.status.isSuccess()) throw parseError(response)
     }
+
+    suspend fun deleteAdminPlayer(id: String, purge: Boolean = false) {
+        val cookie = needCookie()
+        val response = client.delete("$baseUrl/api/admin/players/${encodePath(id)}") {
+            header("Cookie", cookieHeader(cookie))
+            if (purge) parameter("purge", "1")
+        }
+        if (!response.status.isSuccess()) throw parseError(response)
+    }
+
+    suspend fun grantPlayerBadge(playerId: String, badgeId: String) =
+        authedPost("/api/admin/players/${encodePath(playerId)}/badges/${encodePath(badgeId)}")
+
+    suspend fun revokePlayerBadge(playerId: String, badgeId: String) =
+        authedDelete("/api/admin/players/${encodePath(playerId)}/badges/${encodePath(badgeId)}")
+
+    // --- Badges ---
+    suspend fun createBadge(emoji: String, name: String, description: String?) =
+        authedPostJson("/api/admin/badges", BadgeCreateBody(emoji, name, description?.ifBlank { null }))
+
+    suspend fun updateBadge(id: String, emoji: String, name: String, description: String?) =
+        authedPatch("/api/admin/badges/${encodePath(id)}", BadgeCreateBody(emoji, name, description?.ifBlank { null }))
+
+    suspend fun deleteBadge(id: String) = authedDelete("/api/admin/badges/${encodePath(id)}")
+
+    // --- Products / orders ---
+    suspend fun createProduct(id: String, name: String, price: Int, description: String?, icon: String?, commands: List<String>) =
+        authedPostJson("/api/admin/products", ProductBody(id.ifBlank { null }, name, price, description, icon?.ifBlank { null }, commands))
+
+    suspend fun updateProduct(id: String, name: String, price: Int, description: String?, icon: String?, commands: List<String>) =
+        authedPatch("/api/admin/products/${encodePath(id)}", ProductBody(null, name, price, description, icon?.ifBlank { null }, commands))
+
+    suspend fun deleteProduct(id: String) = authedDelete("/api/admin/products/${encodePath(id)}")
+
+    suspend fun deleteOrder(id: String) = authedDelete("/api/admin/orders/${encodePath(id)}")
+
+    // --- Map ---
+    suspend fun mapSettings(): AdminMapSettingsResponse = authedGet("/api/admin/map-settings")
+
+    suspend fun setMapVisibility(visibility: String): AdminMapSettingsResponse {
+        val cookie = needCookie()
+        val response = client.patch("$baseUrl/api/admin/map-settings") {
+            header("Cookie", cookieHeader(cookie))
+            contentType(ContentType.Application.Json)
+            setBody(MapSettingsBody(visibility))
+        }
+        if (!response.status.isSuccess()) throw parseError(response)
+        return response.body()
+    }
+
+    suspend fun mapMarkers(query: String = ""): AdminMapMarkersResponse =
+        authedGet("/api/admin/map-markers") { if (query.isNotBlank()) parameter("q", query) }
+
+    suspend fun createMapMarker(ownerName: String, name: String, world: String, x: Double, y: Double, z: Double, iconId: String?) =
+        authedPostJson("/api/admin/map-markers", MapMarkerBody(ownerName, name, world, x, y, z, iconId?.ifBlank { null }))
+
+    suspend fun deleteMapMarker(id: String) = authedDelete("/api/admin/map-markers/${encodePath(id)}")
+
+    // --- Contest ---
+    suspend fun contest(status: String = ""): AdminContestResponse =
+        authedGet("/api/admin/contest") { if (status.isNotBlank() && status != "all") parameter("status", status) }
+
+    suspend fun contestSettings(): AdminContestSettingsDto = authedGet("/api/admin/contest/settings")
+
+    suspend fun patchContestEntry(id: String, status: String) =
+        authedPatch("/api/admin/contest/entries/${encodePath(id)}", ContestEntryPatchBody(status = status))
+
+    suspend fun deleteContestEntry(id: String) = authedDelete("/api/admin/contest/entries/${encodePath(id)}")
+
+    suspend fun updateContestSettings(enabled: Boolean, title: String, seasonName: String) =
+        authedPatch("/api/admin/contest/settings", ContestSettingsBody(enabled, ContestPagePatch(title.ifBlank { null }, seasonName)))
+
+    // --- Wiki ---
+    suspend fun wiki(): AdminWikiResponse = authedGet("/api/admin/wiki")
+
+    suspend fun createWikiPage(title: String, slug: String?, published: Boolean): AdminWikiPageResponse {
+        val cookie = needCookie()
+        val response = client.post("$baseUrl/api/admin/wiki/pages") {
+            header("Cookie", cookieHeader(cookie))
+            contentType(ContentType.Application.Json)
+            setBody(WikiPageCreateBody(title, slug?.ifBlank { null }, published))
+        }
+        if (!response.status.isSuccess()) throw parseError(response)
+        return response.body()
+    }
+
+    suspend fun updateWikiPage(id: String, title: String?, slug: String?, published: Boolean?, paragraph: String?) {
+        val blocks = paragraph?.let { listOf(WikiBlockPatch("paragraph", WikiBlockDataPatch(it))) }
+        authedPatch(
+            "/api/admin/wiki/pages/${encodePath(id)}",
+            WikiPagePatchBody(title?.ifBlank { null }, slug?.ifBlank { null }, published, blocks),
+        )
+    }
+
+    suspend fun deleteWikiPage(id: String) = authedDelete("/api/admin/wiki/pages/${encodePath(id)}")
+
+    // --- Modpacks (admin) ---
+    suspend fun adminModpacks(): AdminModpacksResponse = authedGet("/api/admin/modpacks")
+
+    suspend fun createModpack(name: String, slug: String?, loader: String, mcVersion: String, description: String?): ModpackDto? {
+        val cookie = needCookie()
+        val response = client.post("$baseUrl/api/admin/modpacks") {
+            header("Cookie", cookieHeader(cookie))
+            contentType(ContentType.Application.Json)
+            setBody(ModpackCreateBody(name, slug?.ifBlank { null }, loader, mcVersion, description?.ifBlank { null }))
+        }
+        if (!response.status.isSuccess()) throw parseError(response)
+        return runCatching { response.body<ModpackResponse>().pack }.getOrNull()
+    }
+
+    suspend fun updateModpack(id: String, name: String? = null, enabled: Boolean? = null) =
+        authedPatch("/api/admin/modpacks/${encodePath(id)}", ModpackPatchBody(name?.ifBlank { null }, enabled))
+
+    suspend fun deleteModpack(id: String) = authedDelete("/api/admin/modpacks/${encodePath(id)}")
+
+    suspend fun deleteModpackArchive(id: String) = authedDelete("/api/admin/modpacks/${encodePath(id)}/archive")
+
+    // --- Site settings ---
+    suspend fun siteSettings(): SiteSettingsResponse = authedGet("/api/admin/site-settings")
+
+    suspend fun setServerVersion(version: String): SiteSettingsResponse {
+        val cookie = needCookie()
+        val response = client.patch("$baseUrl/api/admin/site-settings") {
+            header("Cookie", cookieHeader(cookie))
+            contentType(ContentType.Application.Json)
+            setBody(SiteSettingsBody(version))
+        }
+        if (!response.status.isSuccess()) throw parseError(response)
+        return response.body()
+    }
+
+    // --- Access ---
+    suspend fun listAdminsData(): AdminAdminsResponse = authedGet("/api/admin/admins")
+
+    suspend fun permissionDefs(): PermissionDefsResponse = authedGet("/api/admin/permissions")
+
+    suspend fun addAdmin(nickname: String, permissions: List<String>) =
+        authedPostJson("/api/admin/admins", AdminAccessBody(nickname, permissions))
+
+    suspend fun updateAdmin(nickname: String, permissions: List<String>) =
+        authedPatch("/api/admin/admins/${encodePath(nickname)}", AdminAccessBody(null, permissions))
+
+    suspend fun removeAdmin(nickname: String) = authedDelete("/api/admin/admins/${encodePath(nickname)}")
+
+    // --- Console ---
+    suspend fun mcServers(): McServersResponse = authedGet("/api/admin/mc-servers")
 
     suspend fun adminApplications(status: String = "pending"): AdminApplicationsResponse =
         authedGet("/api/admin/applications") { parameter("status", status) }
@@ -292,12 +522,12 @@ class StarlitApiClient(
     suspend fun approveClan(id: String) = authedPost("/api/admin/clans/$id/approve")
     suspend fun rejectClan(id: String) = authedPost("/api/admin/clans/$id/reject")
 
-    suspend fun sendNotification(title: String, message: String, all: Boolean, players: List<String> = emptyList()) {
+    suspend fun sendNotification(title: String, message: String, all: Boolean, players: List<String> = emptyList(), href: String? = null) {
         val cookie = needCookie()
         val response = client.post("$baseUrl/api/admin/notifications/send") {
             header("Cookie", cookieHeader(cookie))
             contentType(ContentType.Application.Json)
-            setBody(NotifySendBody(all, players, title, message, true))
+            setBody(NotifySendBody(all, players, title, message, href?.trim()?.ifBlank { null }, true))
         }
         if (!response.status.isSuccess()) throw parseError(response)
     }
@@ -522,6 +752,26 @@ class StarlitApiClient(
     private suspend fun authedPost(path: String) {
         val cookie = needCookie()
         val response = client.post("$baseUrl$path") { header("Cookie", cookieHeader(cookie)) }
+        if (!response.status.isSuccess()) throw parseError(response)
+    }
+
+    private suspend inline fun <reified B> authedPostJson(path: String, body: B) {
+        val cookie = needCookie()
+        val response = client.post("$baseUrl$path") {
+            header("Cookie", cookieHeader(cookie))
+            contentType(ContentType.Application.Json)
+            setBody(body)
+        }
+        if (!response.status.isSuccess()) throw parseError(response)
+    }
+
+    private suspend inline fun <reified B> authedPatch(path: String, body: B) {
+        val cookie = needCookie()
+        val response = client.patch("$baseUrl$path") {
+            header("Cookie", cookieHeader(cookie))
+            contentType(ContentType.Application.Json)
+            setBody(body)
+        }
         if (!response.status.isSuccess()) throw parseError(response)
     }
 

@@ -18,16 +18,25 @@ import javax.swing.SwingUtilities
 import ru.starlitmoon.launcher.LauncherConfig
 import ru.starlitmoon.launcher.LauncherVersion
 import ru.starlitmoon.launcher.api.AdminAccountDto
+import ru.starlitmoon.launcher.api.AdminAdminDto
 import ru.starlitmoon.launcher.api.AdminApplicationDto
 import ru.starlitmoon.launcher.api.AdminBadgeDto
 import ru.starlitmoon.launcher.api.AdminBankCardDto
 import ru.starlitmoon.launcher.api.AdminClanDto
+import ru.starlitmoon.launcher.api.AdminContestEntryDto
+import ru.starlitmoon.launcher.api.AdminContestSettingsDto
+import ru.starlitmoon.launcher.api.AdminMapIconDto
+import ru.starlitmoon.launcher.api.AdminMapMarkerDto
+import ru.starlitmoon.launcher.api.AdminMapWorldDto
 import ru.starlitmoon.launcher.api.AdminMeResponse
 import ru.starlitmoon.launcher.api.AdminOrderDto
 import ru.starlitmoon.launcher.api.AdminPlayerDto
 import ru.starlitmoon.launcher.api.AdminProductDto
 import ru.starlitmoon.launcher.api.AdminStatsResponse
 import ru.starlitmoon.launcher.api.AdminTreasuryResponse
+import ru.starlitmoon.launcher.api.AdminWikiPageDto
+import ru.starlitmoon.launcher.api.McServerDto
+import ru.starlitmoon.launcher.api.PermissionDefDto
 import ru.starlitmoon.launcher.api.MeResponse
 import ru.starlitmoon.launcher.api.ModpackDto
 import ru.starlitmoon.launcher.api.NotificationDto
@@ -121,6 +130,25 @@ class LauncherViewModel(
     var statusDraft by mutableStateOf("")
     var notifyTitle by mutableStateOf("")
     var notifyMessage by mutableStateOf("")
+    var notifyHref by mutableStateOf("")
+    var notifyTargets by mutableStateOf("")
+
+    // Admin: extended state
+    var adminPermissionDefs by mutableStateOf<List<PermissionDefDto>>(emptyList())
+    var adminClansFilter by mutableStateOf("pending")
+    var adminAppsFilter by mutableStateOf("pending")
+    var adminContest by mutableStateOf<List<AdminContestEntryDto>>(emptyList())
+    var adminContestSettings by mutableStateOf<AdminContestSettingsDto?>(null)
+    var adminContestFilter by mutableStateOf("all")
+    var adminWikiPages by mutableStateOf<List<AdminWikiPageDto>>(emptyList())
+    var adminMapVisibility by mutableStateOf("public")
+    var adminMarkers by mutableStateOf<List<AdminMapMarkerDto>>(emptyList())
+    var adminMapIcons by mutableStateOf<List<AdminMapIconDto>>(emptyList())
+    var adminMapWorlds by mutableStateOf<List<AdminMapWorldDto>>(emptyList())
+    var adminAdmins by mutableStateOf<List<AdminAdminDto>>(emptyList())
+    var adminModpacks by mutableStateOf<List<ModpackDto>>(emptyList())
+    var adminMcServers by mutableStateOf<List<McServerDto>>(emptyList())
+    var serverVersionDraft by mutableStateOf("")
 
     var skinBusy by mutableStateOf(false)
     var skinCommand by mutableStateOf(
@@ -461,15 +489,6 @@ class LauncherViewModel(
             errorMessage = "У сборки нет ZIP-архива"
             return
         }
-        val name = pack.name ?: pack.slug ?: "сборку"
-        val ok = javax.swing.JOptionPane.showConfirmDialog(
-            null,
-            "Переустановить «$name»?\nТекущие файлы сборки (кроме сохранений) будут заменены.",
-            "Переустановка сборки",
-            javax.swing.JOptionPane.YES_NO_OPTION,
-            javax.swing.JOptionPane.WARNING_MESSAGE,
-        ) == javax.swing.JOptionPane.YES_OPTION
-        if (!ok) return
         scope.launch {
             isLoading = true
             launchProgress = "Переустановка сборки…"
@@ -848,35 +867,54 @@ class LauncherViewModel(
             isLoading = true
             runCatching {
                 withContext(Dispatchers.IO) {
-                    adminMe = api.adminMe()
+                    val me = api.adminMe()
+                    adminMe = me
+                    if (me.permissionDefs.isNotEmpty()) adminPermissionDefs = me.permissionDefs
+                    adminStats = runCatching { api.adminStats() }.getOrNull()
                     when (adminSubTab) {
-                        // Игроки / Банк / Значки / Карта / Кланы / Заявки / … / Консоль
-                        0, 1 -> {
-                            adminStats = runCatching { api.adminStats() }.getOrNull()
+                        0 -> { // Игроки: профили / аккаунты / уведомления
                             adminPlayers = runCatching { api.adminPlayers(adminSearch).players }.getOrDefault(emptyList())
                             adminAccounts = runCatching { api.adminAccounts(accountSearch).accounts }.getOrDefault(emptyList())
+                            adminBadges = runCatching { api.adminBadges().badges }.getOrDefault(emptyList())
+                        }
+                        1 -> { // Банк: карты / казна / товары
                             adminBank = runCatching { api.adminBank().cards }.getOrDefault(emptyList())
                             adminTreasury = runCatching { api.treasury() }.getOrNull()
                             adminProducts = runCatching { api.adminProducts().products }.getOrDefault(emptyList())
                             adminOrders = runCatching { api.adminOrders().orders }.getOrDefault(emptyList())
                         }
-                        2 -> {
-                            adminStats = runCatching { api.adminStats() }.getOrNull()
-                            adminBadges = runCatching { api.adminBadges().badges }.getOrDefault(emptyList())
+                        2 -> adminBadges = runCatching { api.adminBadges().badges }.getOrDefault(emptyList())
+                        3 -> { // Карта
+                            runCatching { api.mapSettings() }.getOrNull()?.let { adminMapVisibility = it.visibility ?: "public" }
+                            runCatching { api.mapMarkers() }.getOrNull()?.let {
+                                adminMarkers = it.markers
+                                adminMapIcons = it.icons
+                                adminMapWorlds = it.worlds
+                            }
                         }
-                        3, 6, 7, 8, 9, 10 -> {
-                            adminStats = runCatching { api.adminStats() }.getOrNull()
+                        4 -> adminClans = runCatching { api.adminClans(adminClansFilter).clans }.getOrDefault(emptyList())
+                        5 -> adminApps = runCatching { api.adminApplications(adminAppsFilter).applications }.getOrDefault(emptyList())
+                        6 -> { // Конкурс
+                            runCatching { api.contest(adminContestFilter) }.getOrNull()?.let {
+                                adminContest = it.entries
+                                if (it.settings != null) adminContestSettings = it.settings
+                            }
+                            if (adminContestSettings == null) {
+                                adminContestSettings = runCatching { api.contestSettings() }.getOrNull()
+                            }
                         }
-                        4 -> {
-                            adminStats = runCatching { api.adminStats() }.getOrNull()
-                            adminClans = runCatching { api.adminClans("pending").clans }.getOrDefault(emptyList())
+                        7 -> adminWikiPages = runCatching { api.wiki().pages }.getOrDefault(emptyList())
+                        8 -> { // Сборки
+                            fetchModpacks(force = false)
+                            adminModpacks = runCatching { api.adminModpacks().packs }.getOrDefault(emptyList())
                         }
-                        5 -> {
-                            adminStats = runCatching { api.adminStats() }.getOrNull()
-                            adminApps = runCatching { api.adminApplications("pending").applications }.getOrDefault(emptyList())
+                        9 -> runCatching { api.siteSettings() }.getOrNull()?.let { serverVersionDraft = it.serverVersion ?: serverVersion }
+                        10 -> runCatching { api.listAdminsData() }.getOrNull()?.let {
+                            adminAdmins = it.admins
+                            if (it.permissionDefs.isNotEmpty()) adminPermissionDefs = it.permissionDefs
                         }
                         11 -> {
-                            adminStats = runCatching { api.adminStats() }.getOrNull()
+                            adminMcServers = runCatching { api.mcServers().servers }.getOrDefault(emptyList())
                             loadConsoleOutputInternal()
                         }
                     }
@@ -1106,23 +1144,180 @@ class LauncherViewModel(
         }
     }
 
-    fun sendBroadcast() {
+    fun sendBroadcast(toAll: Boolean) {
         if (notifyTitle.isBlank() || notifyMessage.isBlank()) {
             errorMessage = "Заполните заголовок и текст"
+            return
+        }
+        val targets = notifyTargets.split(',', ';', '\n', ' ')
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+        if (!toAll && targets.isEmpty()) {
+            errorMessage = "Укажите ники получателей"
             return
         }
         scope.launch {
             runCatching {
                 withContext(Dispatchers.IO) {
-                    api.sendNotification(notifyTitle, notifyMessage, all = true)
+                    api.sendNotification(
+                        notifyTitle,
+                        notifyMessage,
+                        all = toAll,
+                        players = if (toAll) emptyList() else targets,
+                        href = notifyHref,
+                    )
                 }
             }.onSuccess {
-                infoMessage = "Уведомление отправлено"
+                infoMessage = if (toAll) "Уведомление отправлено всем" else "Уведомление отправлено (${targets.size})"
                 notifyTitle = ""
                 notifyMessage = ""
+                notifyHref = ""
+                notifyTargets = ""
             }.onFailure { handleError(it) }
         }
     }
+
+    /** Runs an admin mutation off the UI thread, then refreshes the active tab. */
+    private fun adminAction(successMsg: String? = null, refresh: Boolean = true, block: suspend () -> Unit) {
+        scope.launch {
+            runCatching { withContext(Dispatchers.IO) { block() } }
+                .onSuccess {
+                    if (successMsg != null) infoMessage = successMsg
+                    if (refresh) refreshAdmin()
+                }
+                .onFailure { handleError(it) }
+        }
+    }
+
+    // --- Players ---
+    fun savePlayer(
+        id: String,
+        banned: Boolean,
+        banReason: String,
+        warnCount: Int,
+        profileStatus: String,
+        ranks: List<String>,
+    ) = adminAction("Профиль сохранён: $id") {
+        api.patchAdminPlayer(
+            id,
+            banned = banned,
+            banReason = banReason.trim().ifBlank { null },
+            warnCount = warnCount,
+            profileStatus = profileStatus.trim(),
+            ranks = ranks,
+        )
+    }
+
+    fun deletePlayer(id: String, purge: Boolean) =
+        adminAction(if (purge) "Данные игрока удалены: $id" else "Профиль удалён: $id") {
+            api.deleteAdminPlayer(id, purge)
+        }
+
+    fun grantPlayerBadge(playerId: String, badgeId: String) =
+        adminAction("Значок выдан") { api.grantPlayerBadge(playerId, badgeId) }
+
+    fun revokePlayerBadge(playerId: String, badgeId: String) =
+        adminAction("Значок снят") { api.revokePlayerBadge(playerId, badgeId) }
+
+    // --- Badges ---
+    fun createBadge(emoji: String, name: String, description: String) =
+        adminAction("Значок создан") { api.createBadge(emoji.trim(), name.trim(), description.trim()) }
+
+    fun updateBadge(id: String, emoji: String, name: String, description: String) =
+        adminAction("Значок обновлён") { api.updateBadge(id, emoji.trim(), name.trim(), description.trim()) }
+
+    fun deleteBadge(id: String) = adminAction("Значок удалён") { api.deleteBadge(id) }
+
+    // --- Products / orders ---
+    fun createProduct(id: String, name: String, price: Int, description: String, commandsText: String) =
+        adminAction("Товар создан") {
+            api.createProduct(id.trim(), name.trim(), price, description.trim(), null, parseCommands(commandsText))
+        }
+
+    fun updateProduct(id: String, name: String, price: Int, description: String, commandsText: String) =
+        adminAction("Товар обновлён") {
+            api.updateProduct(id, name.trim(), price, description.trim(), null, parseCommands(commandsText))
+        }
+
+    fun deleteProduct(id: String) = adminAction("Товар удалён") { api.deleteProduct(id) }
+
+    fun deleteOrder(id: String) = adminAction("Заказ удалён") { api.deleteOrder(id) }
+
+    private fun parseCommands(text: String): List<String> =
+        text.split('\n').map { it.trim() }.filter { it.isNotEmpty() }
+
+    // --- Map ---
+    fun saveMapVisibility(visibility: String) = adminAction("Видимость карты: $visibility") {
+        val res = api.setMapVisibility(visibility)
+        adminMapVisibility = res.visibility ?: visibility
+    }
+
+    fun createMapMarker(ownerName: String, name: String, world: String, x: Double, y: Double, z: Double, iconId: String?) =
+        adminAction("Метка создана") { api.createMapMarker(ownerName.trim(), name.trim(), world, x, y, z, iconId) }
+
+    fun deleteMapMarker(id: String) = adminAction("Метка удалена") { api.deleteMapMarker(id) }
+
+    // --- Clans ---
+    fun setClansFilter(status: String) { adminClansFilter = status; refreshAdmin() }
+
+    // --- Applications ---
+    fun setAppsFilter(status: String) { adminAppsFilter = status; refreshAdmin() }
+
+    // --- Contest ---
+    fun setContestFilter(status: String) { adminContestFilter = status; refreshAdmin() }
+
+    fun patchContestEntry(id: String, status: String) =
+        adminAction("Статус: $status") { api.patchContestEntry(id, status) }
+
+    fun deleteContestEntry(id: String) = adminAction("Работа удалена") { api.deleteContestEntry(id) }
+
+    fun saveContestSettings(enabled: Boolean, title: String, seasonName: String) =
+        adminAction("Настройки конкурса сохранены") { api.updateContestSettings(enabled, title.trim(), seasonName.trim()) }
+
+    // --- Wiki ---
+    fun createWikiPage(title: String, slug: String, published: Boolean) =
+        adminAction("Страница создана") { api.createWikiPage(title.trim(), slug.trim(), published) }
+
+    fun updateWikiPage(id: String, title: String, slug: String, published: Boolean, paragraph: String?) =
+        adminAction("Страница сохранена") { api.updateWikiPage(id, title.trim(), slug.trim(), published, paragraph) }
+
+    fun deleteWikiPage(id: String) = adminAction("Страница удалена") { api.deleteWikiPage(id) }
+
+    // --- Modpacks (admin) ---
+    fun createModpack(name: String, slug: String, loader: String, mcVersion: String, description: String) =
+        adminAction("Сборка создана") { api.createModpack(name.trim(), slug.trim(), loader, mcVersion.trim(), description.trim()) }
+
+    fun updateModpackMeta(id: String, name: String? = null, enabled: Boolean? = null) =
+        adminAction("Сборка обновлена") { api.updateModpack(id, name?.trim(), enabled) }
+
+    fun deleteModpack(id: String) = adminAction("Сборка удалена") { api.deleteModpack(id) }
+
+    fun deleteModpackArchive(id: String) = adminAction("ZIP удалён") { api.deleteModpackArchive(id) }
+
+    // --- Site settings ---
+    fun saveServerVersion(version: String) = adminAction("Версия сервера сохранена") {
+        val res = api.setServerVersion(version.trim())
+        res.serverVersion?.let { serverVersion = it; serverVersionDraft = it }
+    }
+
+    // --- Access ---
+    fun addAdmin(nickname: String, permissions: List<String>) {
+        if (nickname.isBlank() || permissions.isEmpty()) {
+            errorMessage = "Укажите ник и хотя бы одно право"
+            return
+        }
+        adminAction("Админ добавлен: $nickname") { api.addAdmin(nickname.trim(), permissions) }
+    }
+
+    fun updateAdmin(nickname: String, permissions: List<String>) {
+        if (permissions.isEmpty()) {
+            errorMessage = "Нужно хотя бы одно право"
+            return
+        }
+        adminAction("Права обновлены: $nickname") { api.updateAdmin(nickname, permissions) }
+    }
+
+    fun removeAdmin(nickname: String) = adminAction("Админ удалён: $nickname") { api.removeAdmin(nickname) }
 
     fun clearMessages() {
         errorMessage = null

@@ -221,18 +221,18 @@ fun StarlitPrimaryButton(
                 strokeWidth = 2.dp,
             )
         } else {
+            val size = if (compact) 13.sp else 15.sp
             Text(
                 text = text,
                 fontWeight = FontWeight.SemiBold,
-                fontSize = if (compact) 13.sp else 15.sp,
+                fontSize = size,
+                lineHeight = size,
                 letterSpacing = 0.sp,
                 maxLines = 1,
                 softWrap = false,
                 textAlign = TextAlign.Center,
                 color = fg,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = if (compact) 12.dp else 16.dp),
+                modifier = Modifier.padding(horizontal = if (compact) 12.dp else 16.dp),
             )
         }
     }
@@ -278,18 +278,18 @@ fun StarlitSecondaryButton(
             ),
         contentAlignment = Alignment.Center,
     ) {
+        val size = if (compact) 13.sp else 15.sp
         Text(
             text = text,
             fontWeight = FontWeight.SemiBold,
-            fontSize = if (compact) 13.sp else 15.sp,
+            fontSize = size,
+            lineHeight = size,
             letterSpacing = 0.sp,
             maxLines = 1,
             softWrap = false,
             textAlign = TextAlign.Center,
             color = if (enabled) StarlitColors.Text else StarlitColors.TextMuted,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = if (compact) 12.dp else 16.dp),
+            modifier = Modifier.padding(horizontal = if (compact) 12.dp else 16.dp),
         )
     }
 }
@@ -820,10 +820,11 @@ private fun StatusPill(
 ) {
     Row(
         modifier = Modifier
+            .height(32.dp)
             .clip(RoundedCornerShape(50))
             .background(StarlitColors.Surface)
             .border(1.dp, StarlitColors.Border, RoundedCornerShape(50))
-            .padding(horizontal = 14.dp, vertical = 8.dp),
+            .padding(horizontal = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         StatusDot(online)
@@ -832,6 +833,7 @@ private fun StatusPill(
             text,
             color = if (emphasize) StarlitColors.Text else StarlitColors.TextMuted,
             fontSize = 12.sp,
+            lineHeight = 12.sp,
             fontWeight = FontWeight.Medium,
         )
     }

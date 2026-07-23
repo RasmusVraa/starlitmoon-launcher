@@ -391,12 +391,20 @@ private fun RankPill(text: String) {
     val style = PlayerRanks.styleFor(text) ?: return
     Box(
         modifier = Modifier
+            .height(22.dp)
             .clip(RoundedCornerShape(999.dp))
             .background(style.background)
             .border(1.dp, style.border, RoundedCornerShape(999.dp))
-            .padding(horizontal = 10.dp, vertical = 4.dp),
+            .padding(horizontal = 10.dp),
+        contentAlignment = Alignment.Center,
     ) {
-        Text(style.labelRu, color = style.foreground, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+        Text(
+            style.labelRu,
+            color = style.foreground,
+            fontSize = 11.sp,
+            lineHeight = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+        )
     }
 }
 
@@ -404,6 +412,7 @@ private fun RankPill(text: String) {
 private fun BadgeChoice(label: String, selected: Boolean, onClick: () -> Unit) {
     Box(
         modifier = Modifier
+            .height(36.dp)
             .clip(RoundedCornerShape(10.dp))
             .background(if (selected) StarlitColors.GoldMuted else StarlitColors.Surface)
             .border(
@@ -412,12 +421,14 @@ private fun BadgeChoice(label: String, selected: Boolean, onClick: () -> Unit) {
                 RoundedCornerShape(10.dp),
             )
             .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            .padding(horizontal = 12.dp),
+        contentAlignment = Alignment.Center,
     ) {
         Text(
             label,
             color = if (selected) StarlitColors.Gold else StarlitColors.TextMuted,
             fontSize = 12.sp,
+            lineHeight = 12.sp,
             fontWeight = FontWeight.Medium,
         )
     }

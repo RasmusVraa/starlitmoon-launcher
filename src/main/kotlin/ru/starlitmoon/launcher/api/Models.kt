@@ -127,7 +127,17 @@ data class AdminMeResponse(
     val loggedIn: Boolean = false,
     val admin: Boolean = false,
     val permissions: List<String> = emptyList(),
+    val permissionDefs: List<PermissionDefDto> = emptyList(),
+    val consoleServerIds: List<String>? = null,
+    val consoleManage: Boolean = false,
     val user: UserDto? = null,
+)
+
+@Serializable
+data class PermissionDefDto(
+    val id: String,
+    val label: String? = null,
+    val description: String? = null,
 )
 
 @Serializable
@@ -225,8 +235,14 @@ data class AdminClansResponse(val clans: List<AdminClanDto> = emptyList())
 data class AdminClanDto(
     val id: String? = null,
     val name: String? = null,
+    val slug: String? = null,
     val status: String? = null,
     val tag: String? = null,
+    val owner: String? = null,
+    val description: String? = null,
+    val prefixFormatted: String? = null,
+    val members: List<String> = emptyList(),
+    val createdAt: String? = null,
 )
 
 @Serializable
@@ -420,3 +436,170 @@ data class ModpackArchiveCompleteResponse(
     val pack: ModpackDto? = null,
     val error: String? = null,
 )
+
+// --- Map ---
+
+@Serializable
+data class AdminMapSettingsResponse(
+    val visibility: String? = null,
+    val embedUrl: String? = null,
+    val updatedAt: String? = null,
+    val updatedBy: String? = null,
+)
+
+@Serializable
+data class AdminMapMarkersResponse(
+    val ok: Boolean = false,
+    val markers: List<AdminMapMarkerDto> = emptyList(),
+    val total: Int = 0,
+    val icons: List<AdminMapIconDto> = emptyList(),
+    val worlds: List<AdminMapWorldDto> = emptyList(),
+)
+
+@Serializable
+data class AdminMapMarkerDto(
+    val id: String? = null,
+    val ownerName: String? = null,
+    val name: String? = null,
+    val world: String? = null,
+    val x: Double? = null,
+    val y: Double? = null,
+    val z: Double? = null,
+    val iconId: String? = null,
+    val squaremarkerId: Int? = null,
+)
+
+@Serializable
+data class AdminMapIconDto(val id: String? = null, val label: String? = null)
+
+@Serializable
+data class AdminMapWorldDto(val id: String? = null, val label: String? = null)
+
+// --- Contest ---
+
+@Serializable
+data class AdminContestResponse(
+    val total: Int = 0,
+    val totalAll: Int = 0,
+    val pending: Int = 0,
+    val approved: Int = 0,
+    val rejected: Int = 0,
+    val winner: Int = 0,
+    val entries: List<AdminContestEntryDto> = emptyList(),
+    val settings: AdminContestSettingsDto? = null,
+)
+
+@Serializable
+data class AdminContestEntryDto(
+    val id: String? = null,
+    val minecraftNick: String? = null,
+    val teamMembers: List<String> = emptyList(),
+    val baseName: String? = null,
+    val description: String? = null,
+    val coordinates: String? = null,
+    val buildOrigin: String? = null,
+    val status: String? = null,
+    val adminNote: String? = null,
+    val createdAt: String? = null,
+)
+
+@Serializable
+data class AdminContestSettingsDto(
+    val enabled: Boolean = true,
+    val page: AdminContestPageDto? = null,
+    val updatedAt: String? = null,
+    val updatedBy: String? = null,
+)
+
+@Serializable
+data class AdminContestPageDto(
+    val title: String? = null,
+    val lead: String? = null,
+    val seasonName: String? = null,
+)
+
+// --- Wiki ---
+
+@Serializable
+data class AdminWikiResponse(
+    val spaceTitle: String? = null,
+    val spaceDescription: String? = null,
+    val updatedAt: String? = null,
+    val pages: List<AdminWikiPageDto> = emptyList(),
+)
+
+@Serializable
+data class AdminWikiPageDto(
+    val id: String? = null,
+    val slug: String? = null,
+    val title: String? = null,
+    val published: Boolean = true,
+    val adminOnly: Boolean = false,
+    val parentId: String? = null,
+    val blocks: List<AdminWikiBlockDto> = emptyList(),
+    val updatedAt: String? = null,
+)
+
+@Serializable
+data class AdminWikiBlockDto(
+    val id: String? = null,
+    val type: String? = null,
+    val data: AdminWikiBlockDataDto? = null,
+)
+
+@Serializable
+data class AdminWikiBlockDataDto(val text: String? = null)
+
+@Serializable
+data class AdminWikiPageResponse(val ok: Boolean = false, val page: AdminWikiPageDto? = null, val error: String? = null)
+
+// --- Access ---
+
+@Serializable
+data class AdminAdminsResponse(
+    val total: Int = 0,
+    val admins: List<AdminAdminDto> = emptyList(),
+    val permissionDefs: List<PermissionDefDto> = emptyList(),
+)
+
+@Serializable
+data class AdminAdminDto(
+    val nickname: String? = null,
+    val permissions: List<String> = emptyList(),
+    val consoleServerIds: List<String>? = null,
+    val addedAt: String? = null,
+    val addedBy: String? = null,
+    val updatedAt: String? = null,
+)
+
+@Serializable
+data class PermissionDefsResponse(val permissionDefs: List<PermissionDefDto> = emptyList())
+
+// --- Site settings ---
+
+@Serializable
+data class SiteSettingsResponse(val serverVersion: String? = null)
+
+// --- MC servers (console) ---
+
+@Serializable
+data class McServersResponse(
+    val ok: Boolean = false,
+    val servers: List<McServerDto> = emptyList(),
+    val consoleManage: Boolean = false,
+)
+
+@Serializable
+data class McServerDto(
+    val id: String? = null,
+    val name: String? = null,
+    val screenSession: String? = null,
+)
+
+// --- Badges (list uses total/badges already) ---
+
+@Serializable
+data class AdminBadgeResponse(val ok: Boolean = false, val badge: AdminBadgeDto? = null, val error: String? = null)
+
+@Serializable
+data class AdminModpacksResponse(val ok: Boolean = false, val packs: List<ModpackDto> = emptyList())
