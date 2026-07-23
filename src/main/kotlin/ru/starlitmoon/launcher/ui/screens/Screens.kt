@@ -1,5 +1,6 @@
 package ru.starlitmoon.launcher.ui.screens
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -46,10 +47,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.toComposeImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import ru.starlitmoon.launcher.LauncherConfig
 import ru.starlitmoon.launcher.LauncherVersion
 import ru.starlitmoon.launcher.api.ModpackDto
@@ -68,6 +74,7 @@ import ru.starlitmoon.launcher.ui.components.StarlitToggle
 import ru.starlitmoon.launcher.ui.components.StatRow
 import ru.starlitmoon.launcher.ui.components.StatusDot
 import ru.starlitmoon.launcher.ui.theme.StarlitColors
+import ru.starlitmoon.launcher.ui.theme.StarlitDimens
 import ru.starlitmoon.launcher.viewmodel.LauncherTab
 import ru.starlitmoon.launcher.viewmodel.LauncherViewModel
 import java.awt.Desktop
@@ -229,7 +236,7 @@ fun BuildsScreen(vm: LauncherViewModel) {
             }
             else -> {
                 LazyVerticalGrid(
-                    columns = GridCells.Adaptive(minSize = 240.dp),
+                    columns = GridCells.Adaptive(minSize = 260.dp),
                     horizontalArrangement = Arrangement.spacedBy(14.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp),
                     modifier = Modifier.fillMaxSize(),
@@ -241,6 +248,7 @@ fun BuildsScreen(vm: LauncherViewModel) {
                                 (pack.slug != null && pack.slug == vm.selectedModpack?.slug),
                             onSelect = { vm.selectModpack(pack) },
                             onOpenFolder = { vm.openPackFolder(pack) },
+                            apiBaseUrl = vm.configState.apiBaseUrl,
                         )
                     }
                 }
@@ -256,51 +264,119 @@ private fun ModpackCard(
     selected: Boolean,
     onSelect: () -> Unit,
     onOpenFolder: () -> Unit,
+    apiBaseUrl: String,
 ) {
+    val cover = remember(pack.coverUrl, apiBaseUrl) {
+        resolvePackCoverUrl(pack.coverUrl, apiBaseUrl)
+    }
     StarlitCard(
         selected = selected,
         modifier = Modifier
             .fillMaxWidth()
+            .height(292.dp)
             .clickable(onClick = onSelect),
     ) {
-        Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(
-                pack.name ?: pack.slug ?: "Сборка",
-                color = StarlitColors.Text,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 16.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+        Column(modifier = Modifier.fillMaxSize()) {
+            NetworkCover(
+                url = cover,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(132.dp),
             )
-            Text(
-                pack.description?.ifBlank { null } ?: "Без описания",
-                color = StarlitColors.TextMuted,
-                fontSize = 13.sp,
-                lineHeight = 18.sp,
-                maxLines = 3,
-                overflow = TextOverflow.Ellipsis,
-            )
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                TagChip(pack.loader?.uppercase() ?: "VANILLA")
-                TagChip("MC ${pack.mcVersion ?: "—"}")
-                when {
-                    pack.hasArchive -> TagChip(formatArchiveSize(pack.archive?.size))
-                    pack.modsCount > 0 -> TagChip("${pack.modsCount} модов")
-                    else -> TagChip("Без архива")
-                }
-                pack.tags.take(3).forEach { TagChip(it) }
-            }
-            if (selected) {
-                Text("Выбрана", color = StarlitColors.Gold, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-                StarlitSecondaryButton(
-                    text = "Открыть папку",
-                    onClick = onOpenFolder,
-                    modifier = Modifier.width(140.dp),
+                Text(
+                    pack.name ?: pack.slug ?: "Сборка",
+                    color = StarlitColors.Text,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 15.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
+                Text(
+                    pack.description?.ifBlank { null } ?: "Без описания",
+                    color = StarlitColors.TextMuted,
+                    fontSize = 12.sp,
+                    lineHeight = 16.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    TagChip(pack.loader?.uppercase() ?: "VANILLA")
+                    TagChip("MC ${pack.mcVersion ?: "—"}")
+                    when {
+                        pack.hasArchive -> TagChip(formatArchiveSize(pack.archive?.size))
+                        pack.modsCount > 0 -> TagChip("${pack.modsCount} модов")
+                        else -> TagChip("Без архива")
+                    }
+                }
+                if (selected) {
+                    Row(
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("Выбрана", color = StarlitColors.Gold, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                        StarlitSecondaryButton(
+                            text = "Папка",
+                            onClick = onOpenFolder,
+                            modifier = Modifier.width(88.dp),
+                        )
+                    }
+                }
             }
+        }
+    }
+}
+
+private fun resolvePackCoverUrl(coverUrl: String?, apiBaseUrl: String): String {
+    val raw = coverUrl?.trim().orEmpty()
+    if (raw.isEmpty()) return ""
+    if (raw.startsWith("http://") || raw.startsWith("https://")) return raw
+    val base = apiBaseUrl.trimEnd('/')
+    return if (raw.startsWith("/")) "$base$raw" else "$base/$raw"
+}
+
+@Composable
+private fun NetworkCover(
+    url: String,
+    modifier: Modifier = Modifier,
+) {
+    var bitmap by remember(url) { mutableStateOf<ImageBitmap?>(null) }
+    LaunchedEffect(url) {
+        bitmap = null
+        if (url.isBlank()) return@LaunchedEffect
+        bitmap = withContext(Dispatchers.IO) {
+            runCatching {
+                val bytes = java.net.URI(url).toURL().openStream().use { it.readBytes() }
+                org.jetbrains.skia.Image.makeFromEncoded(bytes).toComposeImageBitmap()
+            }.getOrNull()
+        }
+    }
+    Box(
+        modifier = modifier
+            .background(StarlitColors.SurfaceElevated)
+            .clip(RoundedCornerShape(topStart = StarlitDimens.Radius, topEnd = StarlitDimens.Radius)),
+        contentAlignment = Alignment.Center,
+    ) {
+        val bmp = bitmap
+        if (bmp != null) {
+            Image(
+                bitmap = bmp,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+            )
+        } else {
+            Text("STARLIT", color = StarlitColors.TextDim, fontSize = 12.sp, fontWeight = FontWeight.Medium)
         }
     }
 }

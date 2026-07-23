@@ -86,13 +86,21 @@ fun LauncherApp(
                                     }
                                 }
                                 if (vm.errorMessage != null || vm.infoMessage != null) {
+                                    val err = vm.errorMessage
+                                    val info = vm.infoMessage
+                                    LaunchedEffect(err, info) {
+                                        kotlinx.coroutines.delay(5_000)
+                                        if (vm.errorMessage == err && vm.infoMessage == info) {
+                                            vm.clearMessages()
+                                        }
+                                    }
                                     Column(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .padding(horizontal = 28.dp, vertical = 12.dp),
                                     ) {
-                                        vm.errorMessage?.let { MessageBanner(it, true, vm::clearMessages) }
-                                        vm.infoMessage?.let { MessageBanner(it, false, vm::clearMessages) }
+                                        err?.let { MessageBanner(it, true, vm::clearMessages) }
+                                        info?.let { MessageBanner(it, false, vm::clearMessages) }
                                     }
                                 }
                             }

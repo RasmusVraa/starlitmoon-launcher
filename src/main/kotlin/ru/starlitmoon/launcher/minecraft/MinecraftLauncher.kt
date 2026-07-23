@@ -55,6 +55,7 @@ class MinecraftLauncher(
         val success: Boolean,
         val message: String,
         val process: Process? = null,
+        val skinBridge: OfflineSkinBridge? = null,
     )
 
     data class PreparedVersion(
@@ -294,6 +295,16 @@ class MinecraftLauncher(
         val nativesDir = config.versionsDir.resolve(id).resolve("natives")
         val classpath = buildClasspath(clientJarId, versionMeta)
         val uuid = offlineUuid(username)
+        val skinBridge = runCatching {
+            val skinPath = config.skinPath.trim().takeIf { it.isNotEmpty() }?.let { Path.of(it) }
+                ?: config.skinsDir.resolve("${username.trim().lowercase()}.png")
+            OfflineSkinBridge.startIfNeeded(
+                cacheDir = config.dataDir.resolve("cache"),
+                username = username,
+                uuidDashed = uuid,
+                skinFile = skinPath,
+            )
+        }.getOrNull()
         val vars = mapOf(
             "auth_player_name" to username,
             "version_name" to id,
@@ -315,6 +326,7 @@ class MinecraftLauncher(
         )
 
         val jvmArgs = buildList {
+            skinBridge?.agentArg?.let { add(it) }
             val fromMeta = resolveArgList(versionMeta.arguments?.resolvedJvm(), vars)
                 .filterNot { it.startsWith("-Xms") || it.startsWith("-Xmx") }
             addAll(fromMeta)
@@ -386,8 +398,9 @@ class MinecraftLauncher(
                 .redirectOutput(ProcessBuilder.Redirect.appendTo(logFile.toFile()))
             val process = pb.start()
             onProgress("Игра запущена", 1f)
-            LaunchResult(true, "Игра запущена", process)
+            LaunchResult(true, "Игра запущена", process, skinBridge)
         } catch (e: Exception) {
+            skinBridge?.close()
             LaunchResult(false, e.message ?: "Не удалось запустить")
         }
     }

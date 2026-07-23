@@ -34,6 +34,7 @@ import ru.starlitmoon.launcher.api.StarlitApiClient
 import ru.starlitmoon.launcher.api.StarlitApiException
 import ru.starlitmoon.launcher.minecraft.MinecraftLauncher
 import ru.starlitmoon.launcher.minecraft.ModpackSync
+import ru.starlitmoon.launcher.minecraft.OfflineSkinBridge
 import ru.starlitmoon.launcher.minecraft.SkinManager
 import ru.starlitmoon.launcher.update.UpdateChecker
 import ru.starlitmoon.launcher.update.UpdateInfo
@@ -97,6 +98,8 @@ class LauncherViewModel(
     var isGameRunning by mutableStateOf(false)
     private var gameProcess: Process? = null
     private var gameWatchJob: Job? = null
+    private var gameStopRequested: Boolean = false
+    private var activeSkinBridge: OfflineSkinBridge? = null
     var onlinePlayers by mutableStateOf<List<String>>(emptyList())
     var adminSearch by mutableStateOf("")
     var accountSearch by mutableStateOf("")
@@ -305,7 +308,8 @@ class LauncherViewModel(
                 LauncherConfig.save(configState)
                 skinLocalPath = prepared.localPath.toString()
                 skinCommand = if (url.isNotBlank()) "/skin set $url" else ""
-                infoMessage = uploaded.message
+                infoMessage = uploaded.message?.takeIf { it.isNotBlank() }
+                    ?: "Скин установлен — будет в игре и в одиночном мире"
                     ?: uploaded.warning
                     ?: "Скин загружен на сайт"
                 runCatching { withContext(Dispatchers.IO) { api.me() } }
@@ -427,12 +431,14 @@ class LauncherViewModel(
                 }
             }
             if (result.success) {
-                infoMessage = "Игра запущена ($loader). На сервере: /login"
-                result.process?.let { attachGameProcess(it) }
+                infoMessage = "Игра запущена"
+                result.process?.let { attachGameProcess(it, result.skinBridge) }
                     ?: run {
+                        result.skinBridge?.close()
                         if (!configState.keepLauncherOpen) requestExit = true
                     }
             } else {
+                result.skinBridge?.close()
                 errorMessage = result.message
             }
             launchProgress = null
@@ -446,7 +452,8 @@ class LauncherViewModel(
             isGameRunning = false
             return
         }
-        infoMessage = "Остановка игры…"
+        gameStopRequested = true
+        infoMessage = "Игра остановлена"
         scope.launch(Dispatchers.IO) {
             runCatching {
                 process.destroy()
@@ -457,34 +464,42 @@ class LauncherViewModel(
             }
             SwingUtilities.invokeLater {
                 clearGameProcess()
-                infoMessage = "Игра остановлена"
             }
         }
     }
 
-    private fun attachGameProcess(process: Process) {
+    private fun attachGameProcess(process: Process, skinBridge: OfflineSkinBridge?) {
         gameWatchJob?.cancel()
+        activeSkinBridge?.close()
+        activeSkinBridge = skinBridge
         gameProcess = process
+        gameStopRequested = false
         isGameRunning = true
         gameWatchJob = scope.launch(Dispatchers.IO) {
             val startedAt = System.currentTimeMillis()
             val code = runCatching { process.waitFor() }.getOrDefault(-1)
             val livedMs = System.currentTimeMillis() - startedAt
+            val stoppedByUser = gameStopRequested
             val logTail = runCatching {
                 configState.dataDir.resolve("last-launch.log").toFile().readText().takeLast(900)
             }.getOrNull()
-            val looksLikeCrash = code != 0 || livedMs < 8_000
+            val looksLikeCrash = !stoppedByUser && (code != 0 || livedMs < 8_000)
             SwingUtilities.invokeLater {
                 clearGameProcess()
-                if (looksLikeCrash && !logTail.isNullOrBlank()) {
-                    val hint = logTail.lineSequence()
-                        .map { it.trim() }
-                        .filter { it.isNotEmpty() }
-                        .lastOrNull()
-                        ?: "См. лог запуска"
-                    errorMessage = "Игра закрылась. $hint"
-                } else if (!configState.keepLauncherOpen) {
-                    requestExit = true
+                when {
+                    stoppedByUser -> {
+                        // already set info in stopGame(); keep a quiet success toast
+                        if (infoMessage.isNullOrBlank()) infoMessage = "Игра остановлена"
+                    }
+                    looksLikeCrash && !logTail.isNullOrBlank() -> {
+                        val hint = logTail.lineSequence()
+                            .map { it.trim() }
+                            .filter { it.isNotEmpty() }
+                            .lastOrNull()
+                            ?: "См. лог запуска"
+                        errorMessage = "Игра закрылась. $hint"
+                    }
+                    !configState.keepLauncherOpen -> requestExit = true
                 }
             }
         }
@@ -495,6 +510,9 @@ class LauncherViewModel(
         gameWatchJob = null
         gameProcess = null
         isGameRunning = false
+        gameStopRequested = false
+        activeSkinBridge?.close()
+        activeSkinBridge = null
     }
 
     /** Legacy fallback: per-jar mods into the pack instance mods/ folder. */
