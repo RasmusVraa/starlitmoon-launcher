@@ -17,6 +17,7 @@ import kotlinx.coroutines.yield
 import javax.swing.SwingUtilities
 import ru.starlitmoon.launcher.LauncherConfig
 import ru.starlitmoon.launcher.LauncherVersion
+import ru.starlitmoon.launcher.discord.DiscordPresence
 import ru.starlitmoon.launcher.api.AdminAccountDto
 import ru.starlitmoon.launcher.api.AdminAdminDto
 import ru.starlitmoon.launcher.api.AdminApplicationDto
@@ -68,6 +69,7 @@ class LauncherViewModel(
 ) {
     var configState by mutableStateOf(initialConfig)
     private val updateChecker = UpdateChecker(configProvider = { configState })
+    private val discordPresence = DiscordPresence(scope)
 
     private var mc: MinecraftLauncher = MinecraftLauncher(configState)
     var isRefreshingStatus by mutableStateOf(false)
@@ -208,6 +210,8 @@ class LauncherViewModel(
             publicJob.await()
             fetchModpacks()
             startStatusPolling()
+            discordPresence.start(configState.discordRpcEnabled)
+            refreshDiscordPresence()
         }
     }
 
@@ -263,6 +267,7 @@ class LauncherViewModel(
         if (!persistOnly) {
             infoMessage = "Выбрана сборка: ${pack.name ?: pack.slug ?: "—"}"
         }
+        refreshDiscordPresence()
     }
 
     fun checkForUpdates(silent: Boolean = false) {
@@ -343,17 +348,23 @@ class LauncherViewModel(
             notifications = emptyList()
             currentTab = LauncherTab.Home
             isLoading = false
+            refreshDiscordPresence()
         }
     }
 
     fun saveSettings(newConfig: LauncherConfig, notify: Boolean = true) {
         if (newConfig == configState) return
+        val rpcChanged = newConfig.discordRpcEnabled != configState.discordRpcEnabled
         LauncherConfig.save(newConfig)
         configState = newConfig
         mc.close()
         mc = MinecraftLauncher(configState)
         skins.close()
         skins = SkinManager(configState.skinsDir)
+        if (rpcChanged) {
+            discordPresence.setEnabled(newConfig.discordRpcEnabled)
+            if (newConfig.discordRpcEnabled) refreshDiscordPresence()
+        }
         if (notify) infoMessage = "Настройки сохранены"
     }
 
@@ -691,6 +702,7 @@ class LauncherViewModel(
         gameProcess = process
         gameStopRequested = false
         isGameRunning = true
+        refreshDiscordPresence()
         gameWatchJob = scope.launch(Dispatchers.IO) {
             val startedAt = System.currentTimeMillis()
             // Poll isAlive — waitFor alone can miss exits on some Windows/javaw setups.
@@ -740,6 +752,7 @@ class LauncherViewModel(
         gameStopRequested = false
         activeSkinBridge?.close()
         activeSkinBridge = null
+        refreshDiscordPresence()
     }
 
     /** Legacy fallback: per-jar mods into the pack instance mods/ folder. */
@@ -1367,6 +1380,17 @@ class LauncherViewModel(
             }
         }
         if (me.admin) refreshAdmin()
+        refreshDiscordPresence()
+    }
+
+    private fun refreshDiscordPresence() {
+        discordPresence.update(
+            loggedIn = isLoggedIn,
+            username = userName,
+            playing = isGameRunning,
+            packName = selectedModpack?.name ?: selectedModpack?.slug,
+            serverHost = configState.serverHost,
+        )
     }
 
     private suspend fun refreshPublicData() {
@@ -1414,6 +1438,7 @@ class LauncherViewModel(
         gameWatchJob?.cancel()
         runCatching { gameProcess?.destroyForcibly() }
         clearGameProcess()
+        discordPresence.stop()
         api.close()
         mc.close()
         skins.close()

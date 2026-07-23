@@ -34,6 +34,8 @@ data class LauncherConfig(
     val githubOwner: String = "RasmusVraa",
     val githubRepo: String = "starlitmoon-launcher",
     val checkUpdatesOnStart: Boolean = true,
+    /** Показывать статус лаунчера в Discord (Rich Presence). */
+    val discordRpcEnabled: Boolean = true,
 ) {
     val dataDir: Path
         get() = Path.of(System.getProperty("user.home"), ".starlitmoon-launcher")

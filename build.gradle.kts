@@ -8,7 +8,7 @@ plugins {
 }
 
 group = "ru.starlitmoon"
-version = "1.1.25"
+version = "1.1.26"
 
 repositories {
     google()
@@ -33,6 +33,8 @@ dependencies {
 
     implementation("net.java.dev.jna:jna:5.15.0")
     implementation("net.java.dev.jna:jna-platform:5.15.0")
+
+    implementation("io.github.pandier:kpresence:0.7.0")
 }
 
 kotlin {
@@ -50,7 +52,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Exe)
             packageName = "StarlitMoonLauncher"
-            packageVersion = "1.1.25"
+            packageVersion = "1.1.26"
             description = "StarlitMoon Minecraft Launcher"
             vendor = "StarlitMoon"
             copyright = "StarlitMoon"

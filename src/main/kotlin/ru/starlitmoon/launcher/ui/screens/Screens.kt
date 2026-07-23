@@ -676,6 +676,7 @@ fun SettingsScreen(vm: LauncherViewModel) {
     var keepLauncherOpen by remember(base) { mutableStateOf(base.keepLauncherOpen) }
     var savePassword by remember(base) { mutableStateOf(base.savePassword) }
     var vsync by remember(base) { mutableStateOf(base.vsync) }
+    var discordRpcEnabled by remember(base) { mutableStateOf(base.discordRpcEnabled) }
     var saveHint by remember { mutableStateOf(false) }
 
     fun memoryLabel(): String = when {
@@ -695,11 +696,12 @@ fun SettingsScreen(vm: LauncherViewModel) {
             autoLogin = false,
             savePassword = savePassword,
             vsync = vsync,
+            discordRpcEnabled = discordRpcEnabled,
             gamePath = "",
         )
     }
 
-    LaunchedEffect(memoryAuto, memoryGb, fullscreen, keepLauncherOpen, savePassword, vsync) {
+    LaunchedEffect(memoryAuto, memoryGb, fullscreen, keepLauncherOpen, savePassword, vsync, discordRpcEnabled) {
         delay(400)
         val next = draftConfig()
         if (next != vm.configState) {
@@ -800,6 +802,16 @@ fun SettingsScreen(vm: LauncherViewModel) {
                 ) {
                     StarlitToggle(checked = vsync, onCheckedChange = { vsync = it })
                 }
+
+                HorizontalDivider(color = StarlitColors.Border)
+
+                SettingsRow(
+                    title = "Discord RPC",
+                    subtitle = "Статус в Discord: лаунчер и выбранная сборка",
+                    icon = { Icon(Icons.Default.VideogameAsset, null, tint = StarlitColors.Gold) },
+                ) {
+                    StarlitToggle(checked = discordRpcEnabled, onCheckedChange = { discordRpcEnabled = it })
+                }
             }
         }
 
@@ -859,6 +871,7 @@ fun SettingsScreen(vm: LauncherViewModel) {
                 keepLauncherOpen = false
                 savePassword = false
                 vsync = true
+                discordRpcEnabled = true
                 vm.saveSettings(
                     base.copy(
                         memoryAuto = true,
@@ -868,6 +881,7 @@ fun SettingsScreen(vm: LauncherViewModel) {
                         keepLauncherOpen = false,
                         savePassword = false,
                         vsync = true,
+                        discordRpcEnabled = true,
                         autoJoinServer = false,
                         autoLogin = false,
                         gamePath = "",
