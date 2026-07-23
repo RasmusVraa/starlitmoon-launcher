@@ -42,7 +42,6 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import ru.starlitmoon.launcher.api.PrivacySectionDto
@@ -55,8 +54,6 @@ import ru.starlitmoon.launcher.ui.theme.StarlitColors
 import ru.starlitmoon.launcher.ui.theme.StarlitDimens
 import ru.starlitmoon.launcher.viewmodel.LauncherTab
 import ru.starlitmoon.launcher.viewmodel.LauncherViewModel
-import javax.swing.JFileChooser
-import javax.swing.filechooser.FileNameExtensionFilter
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -156,84 +153,11 @@ fun CabinetScreen(vm: LauncherViewModel) {
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        Text("Библиотека скинов", color = StarlitColors.Text, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                        Text("Клик — выбрать · 3D · плащ для одиночки", color = StarlitColors.TextDim, fontSize = 11.sp)
                         StarlitSecondaryButton(
-                            text = "Добавить скин",
-                            onClick = {
-                                val chooser = JFileChooser().apply {
-                                    fileSelectionMode = JFileChooser.FILES_ONLY
-                                    dialogTitle = "Скин PNG"
-                                    fileFilter = FileNameExtensionFilter("PNG", "png")
-                                }
-                                if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
-                                    vm.addSkinToLibrary(chooser.selectedFile.absolutePath)
-                                }
-                            },
+                            text = "Библиотека скинов",
+                            onClick = { vm.currentTab = LauncherTab.Skins },
                             modifier = Modifier.fillMaxWidth(),
                         )
-                        FlowRow(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            vm.skinLibraryEntries.forEach { entry ->
-                                val selected = entry.id == vm.activeSkinId
-                                Column(
-                                    modifier = Modifier
-                                        .width(124.dp)
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .background(if (selected) StarlitColors.GoldMuted else Color(0x22101828))
-                                        .border(
-                                            1.dp,
-                                            if (selected) StarlitColors.Gold else Color(0x28788CDC),
-                                            RoundedCornerShape(12.dp),
-                                        )
-                                        .clickable { vm.selectLibrarySkin(entry.id) }
-                                        .padding(8.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                                ) {
-                                    SkinPreview3D(
-                                        skinPath = vm.librarySkinPath(entry),
-                                        capePath = vm.libraryCapePath(entry),
-                                        slim = entry.slim,
-                                        previewSize = 108.dp,
-                                    )
-                                    Text(
-                                        entry.name,
-                                        color = if (selected) StarlitColors.Gold else StarlitColors.Text,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                        StarlitSecondaryButton(
-                                            text = if (entry.capeFileName != null) "Плащ✓" else "Плащ",
-                                            onClick = {
-                                                val chooser = JFileChooser().apply {
-                                                    fileSelectionMode = JFileChooser.FILES_ONLY
-                                                    dialogTitle = "Плащ PNG 64×32"
-                                                    fileFilter = FileNameExtensionFilter("PNG", "png")
-                                                }
-                                                if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
-                                                    vm.setLibraryCape(entry.id, chooser.selectedFile.absolutePath)
-                                                }
-                                            },
-                                            modifier = Modifier.width(58.dp),
-                                        )
-                                        StarlitSecondaryButton(
-                                            text = "×",
-                                            onClick = { vm.removeLibrarySkin(entry.id) },
-                                            modifier = Modifier.width(36.dp),
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                        if (vm.skinLibraryEntries.isEmpty()) {
-                            Text("Пока пусто — добавьте PNG", color = StarlitColors.TextMuted, fontSize = 12.sp)
-                        }
                     }
 
                     if (!profileMissing) {

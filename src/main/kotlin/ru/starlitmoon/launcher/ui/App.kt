@@ -24,6 +24,7 @@ import ru.starlitmoon.launcher.ui.screens.CabinetScreen
 import ru.starlitmoon.launcher.ui.screens.HomeScreen
 import ru.starlitmoon.launcher.ui.screens.LoginScreen
 import ru.starlitmoon.launcher.ui.screens.SettingsScreen
+import ru.starlitmoon.launcher.ui.screens.SkinsScreen
 import ru.starlitmoon.launcher.ui.theme.StarlitColors
 import ru.starlitmoon.launcher.ui.theme.StarlitTypography
 import ru.starlitmoon.launcher.viewmodel.LauncherTab
@@ -81,6 +82,7 @@ fun LauncherApp(
                                         LauncherTab.Home -> HomeScreen(vm)
                                         LauncherTab.Builds -> BuildsScreen(vm)
                                         LauncherTab.Cabinet -> CabinetScreen(vm)
+                                        LauncherTab.Skins -> SkinsScreen(vm)
                                         LauncherTab.Admin -> AdminScreen(vm)
                                         LauncherTab.Settings -> SettingsScreen(vm)
                                     }

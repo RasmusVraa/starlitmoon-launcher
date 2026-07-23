@@ -15,6 +15,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.yield
 import javax.swing.SwingUtilities
 import ru.starlitmoon.launcher.LauncherConfig
+import ru.starlitmoon.launcher.LauncherVersion
 import ru.starlitmoon.launcher.api.AdminAccountDto
 import ru.starlitmoon.launcher.api.AdminApplicationDto
 import ru.starlitmoon.launcher.api.AdminBadgeDto
@@ -48,15 +49,16 @@ import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
 import kotlin.io.path.writeBytes
 
-enum class LauncherTab { Home, Builds, Cabinet, Settings, Admin }
+enum class LauncherTab { Home, Builds, Cabinet, Skins, Settings, Admin }
 
 class LauncherViewModel(
     private val scope: CoroutineScope,
     private val api: StarlitApiClient = StarlitApiClient(),
     private val initialConfig: LauncherConfig = LauncherConfig.load(),
-    private val updateChecker: UpdateChecker = UpdateChecker(initialConfig),
 ) {
     var configState by mutableStateOf(initialConfig)
+    private val updateChecker = UpdateChecker(configProvider = { configState })
+
     private var mc: MinecraftLauncher = MinecraftLauncher(configState)
     var isRefreshingStatus by mutableStateOf(false)
     var isLoading by mutableStateOf(false)
@@ -239,10 +241,15 @@ class LauncherViewModel(
                         updateDismissed = false
                         if (!silent) infoMessage = "Доступна версия ${update.latestVersion}"
                     } else if (!silent) {
-                        infoMessage = "Установлена актуальная версия"
+                        infoMessage = "Установлена актуальная версия (${LauncherVersion.CURRENT})"
                     }
                 }
-                .onFailure { if (!silent) errorMessage = "Не удалось проверить обновления" }
+                .onFailure { err ->
+                    if (!silent) {
+                        errorMessage = err.message?.takeIf { it.isNotBlank() }
+                            ?: "Не удалось проверить обновления"
+                    }
+                }
             isCheckingUpdates = false
         }
     }

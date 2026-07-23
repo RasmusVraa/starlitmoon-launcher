@@ -23,6 +23,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Apps
+import androidx.compose.material.icons.filled.Checkroom
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Security
@@ -548,6 +549,13 @@ fun SidebarNav(vm: LauncherViewModel) {
             selected = vm.currentTab == LauncherTab.Builds,
             contentDescription = "Сборки",
             onClick = { vm.currentTab = LauncherTab.Builds },
+        )
+        Spacer(Modifier.height(10.dp))
+        SidebarIcon(
+            icon = Icons.Default.Checkroom,
+            selected = vm.currentTab == LauncherTab.Skins,
+            contentDescription = "Скины",
+            onClick = { vm.currentTab = LauncherTab.Skins },
         )
         Spacer(Modifier.height(10.dp))
         SidebarIcon(

@@ -14,7 +14,7 @@ import ru.starlitmoon.launcher.LauncherConfig
 import ru.starlitmoon.launcher.LauncherVersion
 
 class UpdateChecker(
-    private val config: LauncherConfig = LauncherConfig.load(),
+    private val configProvider: () -> LauncherConfig = { LauncherConfig.load() },
     private val currentVersion: String = LauncherVersion.CURRENT,
 ) {
     private val json = Json { ignoreUnknownKeys = true }
@@ -23,14 +23,22 @@ class UpdateChecker(
     }
 
     suspend fun checkForUpdate(): Result<UpdateInfo?> = runCatching {
-        if (config.githubOwner.isBlank() || config.githubRepo.isBlank()) return@runCatching null
+        val config = configProvider()
+        val owner = config.githubOwner.trim().ifBlank { "RasmusVraa" }
+        val repo = config.githubRepo.trim().ifBlank { "starlitmoon-launcher" }
 
-        val url = "https://api.github.com/repos/${config.githubOwner}/${config.githubRepo}/releases/latest"
+        val url = "https://api.github.com/repos/$owner/$repo/releases/latest"
         val response = client.get(url) {
             header("Accept", "application/vnd.github+json")
             header("User-Agent", "StarlitMoon-Launcher/$currentVersion")
+            header("X-GitHub-Api-Version", "2022-11-28")
         }
-        if (response.status == HttpStatusCode.NotFound) return@runCatching null
+        if (response.status == HttpStatusCode.NotFound) {
+            error("Репозиторий не найден: $owner/$repo")
+        }
+        if (response.status == HttpStatusCode.Forbidden || response.status.value == 429) {
+            error("GitHub ограничил запросы (rate limit). Попробуйте позже.")
+        }
         if (!response.status.isSuccess()) {
             error("GitHub API: ${response.status.value}")
         }

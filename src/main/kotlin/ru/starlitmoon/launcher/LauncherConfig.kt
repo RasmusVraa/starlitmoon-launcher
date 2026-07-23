@@ -87,11 +87,19 @@ data class LauncherConfig(
             val loaded = runCatching {
                 json.decodeFromString<LauncherConfig>(file.readText())
             }.getOrElse { LauncherConfig() }
-            return if (loaded.minecraftVersionId == "1.21.4") {
-                loaded.copy(minecraftVersionId = "26.2", defaultMcVersion = "26.2").also { save(it) }
-            } else {
-                loaded
+            var next = loaded
+            if (next.minecraftVersionId == "1.21.4") {
+                next = next.copy(minecraftVersionId = "26.2", defaultMcVersion = "26.2")
             }
+            // Old default pointed at a non-existent org → update checks silently 404'd.
+            if (next.githubOwner.equals("starlit-moon", ignoreCase = true) || next.githubOwner.isBlank()) {
+                next = next.copy(githubOwner = "RasmusVraa")
+            }
+            if (next.githubRepo.isBlank()) {
+                next = next.copy(githubRepo = "starlitmoon-launcher")
+            }
+            if (next != loaded) save(next)
+            return next
         }
 
         fun save(config: LauncherConfig) {
