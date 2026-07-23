@@ -360,10 +360,14 @@ class LauncherViewModel(
                 instanceDir = ModpackSync.packDir(configState.dataDir, detail).also { it.createDirectories() }
                 if (detail.hasArchive && detail.archive?.url != null) {
                     launchProgress = "Загрузка архива сборки…"
+                    launchProgressFraction = 0.01f
                     val synced = runCatching {
                         withContext(Dispatchers.IO) {
-                            ModpackSync.syncArchive(configState.dataDir, detail) { msg ->
-                                scope.launch { launchProgress = msg }
+                            ModpackSync.syncArchive(configState.dataDir, detail) { msg, frac ->
+                                scope.launch {
+                                    launchProgress = msg
+                                    if (frac != null) launchProgressFraction = frac
+                                }
                             }
                         }
                     }

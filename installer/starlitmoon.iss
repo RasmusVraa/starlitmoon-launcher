@@ -2,7 +2,7 @@
 ; Default install: %AppData%\Roaming\StarlitMoonLauncher (user-selectable)
 
 #define AppName "StarlitMoon Launcher"
-#define AppVersion "1.1.1"
+#define AppVersion "1.1.2"
 #define AppPublisher "StarlitMoon"
 #define AppURL "https://starlit-moon.ru"
 #define AppExeName "StarlitMoonLauncher.exe"
@@ -24,15 +24,15 @@ DisableDirPage=no
 AlwaysShowDirOnReadyPage=yes
 UsePreviousAppDir=yes
 AllowNoIcons=yes
-OutputDir=..\dist\v1.1.1
-OutputBaseFilename=StarlitMoonLauncher-Setup-1.1.1
+OutputDir=..\dist\v1.1.2
+OutputBaseFilename=StarlitMoonLauncher-Setup-1.1.2
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=dark
 WizardSizePercent=120
-; Иконка установщика + малая картинка мастера (сервер)
+; Иконка как на сайте (favicon: луна + звезда)
 SetupIconFile=assets\icon.ico
-WizardSmallImageFile=assets\server-icon.png
+WizardSmallImageFile=assets\icon.png
 WizardSmallImageBackColor=$07090F
 PrivilegesRequired=lowest
 ArchitecturesInstallIn64BitMode=x64compatible
