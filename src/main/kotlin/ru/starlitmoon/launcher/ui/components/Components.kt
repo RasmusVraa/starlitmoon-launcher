@@ -66,8 +66,9 @@ import ru.starlitmoon.launcher.viewmodel.LauncherViewModel
 @Composable
 fun rememberBrandLogo(): ImageBitmap? = remember {
     runCatching {
-        val stream = object {}.javaClass.getResourceAsStream("/brand-logo.png")
-            ?: error("missing /brand-logo.png")
+        val stream = object {}.javaClass.getResourceAsStream("/icon.png")
+            ?: object {}.javaClass.getResourceAsStream("/brand-logo.png")
+            ?: error("missing icon")
         org.jetbrains.skia.Image.makeFromEncoded(stream.readBytes()).toComposeImageBitmap()
     }.getOrNull()
 }
@@ -82,21 +83,27 @@ fun StarlitBackground(content: @Composable BoxScope.() -> Unit) {
     )
 }
 
-/** Full-bleed brand logo with dark cinematic overlay. */
+/** Full-bleed screenshot background with dark cinematic overlay. */
 @Composable
 fun HeroBackground(
     modifier: Modifier = Modifier,
     content: @Composable BoxScope.() -> Unit,
 ) {
-    val logo = rememberBrandLogo()
+    val hero = remember {
+        runCatching {
+            val stream = object {}.javaClass.getResourceAsStream("/hero-bg.png")
+                ?: error("missing /hero-bg.png")
+            org.jetbrains.skia.Image.makeFromEncoded(stream.readBytes()).toComposeImageBitmap()
+        }.getOrNull()
+    }
     Box(modifier = modifier.fillMaxSize()) {
-        if (logo != null) {
+        if (hero != null) {
             Image(
-                bitmap = logo,
+                bitmap = hero,
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop,
-                alpha = 0.22f,
+                alpha = 0.55f,
             )
         }
         Box(
@@ -105,9 +112,9 @@ fun HeroBackground(
                 .background(
                     Brush.verticalGradient(
                         colors = listOf(
-                            Color(0xE605060A),
-                            Color(0xCC07090F),
-                            Color(0xF207090F),
+                            Color(0xB305060A),
+                            Color(0x9907090F),
+                            Color(0xE607090F),
                         ),
                     ),
                 ),
@@ -118,9 +125,9 @@ fun HeroBackground(
                 .background(
                     Brush.horizontalGradient(
                         colors = listOf(
-                            Color(0x9907090F),
+                            Color(0xAA07090F),
                             Color.Transparent,
-                            Color(0x6607090F),
+                            Color(0x8807090F),
                         ),
                     ),
                 ),
@@ -553,7 +560,15 @@ fun SidebarNav(vm: LauncherViewModel) {
             icon = Icons.AutoMirrored.Filled.Logout,
             selected = false,
             contentDescription = "Выйти",
-            onClick = vm::logout,
+            onClick = {
+                val ok = javax.swing.JOptionPane.showConfirmDialog(
+                    null,
+                    "Выйти из аккаунта?",
+                    "StarlitMoon",
+                    javax.swing.JOptionPane.YES_NO_OPTION,
+                ) == javax.swing.JOptionPane.YES_OPTION
+                if (ok) vm.logout()
+            },
             tintOverride = StarlitColors.TextMuted,
         )
         Spacer(Modifier.height(18.dp))

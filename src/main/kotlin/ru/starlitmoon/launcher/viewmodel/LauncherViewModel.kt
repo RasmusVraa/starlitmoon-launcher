@@ -122,7 +122,22 @@ class LauncherViewModel(
             val publicJob = async(Dispatchers.IO) { refreshPublicData() }
             if (configState.checkUpdatesOnStart) launch { checkForUpdates(silent = true) }
             val restored = sessionJob.await()
-            if (restored?.user != null) applySession(restored)
+            if (restored?.user != null) {
+                applySession(restored)
+            } else {
+                // Мягкое восстановление: cookie ещё есть, но /me временно недоступен.
+                val cached = withContext(Dispatchers.IO) { api.cachedSession() }
+                if (cached != null && !cached.userName.isNullOrBlank()) {
+                    isLoggedIn = true
+                    userName = cached.userName.orEmpty()
+                    isAdmin = cached.isAdmin
+                    launch {
+                        delay(2500)
+                        runCatching { withContext(Dispatchers.IO) { api.restoreSession() } }
+                            .onSuccess { me -> if (me?.user != null) applySession(me) }
+                    }
+                }
+            }
             publicJob.await()
             fetchModpacks()
             startStatusPolling()

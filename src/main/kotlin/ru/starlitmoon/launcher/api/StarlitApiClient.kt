@@ -101,14 +101,16 @@ class StarlitApiClient(
     val client: HttpClient = HttpClient(CIO) {
         install(ContentNegotiation) { json(json) }
         install(HttpTimeout) {
-            requestTimeoutMillis = 12_000
-            connectTimeoutMillis = 5_000
-            socketTimeoutMillis = 12_000
+            requestTimeoutMillis = 30_000
+            connectTimeoutMillis = 10_000
+            socketTimeoutMillis = 30_000
         }
     }
 
     val baseUrl: String get() = config.apiBaseUrl.trimEnd('/')
     fun sessionCookie(): String? = sessionStore.read()?.cookieValue
+
+    fun cachedSession(): StoredSession? = sessionStore.read()
 
     suspend fun restoreSession(): MeResponse? {
         val stored = sessionStore.read() ?: return null
@@ -116,8 +118,14 @@ class StarlitApiClient(
             val me = me(stored.cookieValue)
             sessionStore.save(stored.cookieValue, me.user?.name, me.admin)
             me
-        } catch (_: StarlitApiException) {
-            sessionStore.clear()
+        } catch (e: StarlitApiException) {
+            // Сбрасываем сессию только при реальной невалидной авторизации.
+            if (e.status == HttpStatusCode.Unauthorized) {
+                sessionStore.clear()
+            }
+            null
+        } catch (_: Exception) {
+            // Сеть/таймаут — оставляем cookie, пользователь остаётся «вошедшим» после повтора.
             null
         }
     }
