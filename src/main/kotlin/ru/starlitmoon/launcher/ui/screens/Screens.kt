@@ -87,69 +87,166 @@ import javax.swing.filechooser.FileNameExtensionFilter
 fun HomeScreen(vm: LauncherViewModel) {
     val showProgress = vm.launchProgress != null
     val packName = vm.selectedModpack?.name ?: "Vanilla"
+    val packLoader = vm.selectedModpack?.loader?.replaceFirstChar { it.uppercase() } ?: "Vanilla"
+    val mcVer = vm.selectedModpack?.mcVersion?.trim()?.ifBlank { null }
+        ?: vm.configState.minecraftVersionId
+    val online = vm.serverStatus.online
+    val players = vm.serverStatus.playersOnline
 
     HeroBackground {
-        Column(
+        Row(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 48.dp, vertical = 28.dp),
-            verticalArrangement = Arrangement.Center,
+                .padding(horizontal = 48.dp, vertical = 32.dp),
+            horizontalArrangement = Arrangement.spacedBy(36.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                "STARLITMOON",
-                fontSize = 56.sp,
-                fontWeight = FontWeight.Bold,
-                color = StarlitColors.Text,
-                letterSpacing = 4.sp,
-            )
-            Spacer(Modifier.height(14.dp))
-            Text(
-                "Ванильный сервер под звёздным небом.\nСборка: $packName · Minecraft ${vm.configState.minecraftVersionId}",
-                color = StarlitColors.TextMuted,
-                fontSize = 16.sp,
-                lineHeight = 24.sp,
-            )
-            Spacer(Modifier.height(36.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                if (vm.isGameRunning) {
-                    StarlitPrimaryButton(
-                        text = "ОСТАНОВИТЬ",
-                        onClick = { vm.stopGame() },
-                        modifier = Modifier.width(180.dp),
-                        danger = true,
-                    )
-                } else {
-                    StarlitPrimaryButton(
-                        text = "ИГРАТЬ",
-                        onClick = { vm.play() },
-                        modifier = Modifier.width(180.dp),
-                        loading = showProgress,
-                        enabled = !showProgress,
-                    )
-                }
-                StarlitSecondaryButton(
-                    text = "НАСТРОИТЬ",
-                    onClick = { vm.currentTab = LauncherTab.Settings },
-                    modifier = Modifier.width(180.dp),
+            Column(
+                modifier = Modifier.weight(1.15f),
+                verticalArrangement = Arrangement.spacedBy(0.dp),
+            ) {
+                Text(
+                    "Добро пожаловать,",
+                    color = StarlitColors.TextMuted,
+                    fontSize = 15.sp,
                 )
-            }
-            if (showProgress) {
+                Text(
+                    vm.userName.ifBlank { "игрок" },
+                    fontSize = 42.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = StarlitColors.Text,
+                )
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    "Ванильный сервер под звёздным небом",
+                    color = StarlitColors.TextMuted,
+                    fontSize = 16.sp,
+                    lineHeight = 24.sp,
+                )
                 Spacer(Modifier.height(28.dp))
-                StarlitProgressBar(
-                    progress = vm.launchProgressFraction,
-                    label = vm.launchProgress ?: "Запуск…",
-                    modifier = Modifier.widthIn(max = 420.dp).fillMaxWidth(0.55f),
+                Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    if (vm.isGameRunning) {
+                        StarlitPrimaryButton(
+                            text = "ОСТАНОВИТЬ",
+                            onClick = { vm.stopGame() },
+                            modifier = Modifier.width(200.dp),
+                            danger = true,
+                        )
+                    } else {
+                        StarlitPrimaryButton(
+                            text = "ИГРАТЬ",
+                            onClick = { vm.play() },
+                            modifier = Modifier.width(200.dp),
+                            loading = showProgress,
+                            enabled = !showProgress,
+                        )
+                    }
+                    StarlitSecondaryButton(
+                        text = "СБОРКИ",
+                        onClick = { vm.currentTab = LauncherTab.Builds },
+                        modifier = Modifier.width(160.dp),
+                    )
+                    StarlitSecondaryButton(
+                        text = "СКИНЫ",
+                        onClick = { vm.currentTab = LauncherTab.Skins },
+                        modifier = Modifier.width(140.dp),
+                    )
+                }
+                if (showProgress) {
+                    Spacer(Modifier.height(22.dp))
+                    StarlitProgressBar(
+                        progress = vm.launchProgressFraction,
+                        label = vm.launchProgress ?: "Запуск…",
+                        modifier = Modifier.widthIn(max = 480.dp).fillMaxWidth(0.85f),
+                    )
+                }
+                Spacer(Modifier.height(36.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+                    FooterLink("Telegram") {
+                        openUrl("https://t.me/starlitmoon")
+                    }
+                    FooterLink("Сайт") {
+                        openUrl("https://starlit-moon.ru")
+                    }
+                    FooterLink("Настройки") {
+                        vm.currentTab = LauncherTab.Settings
+                    }
+                }
+            }
+
+            Column(
+                modifier = Modifier
+                    .weight(0.9f)
+                    .widthIn(max = 420.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                HomeInfoCard(
+                    title = if (online) "Сервер онлайн" else "Сервер оффлайн",
+                    subtitle = if (online) {
+                        "Сейчас играют: $players"
+                    } else {
+                        vm.configState.serverHost
+                    },
+                    accentOnline = online,
+                )
+                HomeInfoCard(
+                    title = "Текущая сборка",
+                    subtitle = "$packName\n$packLoader · Minecraft $mcVer",
+                    actionLabel = "Выбрать другую",
+                    onAction = { vm.currentTab = LauncherTab.Builds },
+                )
+                HomeInfoCard(
+                    title = if (vm.isGameRunning) "Игра запущена" else "Готов к запуску",
+                    subtitle = if (vm.isGameRunning) {
+                        "Можно остановить игру кнопкой слева"
+                    } else {
+                        "Клиент и сборка подтянутся при нажатии «Играть»"
+                    },
                 )
             }
-            Spacer(Modifier.height(48.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-                FooterLink("Telegram") {
-                    openUrl("https://t.me/starlitmoon")
-                }
-                FooterLink("Сайт") {
-                    openUrl("https://starlit-moon.ru")
-                }
+        }
+    }
+}
+
+@Composable
+private fun HomeInfoCard(
+    title: String,
+    subtitle: String,
+    accentOnline: Boolean? = null,
+    actionLabel: String? = null,
+    onAction: (() -> Unit)? = null,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(StarlitColors.Surface.copy(alpha = 0.82f))
+            .border(1.dp, StarlitColors.BorderStrong, RoundedCornerShape(16.dp))
+            .padding(18.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            if (accentOnline != null) {
+                Box(
+                    modifier = Modifier
+                        .size(10.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(if (accentOnline) StarlitColors.Online else StarlitColors.Offline),
+                )
             }
+            Text(title, color = StarlitColors.Text, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+        }
+        Text(subtitle, color = StarlitColors.TextMuted, fontSize = 13.sp, lineHeight = 19.sp)
+        if (actionLabel != null && onAction != null) {
+            StarlitSecondaryButton(
+                text = actionLabel,
+                onClick = onAction,
+                compact = true,
+                modifier = Modifier.width(160.dp),
+            )
         }
     }
 }

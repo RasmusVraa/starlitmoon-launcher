@@ -42,8 +42,8 @@ object StarlitDimens {
     val RadiusSm = 10.dp
     val RadiusPill = 999.dp
     val SidebarWidth = 72.dp
-    val WindowMinWidth = 1080.dp
-    val WindowMinHeight = 680.dp
+    val WindowMinWidth = 1200.dp
+    val WindowMinHeight = 760.dp
 }
 
 val StarlitTypography = Typography(

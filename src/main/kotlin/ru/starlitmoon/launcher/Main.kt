@@ -34,7 +34,7 @@ fun main() {
 
     application {
         val windowIcon = remember { loadWindowIcon() }
-        val windowState = rememberWindowState(width = 1100.dp, height = 720.dp)
+        val windowState = rememberWindowState(width = 1360.dp, height = 860.dp)
         fun shutdown() {
             vm.dispose()
             api.close()

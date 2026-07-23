@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -187,9 +188,10 @@ fun StarlitPrimaryButton(
         active -> StarlitColors.OnGold
         else -> StarlitColors.OnGold.copy(alpha = 0.55f)
     }
-    val height = if (compact) 36.dp else 48.dp
+    val height = if (compact) 40.dp else 50.dp
     Box(
         modifier = modifier
+            .defaultMinSize(minWidth = if (compact) 96.dp else 120.dp)
             .height(height)
             .clip(shape)
             .background(
@@ -209,13 +211,12 @@ fun StarlitPrimaryButton(
                 interactionSource = interaction,
                 indication = null,
                 onClick = onClick,
-            )
-            .padding(horizontal = if (compact) 12.dp else 18.dp),
+            ),
         contentAlignment = Alignment.Center,
     ) {
         if (loading) {
             CircularProgressIndicator(
-                modifier = Modifier.size(if (compact) 16.dp else 20.dp),
+                modifier = Modifier.size(if (compact) 18.dp else 22.dp),
                 color = fg,
                 strokeWidth = 2.dp,
             )
@@ -223,11 +224,15 @@ fun StarlitPrimaryButton(
             Text(
                 text = text,
                 fontWeight = FontWeight.SemiBold,
-                fontSize = if (compact) 12.sp else 14.sp,
-                letterSpacing = 0.3.sp,
+                fontSize = if (compact) 13.sp else 15.sp,
+                letterSpacing = 0.sp,
                 maxLines = 1,
                 softWrap = false,
+                textAlign = TextAlign.Center,
                 color = fg,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = if (compact) 12.dp else 16.dp),
             )
         }
     }
@@ -257,9 +262,10 @@ fun StarlitSecondaryButton(
         hovered -> StarlitColors.SurfaceElevated
         else -> StarlitColors.SurfaceHover
     }
-    val height = if (compact) 36.dp else 48.dp
+    val height = if (compact) 40.dp else 50.dp
     Box(
         modifier = modifier
+            .defaultMinSize(minWidth = if (compact) 96.dp else 120.dp)
             .height(height)
             .clip(shape)
             .background(bg)
@@ -269,18 +275,21 @@ fun StarlitSecondaryButton(
                 interactionSource = interaction,
                 indication = null,
                 onClick = onClick,
-            )
-            .padding(horizontal = if (compact) 10.dp else 16.dp),
+            ),
         contentAlignment = Alignment.Center,
     ) {
         Text(
             text = text,
             fontWeight = FontWeight.SemiBold,
-            fontSize = if (compact) 12.sp else 13.sp,
-            letterSpacing = 0.2.sp,
+            fontSize = if (compact) 13.sp else 15.sp,
+            letterSpacing = 0.sp,
             maxLines = 1,
             softWrap = false,
+            textAlign = TextAlign.Center,
             color = if (enabled) StarlitColors.Text else StarlitColors.TextMuted,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = if (compact) 12.dp else 16.dp),
         )
     }
 }

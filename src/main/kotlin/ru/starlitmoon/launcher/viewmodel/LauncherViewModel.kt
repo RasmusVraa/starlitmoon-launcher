@@ -9,6 +9,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -460,6 +461,15 @@ class LauncherViewModel(
             errorMessage = "У сборки нет ZIP-архива"
             return
         }
+        val name = pack.name ?: pack.slug ?: "сборку"
+        val ok = javax.swing.JOptionPane.showConfirmDialog(
+            null,
+            "Переустановить «$name»?\nТекущие файлы сборки (кроме сохранений) будут заменены.",
+            "Переустановка сборки",
+            javax.swing.JOptionPane.YES_NO_OPTION,
+            javax.swing.JOptionPane.WARNING_MESSAGE,
+        ) == javax.swing.JOptionPane.YES_OPTION
+        if (!ok) return
         scope.launch {
             isLoading = true
             launchProgress = "Переустановка сборки…"
@@ -664,8 +674,17 @@ class LauncherViewModel(
         isGameRunning = true
         gameWatchJob = scope.launch(Dispatchers.IO) {
             val startedAt = System.currentTimeMillis()
-            val code = runCatching { process.waitFor() }.getOrDefault(-1)
+            // Poll isAlive — waitFor alone can miss exits on some Windows/javaw setups.
+            while (isActive && process.isAlive) {
+                delay(800)
+                // If the JVM process exited but handle is stale, also probe destroy signal.
+                runCatching {
+                    val handle = process.toHandle()
+                    if (!handle.isAlive) return@runCatching
+                }
+            }
             val livedMs = System.currentTimeMillis() - startedAt
+            val code = runCatching { process.exitValue() }.getOrDefault(0)
             val stoppedByUser = gameStopRequested
             val logTail = runCatching {
                 configState.dataDir.resolve("last-launch.log").toFile().readText().takeLast(900)
@@ -675,7 +694,6 @@ class LauncherViewModel(
                 clearGameProcess()
                 when {
                     stoppedByUser -> {
-                        // already set info in stopGame(); keep a quiet success toast
                         if (infoMessage.isNullOrBlank()) infoMessage = "Игра остановлена"
                     }
                     looksLikeCrash && !logTail.isNullOrBlank() -> {
@@ -686,7 +704,10 @@ class LauncherViewModel(
                             ?: "См. лог запуска"
                         errorMessage = "Игра закрылась. $hint"
                     }
-                    !configState.keepLauncherOpen -> requestExit = true
+                    !stoppedByUser -> {
+                        infoMessage = "Игра закрыта"
+                        if (!configState.keepLauncherOpen) requestExit = true
+                    }
                 }
             }
         }
