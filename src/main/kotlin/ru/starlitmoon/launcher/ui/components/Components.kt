@@ -739,28 +739,32 @@ private fun SidebarIcon(
 }
 
 @Composable
-fun TopStatusBar(vm: LauncherViewModel) {
+fun TopStatusBar(
+    vm: LauncherViewModel,
+    windowControls: (@Composable () -> Unit)? = null,
+    dragModifier: Modifier = Modifier,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .height(56.dp)
-            .padding(horizontal = 20.dp),
+            .then(dragModifier)
+            .padding(start = 20.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        StatusPill(
-            text = "Сейчас играют ${vm.serverStatus.playersOnline}",
-            online = vm.serverStatus.online,
-            emphasize = true,
-        )
-        Spacer(Modifier.width(10.dp))
-        StatusPill(
-            text = if (vm.serverStatus.online) "Сервер онлайн" else "Сервер оффлайн",
-            online = vm.serverStatus.online,
+        BrandMark(size = 28.dp)
+        Spacer(Modifier.width(12.dp))
+        Text(
+            "StarlitMoon",
+            color = StarlitColors.Text,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 14.sp,
         )
         Spacer(Modifier.weight(1f))
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.padding(end = if (windowControls != null) 0.dp else 20.dp),
         ) {
             Column(horizontalAlignment = Alignment.End) {
                 Text(
@@ -790,6 +794,7 @@ fun TopStatusBar(vm: LauncherViewModel) {
                     size = 36.dp,
                 )
             }
+            windowControls?.invoke()
         }
     }
 }

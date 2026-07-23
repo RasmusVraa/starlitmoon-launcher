@@ -39,13 +39,32 @@ object ModpackSync {
         return dataDir.resolve("packs").resolve(safe)
     }
 
+    fun localArchiveSha(dataDir: Path, pack: ModpackDto): String? {
+        val marker = packDir(dataDir, pack).resolve(MARKER)
+        if (!marker.exists()) return null
+        return marker.readText().trim().lowercase().takeIf { it.isNotBlank() }
+    }
+
+    fun needsUpdate(dataDir: Path, pack: ModpackDto): Boolean {
+        if (!pack.hasArchive) return false
+        val remote = pack.archive?.sha256?.trim()?.lowercase().orEmpty()
+        if (remote.isBlank()) return false
+        val local = localArchiveSha(dataDir, pack) ?: return true
+        return local != remote
+    }
+
+    /** True if this pack was installed at least once locally. */
+    fun isInstalled(dataDir: Path, pack: ModpackDto): Boolean =
+        localArchiveSha(dataDir, pack) != null || packDir(dataDir, pack).resolve("mods").exists()
+
     /**
-     * @param onProgress message + fraction 0..1 (null = indeterminate)
+     * @param force re-download even if local sha matches remote
      * @return true if an archive was applied (or already up to date), false if pack has no ZIP.
      */
     fun syncArchive(
         dataDir: Path,
         pack: ModpackDto,
+        force: Boolean = false,
         onProgress: (String, Float?) -> Unit = { _, _ -> },
     ): Boolean {
         val archive = pack.archive
@@ -56,13 +75,20 @@ object ModpackSync {
         dir.createDirectories()
         val expectedSha = archive?.sha256?.trim()?.lowercase().orEmpty()
         val marker = dir.resolve(MARKER)
-        if (expectedSha.isNotBlank() && marker.exists() && marker.readText().trim().lowercase() == expectedSha) {
+        val cache = dir.resolve(".cache").apply { createDirectories() }
+        val zipPath = cache.resolve(ZIP_NAME)
+
+        if (force) {
+            Files.deleteIfExists(marker)
+            Files.deleteIfExists(zipPath)
+            Files.deleteIfExists(zipPath.resolveSibling("${zipPath.name}.part"))
+        }
+
+        if (!force && expectedSha.isNotBlank() && marker.exists() && marker.readText().trim().lowercase() == expectedSha) {
             onProgress("Сборка уже актуальна", 1f)
             return true
         }
 
-        val cache = dir.resolve(".cache").apply { createDirectories() }
-        val zipPath = cache.resolve(ZIP_NAME)
         val expectedSize = archive?.size?.takeIf { it > 0 }
         onProgress("Подключение к архиву…", 0.01f)
         downloadTo(url, zipPath, expectedSize, onProgress)

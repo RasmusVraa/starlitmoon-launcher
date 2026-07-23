@@ -11,7 +11,9 @@ import io.ktor.client.request.header
 import io.ktor.client.request.parameter
 import io.ktor.client.request.patch
 import io.ktor.client.request.post
+import io.ktor.client.request.put
 import io.ktor.client.request.setBody
+import io.ktor.client.plugins.timeout
 import io.ktor.client.statement.HttpResponse
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
@@ -21,6 +23,11 @@ import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import ru.starlitmoon.launcher.LauncherConfig
+import java.nio.file.Files
+import java.nio.file.Path
+import kotlin.io.path.fileSize
+import kotlin.io.path.name
+import kotlin.io.path.inputStream
 
 class StarlitApiException(
     val status: HttpStatusCode,
@@ -37,6 +44,12 @@ private data class ProfileStatusBody(val text: String)
 
 @Serializable
 private data class PrivacyBody(val section: String, val visible: Boolean)
+
+@Serializable
+private data class ArchiveInitBody(val fileName: String, val size: Long)
+
+@Serializable
+private data class ArchiveCompleteBody(val uploadId: String)
 
 @Serializable
 private data class NotifyPrefsBody(val channel: String, val enabled: Boolean)
@@ -396,6 +409,87 @@ class StarlitApiClient(
         val response = client.get("$baseUrl/api/modpacks/${encodePath(key)}")
         if (!response.status.isSuccess()) return null
         return runCatching { response.body<ModpackResponse>().pack }.getOrNull()
+    }
+
+    /**
+     * Admin: upload new ZIP for a pack (chunked). Updates remote archive sha → clients see «Требуется обновление».
+     */
+    suspend fun uploadModpackArchive(
+        packId: String,
+        file: Path,
+        onProgress: (Float, String) -> Unit = { _, _ -> },
+    ): ModpackDto {
+        val id = packId.trim()
+        require(id.isNotEmpty()) { "Нет id сборки" }
+        require(Files.isRegularFile(file)) { "Файл не найден" }
+        val size = file.fileSize()
+        require(size in 64..(3L * 1024 * 1024 * 1024)) { "Некорректный размер ZIP" }
+        val cookie = needCookie()
+
+        val initResponse = client.post("$baseUrl/api/admin/modpacks/${encodePath(id)}/archive/init") {
+            header("Cookie", cookieHeader(cookie))
+            contentType(ContentType.Application.Json)
+            timeout {
+                requestTimeoutMillis = 120_000
+            }
+            setBody(ArchiveInitBody(file.name, size))
+        }
+        if (!initResponse.status.isSuccess()) throw parseError(initResponse)
+        val init = initResponse.body<ModpackArchiveInitResponse>()
+        val uploadId = init.uploadId?.trim().orEmpty()
+        if (!init.ok || uploadId.isEmpty()) {
+            throw StarlitApiException(HttpStatusCode.BadRequest, init.error ?: "Не удалось начать загрузку")
+        }
+        val chunkSize = init.chunkSize.coerceIn(1024 * 1024, 32 * 1024 * 1024)
+        val totalChunks = ((size + chunkSize - 1) / chunkSize).toInt().coerceAtLeast(1)
+
+        Files.newInputStream(file).use { input ->
+            val buf = ByteArray(chunkSize)
+            var index = 0
+            var sent = 0L
+            while (true) {
+                var filled = 0
+                while (filled < chunkSize) {
+                    val n = input.read(buf, filled, chunkSize - filled)
+                    if (n <= 0) break
+                    filled += n
+                }
+                if (filled <= 0) break
+                val chunk = if (filled == buf.size) buf else buf.copyOf(filled)
+                val chunkResponse = client.put("$baseUrl/api/admin/modpacks/${encodePath(id)}/archive/chunk") {
+                    header("Cookie", cookieHeader(cookie))
+                    header("X-Upload-Id", uploadId)
+                    header("X-Chunk-Index", index.toString())
+                    contentType(ContentType.Application.OctetStream)
+                    timeout {
+                        requestTimeoutMillis = 300_000
+                        socketTimeoutMillis = 300_000
+                    }
+                    setBody(chunk)
+                }
+                if (!chunkResponse.status.isSuccess()) throw parseError(chunkResponse)
+                sent += filled
+                index++
+                onProgress(
+                    (sent.toFloat() / size.toFloat()).coerceIn(0f, 0.95f),
+                    "Загрузка ${(sent * 100 / size).toInt()}% ($index/$totalChunks)",
+                )
+            }
+        }
+
+        onProgress(0.97f, "Завершение загрузки…")
+        val completeResponse = client.post("$baseUrl/api/admin/modpacks/${encodePath(id)}/archive/complete") {
+            header("Cookie", cookieHeader(cookie))
+            contentType(ContentType.Application.Json)
+            timeout { requestTimeoutMillis = 300_000 }
+            setBody(ArchiveCompleteBody(uploadId))
+        }
+        if (!completeResponse.status.isSuccess()) throw parseError(completeResponse)
+        val done = completeResponse.body<ModpackArchiveCompleteResponse>()
+        if (!done.ok) {
+            throw StarlitApiException(HttpStatusCode.BadRequest, done.error ?: "Не удалось завершить загрузку")
+        }
+        return done.pack ?: getModpack(id) ?: error("Архив загружен, но сборка не вернулась")
     }
 
     fun avatarUrl(

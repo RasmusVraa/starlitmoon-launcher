@@ -397,3 +397,26 @@ data class ModpackModDto(
     val sha256: String? = null,
     val url: String? = null,
 )
+
+@Serializable
+data class ModpackArchiveInitResponse(
+    val ok: Boolean = false,
+    val uploadId: String? = null,
+    val chunkSize: Int = 16 * 1024 * 1024,
+    val maxBytes: Long? = null,
+    val error: String? = null,
+)
+
+@Serializable
+data class ModpackArchiveChunkResponse(
+    val ok: Boolean = false,
+    val received: Long? = null,
+    val error: String? = null,
+)
+
+@Serializable
+data class ModpackArchiveCompleteResponse(
+    val ok: Boolean = false,
+    val pack: ModpackDto? = null,
+    val error: String? = null,
+)

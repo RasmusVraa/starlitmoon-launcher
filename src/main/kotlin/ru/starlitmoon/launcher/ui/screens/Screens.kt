@@ -239,9 +239,15 @@ fun BuildsScreen(vm: LauncherViewModel) {
                             pack = pack,
                             selected = pack.id == vm.selectedModpack?.id ||
                                 (pack.slug != null && pack.slug == vm.selectedModpack?.slug),
+                            needsUpdate = run {
+                                vm.packUiRevision
+                                vm.packNeedsUpdate(pack)
+                            },
                             onSelect = { vm.selectModpack(pack) },
                             onOpenFolder = { vm.openPackFolder(pack) },
+                            onReinstall = { vm.reinstallModpack(pack) },
                             apiBaseUrl = vm.configState.apiBaseUrl,
+                            busy = vm.launchProgress != null,
                         )
                     }
                 }
@@ -255,9 +261,12 @@ fun BuildsScreen(vm: LauncherViewModel) {
 private fun ModpackCard(
     pack: ModpackDto,
     selected: Boolean,
+    needsUpdate: Boolean,
     onSelect: () -> Unit,
     onOpenFolder: () -> Unit,
+    onReinstall: () -> Unit,
     apiBaseUrl: String,
+    busy: Boolean,
 ) {
     val cover = remember(pack.coverUrl, apiBaseUrl) {
         resolvePackCoverUrl(pack.coverUrl, apiBaseUrl)
@@ -272,7 +281,7 @@ private fun ModpackCard(
         selected = selected,
         modifier = Modifier
             .fillMaxWidth()
-            .height(268.dp)
+            .height(320.dp)
             .clickable(onClick = onSelect),
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -299,7 +308,34 @@ private fun ModpackCard(
                         modifier = Modifier.size(18.dp),
                     )
                 }
-                if (selected) {
+                if (needsUpdate) {
+                    Text(
+                        "Требуется обновление",
+                        color = StarlitColors.OnGold,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .padding(8.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(StarlitColors.Offline)
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                    )
+                } else if (selected) {
+                    Text(
+                        "Выбрана",
+                        color = StarlitColors.OnGold,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(8.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(StarlitColors.Gold)
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                    )
+                }
+                if (selected && needsUpdate) {
                     Text(
                         "Выбрана",
                         color = StarlitColors.OnGold,
@@ -348,10 +384,9 @@ private fun ModpackCard(
                     color = StarlitColors.TextMuted,
                     fontSize = 12.sp,
                     lineHeight = 16.sp,
-                    maxLines = 3,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Spacer(Modifier.weight(1f))
                 Text(
                     listOfNotNull(
                         pack.loader?.replaceFirstChar { it.uppercase() },
@@ -360,6 +395,16 @@ private fun ModpackCard(
                     color = StarlitColors.TextDim,
                     fontSize = 11.sp,
                 )
+                Spacer(Modifier.weight(1f))
+                if (pack.hasArchive) {
+                    StarlitSecondaryButton(
+                        text = if (needsUpdate) "Обновить сборку" else "Переустановить",
+                        onClick = onReinstall,
+                        modifier = Modifier.fillMaxWidth(),
+                        compact = true,
+                        enabled = !busy,
+                    )
+                }
             }
         }
     }

@@ -1,10 +1,7 @@
 package ru.starlitmoon.launcher
 
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.toComposeImageBitmap
@@ -19,7 +16,6 @@ import kotlinx.coroutines.swing.Swing
 import org.jetbrains.skia.Image
 import ru.starlitmoon.launcher.api.StarlitApiClient
 import ru.starlitmoon.launcher.ui.LauncherApp
-import ru.starlitmoon.launcher.ui.components.StarlitTitleBar
 import ru.starlitmoon.launcher.viewmodel.LauncherViewModel
 
 private fun loadWindowIcon(): Painter? {
@@ -39,13 +35,14 @@ fun main() {
     application {
         val windowIcon = remember { loadWindowIcon() }
         val windowState = rememberWindowState(width = 1100.dp, height = 720.dp)
+        fun shutdown() {
+            vm.dispose()
+            api.close()
+            exitApplication()
+        }
         Window(
-            onCloseRequest = {
-                vm.dispose()
-                api.close()
-                exitApplication()
-            },
-            title = "StarlitMoon Launcher v${LauncherVersion.CURRENT}",
+            onCloseRequest = { shutdown() },
+            title = "StarlitMoon",
             state = windowState,
             undecorated = true,
             icon = windowIcon,
@@ -56,25 +53,13 @@ fun main() {
                     window.iconImages = images
                 }
             }
-            Column(Modifier.fillMaxSize()) {
-                StarlitTitleBar(
-                    windowState = windowState,
-                    onClose = {
-                        vm.dispose()
-                        api.close()
-                        exitApplication()
-                    },
-                )
-                LauncherApp(
-                    vm = vm,
-                    api = api,
-                    onRequestExit = {
-                        vm.dispose()
-                        api.close()
-                        exitApplication()
-                    },
-                )
-            }
+            LauncherApp(
+                vm = vm,
+                api = api,
+                windowState = windowState,
+                onClose = { shutdown() },
+                onRequestExit = { shutdown() },
+            )
         }
     }
 }

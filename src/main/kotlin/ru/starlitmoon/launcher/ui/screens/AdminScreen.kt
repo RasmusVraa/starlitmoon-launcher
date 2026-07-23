@@ -304,7 +304,7 @@ private fun AdminModpacksTab(vm: LauncherViewModel) {
         Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("Сборки лаунчера", color = StarlitColors.Text, fontWeight = FontWeight.SemiBold, fontSize = 18.sp)
             Text(
-                "Список клиентских сборок с /api/modpacks.",
+                "Загрузите новый ZIP — у игроков появится плашка «Требуется обновление».",
                 color = StarlitColors.TextMuted,
                 fontSize = 13.sp,
             )
@@ -313,21 +313,42 @@ private fun AdminModpacksTab(vm: LauncherViewModel) {
             }
             vm.modpacks.forEach { pack ->
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(pack.name ?: pack.slug ?: "—", color = StarlitColors.Text, fontWeight = FontWeight.SemiBold)
                         Text(
-                            listOfNotNull(pack.loader, pack.mcVersion?.let { "MC $it" }).joinToString(" · "),
+                            listOfNotNull(
+                                pack.loader,
+                                pack.mcVersion?.let { "MC $it" },
+                                if (pack.hasArchive) "архив есть" else "без ZIP",
+                            ).joinToString(" · "),
                             color = StarlitColors.TextMuted,
                             fontSize = 12.sp,
                         )
                     }
-                    if (pack.hasArchive) {
-                        Text("архив", color = StarlitColors.Gold, fontSize = 11.sp)
-                    }
+                    StarlitPrimaryButton(
+                        text = if (pack.hasArchive) "Обновить ZIP" else "Загрузить ZIP",
+                        onClick = {
+                            val chooser = javax.swing.JFileChooser().apply {
+                                fileSelectionMode = javax.swing.JFileChooser.FILES_ONLY
+                                dialogTitle = "ZIP сборки"
+                                fileFilter = javax.swing.filechooser.FileNameExtensionFilter("ZIP", "zip")
+                            }
+                            if (chooser.showOpenDialog(null) == javax.swing.JFileChooser.APPROVE_OPTION) {
+                                vm.uploadModpackUpdate(pack, chooser.selectedFile.absolutePath)
+                            }
+                        },
+                        compact = true,
+                        enabled = vm.launchProgress == null && !pack.id.isNullOrBlank(),
+                        loading = vm.launchProgress != null && vm.selectedModpack?.id == pack.id,
+                    )
                 }
+            }
+            if (vm.launchProgress != null) {
+                Text(vm.launchProgress!!, color = StarlitColors.Gold, fontSize = 12.sp)
             }
         }
     }

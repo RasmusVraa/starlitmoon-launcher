@@ -80,6 +80,7 @@ class LauncherViewModel(
     var modpacks by mutableStateOf<List<ModpackDto>>(emptyList())
     var isLoadingModpacks by mutableStateOf(false)
     var selectedModpack by mutableStateOf<ModpackDto?>(null)
+    var packUiRevision by mutableStateOf(0)
     var serverStatus by mutableStateOf(ServerStatus.offline(initialConfig.serverHost))
     var serverVersion by mutableStateOf(initialConfig.defaultMcVersion)
     var meData by mutableStateOf<MeResponse?>(null)
@@ -445,6 +446,80 @@ class LauncherViewModel(
             Desktop.getDesktop().open(target.toFile())
         }.onFailure {
             errorMessage = "Не удалось открыть папку: ${target.toAbsolutePath()}"
+        }
+    }
+
+    fun packNeedsUpdate(pack: ModpackDto): Boolean {
+        @Suppress("UNUSED_VARIABLE")
+        val tick = packUiRevision
+        return ModpackSync.needsUpdate(configState.dataDir, pack)
+    }
+
+    fun reinstallModpack(pack: ModpackDto) {
+        if (!pack.hasArchive || pack.archive?.url.isNullOrBlank()) {
+            errorMessage = "У сборки нет ZIP-архива"
+            return
+        }
+        scope.launch {
+            isLoading = true
+            launchProgress = "Переустановка сборки…"
+            launchProgressFraction = 0f
+            errorMessage = null
+            val detail = withContext(Dispatchers.IO) {
+                runCatching { api.getModpack(pack.id ?: pack.slug.orEmpty()) }.getOrNull()
+            } ?: pack
+            val result = runCatching {
+                withContext(Dispatchers.IO) {
+                    ModpackSync.syncArchive(configState.dataDir, detail, force = true) { msg, frac ->
+                        reportLaunchProgress(msg, frac)
+                    }
+                }
+            }
+            if (result.isSuccess) {
+                infoMessage = "Сборка «${detail.name ?: detail.slug}» переустановлена"
+                packUiRevision++
+                fetchModpacks(force = true)
+            } else {
+                errorMessage = result.exceptionOrNull()?.message ?: "Не удалось переустановить сборку"
+            }
+            launchProgress = null
+            launchProgressFraction = null
+            isLoading = false
+        }
+    }
+
+    fun uploadModpackUpdate(pack: ModpackDto, zipPath: String) {
+        if (!isAdmin) {
+            errorMessage = "Нужны права администратора"
+            return
+        }
+        val id = pack.id?.trim().orEmpty()
+        if (id.isEmpty()) {
+            errorMessage = "У сборки нет id"
+            return
+        }
+        val path = Path.of(zipPath)
+        scope.launch {
+            isLoading = true
+            launchProgress = "Публикация обновления…"
+            launchProgressFraction = 0f
+            errorMessage = null
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    api.uploadModpackArchive(id, path) { frac, msg ->
+                        reportLaunchProgress(msg, frac)
+                    }
+                }
+            }.onSuccess { updated ->
+                modpacks = modpacks.map { if (it.id == updated.id) updated else it }
+                if (selectedModpack?.id == updated.id) selectedModpack = updated
+                infoMessage = "Обновление «${updated.name ?: updated.slug}» опубликовано"
+                packUiRevision++
+                fetchModpacks(force = true)
+            }.onFailure { handleError(it) }
+            launchProgress = null
+            launchProgressFraction = null
+            isLoading = false
         }
     }
 
