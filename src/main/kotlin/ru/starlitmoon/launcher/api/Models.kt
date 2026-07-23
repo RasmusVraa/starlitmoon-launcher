@@ -349,8 +349,20 @@ data class ModpackDto(
     val sortOrder: Int = 0,
     val createdAt: String? = null,
     val updatedAt: String? = null,
+    val hasArchive: Boolean = false,
+    val archive: ModpackArchiveDto? = null,
     val modsCount: Int = 0,
     val mods: List<ModpackModDto> = emptyList(),
+)
+
+@Serializable
+data class ModpackArchiveDto(
+    val fileName: String? = null,
+    val size: Long? = null,
+    val sha256: String? = null,
+    val uploadedAt: String? = null,
+    val url: String? = null,
+    val originalName: String? = null,
 )
 
 @Serializable

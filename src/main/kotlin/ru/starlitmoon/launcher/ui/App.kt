@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
@@ -87,7 +88,7 @@ fun LauncherApp(
                                 if (vm.errorMessage != null || vm.infoMessage != null) {
                                     Column(
                                         modifier = Modifier
-                                            .fillMaxSize()
+                                            .fillMaxWidth()
                                             .padding(horizontal = 28.dp, vertical = 12.dp),
                                     ) {
                                         vm.errorMessage?.let { MessageBanner(it, true, vm::clearMessages) }

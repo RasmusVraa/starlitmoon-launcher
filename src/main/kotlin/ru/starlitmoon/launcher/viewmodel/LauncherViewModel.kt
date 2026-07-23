@@ -173,7 +173,11 @@ class LauncherViewModel(
             selectedModpackId = pack.id.orEmpty().ifBlank { pack.slug.orEmpty() },
             minecraftVersionId = mcVer.ifBlank { configState.minecraftVersionId },
         )
-        LauncherConfig.save(next)
+        runCatching { LauncherConfig.save(next) }
+            .onFailure {
+                errorMessage = "Не удалось сохранить выбор сборки"
+                return
+            }
         configState = next
         if (!persistOnly) {
             infoMessage = "Выбрана сборка: ${pack.name ?: pack.slug ?: "—"}"
