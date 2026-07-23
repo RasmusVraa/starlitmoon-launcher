@@ -36,6 +36,8 @@ data class LauncherConfig(
     val checkUpdatesOnStart: Boolean = true,
     /** Показывать статус лаунчера в Discord (Rich Presence). */
     val discordRpcEnabled: Boolean = true,
+    /** Анимации UI: переходы страниц, кнопки, раскрытия. */
+    val animationsEnabled: Boolean = true,
 ) {
     val dataDir: Path
         get() = Path.of(System.getProperty("user.home"), ".starlitmoon-launcher")

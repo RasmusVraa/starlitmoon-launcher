@@ -1,8 +1,6 @@
 package ru.starlitmoon.launcher.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -46,6 +44,9 @@ import androidx.compose.ui.unit.sp
 import ru.starlitmoon.launcher.api.PrivacySectionDto
 import ru.starlitmoon.launcher.ui.components.SkinPreview3D
 import ru.starlitmoon.launcher.ui.components.StarlitPrimaryButton
+import ru.starlitmoon.launcher.ui.theme.starlitAnimateFloat
+import ru.starlitmoon.launcher.ui.theme.starlitExpandVertically
+import ru.starlitmoon.launcher.ui.theme.starlitShrinkVertically
 import ru.starlitmoon.launcher.ui.components.StarlitSecondaryButton
 import ru.starlitmoon.launcher.ui.components.StarlitTextField
 import ru.starlitmoon.launcher.ui.components.StarlitToggle
@@ -491,10 +492,14 @@ private fun AccordionBlock(
                 Icons.Default.ExpandMore,
                 contentDescription = null,
                 tint = StarlitColors.TextMuted,
-                modifier = Modifier.rotate(if (expanded) 180f else 0f),
+                modifier = Modifier.rotate(starlitAnimateFloat(if (expanded) 180f else 0f, label = "accordion")),
             )
         }
-        AnimatedVisibility(visible = expanded, enter = expandVertically(), exit = shrinkVertically()) {
+        AnimatedVisibility(
+            visible = expanded,
+            enter = starlitExpandVertically(),
+            exit = starlitShrinkVertically(),
+        ) {
             Column(
                 modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 14.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),

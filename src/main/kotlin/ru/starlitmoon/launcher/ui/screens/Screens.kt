@@ -26,6 +26,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import androidx.compose.material.icons.filled.Animation
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.Memory
@@ -675,6 +676,7 @@ fun SettingsScreen(vm: LauncherViewModel) {
     var savePassword by remember(base) { mutableStateOf(base.savePassword) }
     var vsync by remember(base) { mutableStateOf(base.vsync) }
     var discordRpcEnabled by remember(base) { mutableStateOf(base.discordRpcEnabled) }
+    var animationsEnabled by remember(base) { mutableStateOf(base.animationsEnabled) }
     var saveHint by remember { mutableStateOf(false) }
 
     fun memoryLabel(): String = when {
@@ -695,11 +697,12 @@ fun SettingsScreen(vm: LauncherViewModel) {
             savePassword = savePassword,
             vsync = vsync,
             discordRpcEnabled = discordRpcEnabled,
+            animationsEnabled = animationsEnabled,
             gamePath = "",
         )
     }
 
-    LaunchedEffect(memoryAuto, memoryGb, fullscreen, keepLauncherOpen, savePassword, vsync, discordRpcEnabled) {
+    LaunchedEffect(memoryAuto, memoryGb, fullscreen, keepLauncherOpen, savePassword, vsync, discordRpcEnabled, animationsEnabled) {
         delay(400)
         val next = draftConfig()
         if (next != vm.configState) {
@@ -810,6 +813,16 @@ fun SettingsScreen(vm: LauncherViewModel) {
                 ) {
                     StarlitToggle(checked = discordRpcEnabled, onCheckedChange = { discordRpcEnabled = it })
                 }
+
+                HorizontalDivider(color = StarlitColors.Border)
+
+                SettingsRow(
+                    title = "Анимации",
+                    subtitle = "Переходы между страницами, кнопки и раскрытия",
+                    icon = { Icon(Icons.Default.Animation, null, tint = StarlitColors.Gold) },
+                ) {
+                    StarlitToggle(checked = animationsEnabled, onCheckedChange = { animationsEnabled = it })
+                }
             }
         }
 
@@ -878,6 +891,7 @@ fun SettingsScreen(vm: LauncherViewModel) {
                 savePassword = false
                 vsync = true
                 discordRpcEnabled = true
+                animationsEnabled = true
                 vm.saveSettings(
                     base.copy(
                         memoryAuto = true,
@@ -888,6 +902,7 @@ fun SettingsScreen(vm: LauncherViewModel) {
                         savePassword = false,
                         vsync = true,
                         discordRpcEnabled = true,
+                        animationsEnabled = true,
                         autoJoinServer = false,
                         autoLogin = false,
                         gamePath = "",

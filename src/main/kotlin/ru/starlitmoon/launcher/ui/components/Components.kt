@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -47,6 +48,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
@@ -64,6 +66,9 @@ import kotlinx.coroutines.withContext
 import ru.starlitmoon.launcher.ui.theme.PlayerRanks
 import ru.starlitmoon.launcher.ui.theme.StarlitColors
 import ru.starlitmoon.launcher.ui.theme.StarlitDimens
+import ru.starlitmoon.launcher.ui.theme.starlitAnimateColor
+import ru.starlitmoon.launcher.ui.theme.starlitAnimateDp
+import ru.starlitmoon.launcher.ui.theme.starlitAnimateFloat
 import ru.starlitmoon.launcher.update.UpdateInfo
 import ru.starlitmoon.launcher.viewmodel.LauncherTab
 import ru.starlitmoon.launcher.viewmodel.LauncherViewModel
@@ -177,22 +182,34 @@ fun StarlitPrimaryButton(
         danger -> StarlitColors.Offline
         else -> StarlitColors.Gold
     }
-    val bg = when {
+    val targetBg = when {
         !active -> base.copy(alpha = 0.32f)
         pressed -> if (danger) Color(0xFFC44D58) else StarlitColors.GoldDim
         hovered -> if (danger) Color(0xFFF07A84) else Color(0xFFE0B85C)
         else -> base
     }
+    val bg = starlitAnimateColor(targetBg, label = "primaryBg")
     val fg = when {
         danger -> StarlitColors.Text
         active -> StarlitColors.OnGold
         else -> StarlitColors.OnGold.copy(alpha = 0.55f)
     }
+    val scale = starlitAnimateFloat(
+        target = when {
+            !active -> 1f
+            pressed -> 0.97f
+            hovered -> 1.02f
+            else -> 1f
+        },
+        durationMs = 140,
+        label = "primaryScale",
+    )
     val height = if (compact) 40.dp else 50.dp
     Box(
         modifier = modifier
             .defaultMinSize(minWidth = if (compact) 96.dp else 120.dp)
             .height(height)
+            .scale(scale)
             .clip(shape)
             .background(
                 Brush.verticalGradient(
@@ -250,23 +267,36 @@ fun StarlitSecondaryButton(
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
     val pressed by interaction.collectIsPressedAsState()
-    val borderColor = when {
+    val targetBorder = when {
         !enabled -> StarlitColors.Border
         pressed -> StarlitColors.Gold
         hovered -> StarlitColors.Gold.copy(alpha = 0.85f)
         else -> StarlitColors.BorderStrong
     }
-    val bg = when {
+    val targetBg = when {
         !enabled -> StarlitColors.Surface.copy(alpha = 0.55f)
         pressed -> StarlitColors.GoldMuted
         hovered -> StarlitColors.SurfaceElevated
         else -> StarlitColors.SurfaceHover
     }
+    val borderColor = starlitAnimateColor(targetBorder, label = "secondaryBorder")
+    val bg = starlitAnimateColor(targetBg, label = "secondaryBg")
+    val scale = starlitAnimateFloat(
+        target = when {
+            !enabled -> 1f
+            pressed -> 0.97f
+            hovered -> 1.015f
+            else -> 1f
+        },
+        durationMs = 140,
+        label = "secondaryScale",
+    )
     val height = if (compact) 40.dp else 50.dp
     Box(
         modifier = modifier
             .defaultMinSize(minWidth = if (compact) 96.dp else 120.dp)
             .height(height)
+            .scale(scale)
             .clip(shape)
             .background(bg)
             .border(1.dp, borderColor, shape)
@@ -306,18 +336,20 @@ fun StarlitIconButton(
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
     val pressed by interaction.collectIsPressedAsState()
-    val border = when {
+    val targetBorder = when {
         !enabled -> StarlitColors.Border
         danger && (hovered || pressed) -> StarlitColors.Offline
         hovered || pressed -> StarlitColors.Gold
         else -> StarlitColors.BorderStrong
     }
-    val bg = when {
+    val targetBg = when {
         !enabled -> StarlitColors.Surface.copy(alpha = 0.5f)
         pressed -> if (danger) StarlitColors.Offline.copy(alpha = 0.22f) else StarlitColors.GoldMuted
         hovered -> StarlitColors.SurfaceElevated
         else -> StarlitColors.SurfaceHover
     }
+    val border = starlitAnimateColor(targetBorder, label = "iconBorder")
+    val bg = starlitAnimateColor(targetBg, label = "iconBg")
     Box(
         modifier = modifier
             .size(36.dp)
@@ -508,25 +540,38 @@ fun StarlitToggle(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
 ) {
+    val trackBg = starlitAnimateColor(
+        if (checked) StarlitColors.GoldMuted else StarlitColors.Surface,
+        label = "toggleTrack",
+    )
+    val trackBorder = starlitAnimateColor(
+        if (checked) StarlitColors.Gold.copy(alpha = 0.5f) else StarlitColors.Border,
+        label = "toggleBorder",
+    )
+    val thumbColor = starlitAnimateColor(
+        if (checked) StarlitColors.Gold else StarlitColors.TextDim,
+        label = "toggleThumb",
+    )
+    val thumbOffset = starlitAnimateDp(
+        if (checked) 18.dp else 0.dp,
+        durationMs = 180,
+        label = "toggleOffset",
+    )
     Box(
         modifier = modifier
             .size(width = 44.dp, height = 26.dp)
             .clip(RoundedCornerShape(50))
-            .background(if (checked) StarlitColors.GoldMuted else StarlitColors.Surface)
-            .border(
-                1.dp,
-                if (checked) StarlitColors.Gold.copy(alpha = 0.5f) else StarlitColors.Border,
-                RoundedCornerShape(50),
-            )
+            .background(trackBg)
+            .border(1.dp, trackBorder, RoundedCornerShape(50))
             .clickable(enabled = enabled) { onCheckedChange(!checked) }
             .padding(3.dp),
     ) {
         Box(
             modifier = Modifier
+                .offset(x = thumbOffset)
                 .size(18.dp)
-                .align(if (checked) Alignment.CenterEnd else Alignment.CenterStart)
                 .clip(CircleShape)
-                .background(if (checked) StarlitColors.Gold else StarlitColors.TextDim),
+                .background(thumbColor),
         )
     }
 }
@@ -713,34 +758,58 @@ private fun SidebarIcon(
     tintOverride: Color? = null,
 ) {
     val shape = RoundedCornerShape(14.dp)
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
+    val selectedAlpha = starlitAnimateFloat(if (selected) 1f else 0f, durationMs = 200, label = "sidebarSel")
+    val hoverAlpha = starlitAnimateFloat(
+        if (!selected && hovered) 1f else 0f,
+        durationMs = 140,
+        label = "sidebarHover",
+    )
+    val iconTint = starlitAnimateColor(
+        tintOverride
+            ?: when {
+                selected -> StarlitColors.Gold
+                hovered -> StarlitColors.Text
+                else -> StarlitColors.TextMuted
+            },
+        label = "sidebarTint",
+    )
+    val scale = starlitAnimateFloat(
+        when {
+            selected -> 1.04f
+            hovered -> 1.06f
+            else -> 1f
+        },
+        durationMs = 160,
+        label = "sidebarScale",
+    )
     Box(
         modifier = Modifier
             .size(44.dp)
+            .scale(scale)
             .clip(shape)
-            .then(
-                if (selected) {
-                    Modifier
-                        .background(
-                            Brush.verticalGradient(
-                                listOf(
-                                    StarlitColors.Gold.copy(alpha = 0.35f),
-                                    StarlitColors.Purple.copy(alpha = 0.45f),
-                                ),
-                            ),
-                        )
-                        .border(1.dp, StarlitColors.Gold.copy(alpha = 0.55f), shape)
-                } else {
-                    Modifier
-                },
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        StarlitColors.Gold.copy(alpha = 0.35f * selectedAlpha),
+                        StarlitColors.Purple.copy(alpha = 0.45f * selectedAlpha),
+                    ),
+                ),
             )
-            .clickable(onClick = onClick),
+            .background(StarlitColors.SurfaceHover.copy(alpha = 0.55f * hoverAlpha))
+            .border(1.dp, StarlitColors.Gold.copy(alpha = 0.55f * selectedAlpha), shape)
+            .clickable(
+                interactionSource = interaction,
+                indication = null,
+                onClick = onClick,
+            ),
         contentAlignment = Alignment.Center,
     ) {
         Icon(
             imageVector = icon,
             contentDescription = contentDescription,
-            tint = tintOverride
-                ?: if (selected) StarlitColors.Gold else StarlitColors.TextMuted,
+            tint = iconTint,
             modifier = Modifier.size(22.dp),
         )
     }
