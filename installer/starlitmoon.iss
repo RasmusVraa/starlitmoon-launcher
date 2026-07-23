@@ -2,7 +2,7 @@
 ; Default install: %AppData%\Roaming\StarlitMoonLauncher (user-selectable)
 
 #define AppName "StarlitMoon Launcher"
-#define AppVersion "1.1.6"
+#define AppVersion "1.1.7"
 #define AppPublisher "StarlitMoon"
 #define AppURL "https://starlit-moon.ru"
 #define AppExeName "StarlitMoonLauncher.exe"
@@ -24,8 +24,8 @@ DisableDirPage=no
 AlwaysShowDirOnReadyPage=yes
 UsePreviousAppDir=yes
 AllowNoIcons=yes
-OutputDir=..\dist\v1.1.6
-OutputBaseFilename=StarlitMoonLauncher-Setup-1.1.6
+OutputDir=..\dist\v1.1.7
+OutputBaseFilename=StarlitMoonLauncher-Setup-1.1.7
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=dark
@@ -91,10 +91,11 @@ Name: "desktopicon"; Description: "{cm:TaskDesktop}"; GroupDescription: "{cm:Tas
 Source: "..\build\compose\binaries\main-release\app\StarlitMoonLauncher\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Check: ShouldInstallFiles
 
 [Icons]
-Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExeName}"; IconFilename: "{app}\{#AppExeName}"; Check: ShouldInstallFiles
-Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; IconFilename: "{app}\{#AppExeName}"; Tasks: desktopicon; Check: ShouldInstallFiles
+Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExeName}"; IconFilename: "{app}\{#AppExeName}"; AppUserModelID: "StarlitMoon.Launcher"; Check: ShouldInstallFiles
+Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; IconFilename: "{app}\{#AppExeName}"; AppUserModelID: "StarlitMoon.Launcher"; Tasks: desktopicon; Check: ShouldInstallFiles
 
 [Run]
+Filename: "{sys}\ie4uinit.exe"; Parameters: "-show"; StatusMsg: "Обновление иконок Windows…"; Flags: runhidden skipifdoesntexist; Check: ShouldInstallFiles
 Filename: "{app}\{#AppExeName}"; Description: "Запустить {#AppName}"; Flags: nowait postinstall skipifsilent; Check: ShouldInstallFiles
 
 [Code]

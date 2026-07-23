@@ -1,5 +1,6 @@
 package ru.starlitmoon.launcher
 
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.graphics.painter.Painter
@@ -16,8 +17,6 @@ import org.jetbrains.skia.Image
 import ru.starlitmoon.launcher.api.StarlitApiClient
 import ru.starlitmoon.launcher.ui.LauncherApp
 import ru.starlitmoon.launcher.viewmodel.LauncherViewModel
-import java.awt.Taskbar
-import javax.imageio.ImageIO
 
 private fun loadWindowIcon(): Painter? {
     val bytes = object {}.javaClass.getResourceAsStream("/icon.png")?.readBytes() ?: return null
@@ -26,21 +25,14 @@ private fun loadWindowIcon(): Painter? {
     }.getOrNull()
 }
 
-private fun applyTaskbarIcon() {
-    runCatching {
-        if (!Taskbar.isTaskbarSupported()) return
-        val stream = object {}.javaClass.getResourceAsStream("/icon.png") ?: return
-        val image = ImageIO.read(stream) ?: return
-        Taskbar.getTaskbar().iconImage = image
-    }
-}
-
 fun main() {
+    // Before any window: Windows taskbar identity (icon / pinning / grouping).
+    WindowsShell.applyAppUserModelId()
+
     // Вне application{}, иначе при рекомпозиции создаётся новый ViewModel и сбрасывается логин.
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Swing)
     val api = StarlitApiClient()
     val vm = LauncherViewModel(scope, api)
-    applyTaskbarIcon()
 
     application {
         val windowIcon = remember { loadWindowIcon() }
@@ -57,6 +49,12 @@ fun main() {
             ),
             icon = windowIcon,
         ) {
+            LaunchedEffect(Unit) {
+                val images = WindowsShell.loadWindowIconImages()
+                if (images.isNotEmpty()) {
+                    window.iconImages = images
+                }
+            }
             LauncherApp(
                 vm = vm,
                 api = api,
