@@ -151,6 +151,7 @@ fun SkinsScreen(vm: LauncherViewModel) {
                                 capePath = vm.libraryCapePath(entry),
                                 slim = entry.slim,
                                 previewSize = 120.dp,
+                                animated = false,
                             )
                             Text(
                                 entry.name,
