@@ -30,6 +30,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import ru.starlitmoon.launcher.ui.components.LocalSkinFace
 import ru.starlitmoon.launcher.ui.components.SkinPreview3D
 import ru.starlitmoon.launcher.ui.components.StarlitSecondaryButton
 import ru.starlitmoon.launcher.ui.theme.StarlitColors
@@ -82,7 +83,7 @@ fun SkinsScreen(vm: LauncherViewModel) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(320.dp)
+                        .height(360.dp)
                         .clip(RoundedCornerShape(16.dp))
                         .background(Color(0x22101828))
                         .border(1.dp, Color(0x28788CDC), RoundedCornerShape(16.dp)),
@@ -92,7 +93,8 @@ fun SkinsScreen(vm: LauncherViewModel) {
                         skinPath = vm.activeSkinPath,
                         capePath = vm.activeCapePath,
                         slim = vm.activeSkinSlim,
-                        previewSize = 280.dp,
+                        previewSize = 340.dp,
+                        animated = true,
                     )
                 }
                 Text(
@@ -146,12 +148,11 @@ fun SkinsScreen(vm: LauncherViewModel) {
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            SkinPreview3D(
+                            LocalSkinFace(
                                 skinPath = vm.librarySkinPath(entry),
-                                capePath = vm.libraryCapePath(entry),
-                                slim = entry.slim,
-                                previewSize = 120.dp,
-                                animated = false,
+                                fallbackName = entry.name,
+                                size = 72.dp,
+                                revision = vm.avatarRevision,
                             )
                             Text(
                                 entry.name,
