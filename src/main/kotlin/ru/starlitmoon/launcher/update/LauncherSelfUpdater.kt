@@ -97,10 +97,9 @@ object LauncherSelfUpdater {
     }
 
     /**
-     * Spawns a detached hidden PowerShell helper that waits for [launcherPid] to exit,
-     * runs silent Setup, then starts the launcher again.
+     * Spawns a fully hidden updater via wscript → PowerShell (no console window).
      *
-     * Avoids `cmd start "title"` quirks that open a visible console and mis-parse `/min`.
+     * Old cmd helpers showed «Не удается найти пакетный файл» after self-deleting the .cmd.
      */
     fun scheduleInstallAndRestart(
         installer: Path,
@@ -109,7 +108,10 @@ object LauncherSelfUpdater {
         launcherPid: Long,
     ) {
         require(installer.exists()) { "Установщик не найден" }
-        val helper = Files.createTempFile("starlit-update-", ".ps1")
+        val updateDir = installDir.resolve("update").also { it.createDirectories() }
+        val ps1 = updateDir.resolve("run-update.ps1")
+        val vbs = updateDir.resolve("run-update.vbs")
+
         val setup = installer.toAbsolutePath().normalize().pathString
         val dir = installDir.toAbsolutePath().normalize().pathString
         val exe = relaunchExe.toAbsolutePath().normalize().pathString
@@ -127,7 +129,7 @@ object LauncherSelfUpdater {
             while (Get-Process -Id ${'$'}pidToWait -ErrorAction SilentlyContinue) {
               Start-Sleep -Seconds 1
             }
-            Start-Sleep -Seconds 1
+            Start-Sleep -Seconds 2
             ${'$'}args = @(
               '/VERYSILENT',
               '/SUPPRESSMSGBOXES',
@@ -136,25 +138,35 @@ object LauncherSelfUpdater {
               '/FORCECLOSEAPPLICATIONS',
               ('/DIR=' + ${'$'}dir)
             )
-            Start-Process -FilePath ${'$'}setup -ArgumentList ${'$'}args -Wait -WindowStyle Hidden
-            Start-Sleep -Seconds 1
+            ${'$'}p = Start-Process -FilePath ${'$'}setup -ArgumentList ${'$'}args -Wait -PassThru -WindowStyle Hidden
+            Start-Sleep -Seconds 2
             if (Test-Path -LiteralPath ${'$'}exe) {
-              Start-Process -FilePath ${'$'}exe
+              Start-Process -FilePath ${'$'}exe -WindowStyle Normal
             } elseif (Test-Path -LiteralPath ${'$'}altExe) {
-              Start-Process -FilePath ${'$'}altExe
+              Start-Process -FilePath ${'$'}altExe -WindowStyle Normal
             }
             Remove-Item -LiteralPath ${'$'}setup -Force -ErrorAction SilentlyContinue
-            Remove-Item -LiteralPath ${'$'}MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyContinue
+            # Do not self-delete this script while PowerShell is reading it.
         """.trimIndent().replace("\n", "\r\n")
-        Files.writeString(helper, script)
+        Files.writeString(ps1, script)
+
+        val psPath = ps1.toAbsolutePath().normalize().pathString
+        val vbsBody = buildString {
+            appendLine("Set sh = CreateObject(\"WScript.Shell\")")
+            append("sh.Run \"powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"\"")
+            append(psPath.replace("\"", "\"\""))
+            append("\"\"\", 0, False")
+            append("\r\n")
+        }
+        Files.writeString(vbs, vbsBody)
 
         ProcessBuilder(
-            "powershell.exe",
-            "-NoProfile",
-            "-ExecutionPolicy", "Bypass",
-            "-WindowStyle", "Hidden",
-            "-File", helper.toAbsolutePath().normalize().pathString,
+            "wscript.exe",
+            "//B",
+            "//Nologo",
+            vbs.toAbsolutePath().normalize().pathString,
         ).apply {
+            directory(installDir.toFile())
             redirectOutput(ProcessBuilder.Redirect.DISCARD)
             redirectError(ProcessBuilder.Redirect.DISCARD)
         }.start()

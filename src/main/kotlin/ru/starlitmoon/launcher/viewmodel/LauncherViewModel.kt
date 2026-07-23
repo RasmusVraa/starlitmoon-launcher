@@ -1488,6 +1488,7 @@ class LauncherViewModel(
                 skinLibrary.importActiveIfEmpty(userName)
                 refreshSkinLibraryState()
                 syncActiveSkinToSite()
+                refreshDiscordPresence()
             }
             notifications = withContext(Dispatchers.IO) {
                 runCatching { api.notifications() }.getOrDefault(emptyList())
@@ -1507,18 +1508,26 @@ class LauncherViewModel(
         )
     }
 
-    /** Public HTTPS avatar for Discord RPC (max ~256 chars). Keep short — long urls break presence. */
+    /** Public HTTPS avatar for Discord RPC (max ~256 chars). */
     private fun discordAvatarImageUrl(): String? {
         if (!isLoggedIn || userName.isBlank()) return null
-        val hash = skinTextureHash
-            ?: meData?.cabinet?.player?.skinTextureHash
-            ?: configState.skinTextureUrl.substringAfter("v=", "").takeIf { it.isNotBlank() }
-        // Do not append skinUrl — Discord often rejects long/complex image URLs and hides RPC entirely.
-        // Site /api/avatar resolves the stored custom skin by player/uuid/hash.
-        val candidates = listOf(
-            api.avatarUrl(userName, userUuid, hash, skinUrl = null, size = 128),
-            api.avatarUrl(userName, userUuid, null, skinUrl = null, size = 128),
-            api.avatarUrl(userName, null, null, skinUrl = null, size = 128),
+        val fullHash = listOfNotNull(
+            skinTextureHash,
+            meData?.cabinet?.player?.skinTextureHash,
+            meData?.cabinet?.skinTextureHash,
+        ).map { it.trim().lowercase() }
+            .firstOrNull { it.matches(Regex("^[a-f0-9]{64}$")) }
+
+        val base = configState.apiBaseUrl.trimEnd('/')
+        // Prefer static warmed face PNG — unique per skin, bypasses Discord CDN cache of old Steve.
+        if (fullHash != null) {
+            val staticFace = "$base/img/avatars/${fullHash}_face_128.png"
+            if (staticFace.length in 12..256) return staticFace
+        }
+
+        val candidates = listOfNotNull(
+            fullHash?.let { api.avatarUrl(userName, userUuid, it, skinUrl = null, size = 128) + "&cb=${it.take(12)}" },
+            api.avatarUrl(userName, userUuid, null, skinUrl = null, size = 128) + "&cb=$avatarRevision",
         )
         return candidates.firstOrNull { it.length in 12..256 }
     }
