@@ -1,9 +1,17 @@
 package ru.starlitmoon.launcher.minecraft
 
 import io.ktor.client.HttpClient
+import io.ktor.client.request.prepareGet
 import io.ktor.client.request.get
+import io.ktor.client.statement.bodyAsChannel
 import io.ktor.client.statement.bodyAsText
-import io.ktor.client.statement.readRawBytes
+import io.ktor.utils.io.ByteReadChannel
+import io.ktor.utils.io.readRemaining
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.io.readByteArray
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.booleanOrNull
@@ -14,9 +22,10 @@ import kotlinx.serialization.json.jsonPrimitive
 import ru.starlitmoon.launcher.LauncherConfig
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
+import java.util.concurrent.TimeUnit
 import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
-import kotlin.io.path.writeBytes
+import kotlin.io.path.fileSize
 import kotlin.io.path.writeText
 
 /**
@@ -27,7 +36,7 @@ class ModLoaderInstaller(
     private val http: HttpClient,
     private val config: LauncherConfig,
     private val json: Json = Json { ignoreUnknownKeys = true; isLenient = true },
-    private val resolveJava: suspend (minMajor: Int) -> String,
+    private val resolveJava: suspend (minMajor: Int, onProgress: (String, Float?) -> Unit) -> String,
 ) {
     suspend fun ensureLoaderProfile(
         loader: String,
@@ -51,7 +60,9 @@ class ModLoaderInstaller(
         onProgress: (String, Float?) -> Unit,
     ): String {
         onProgress("Определение Fabric Loader…", 0.02f)
-        val loaderVer = loaderVersion ?: resolveLatestFabricLoader(mcVersion)
+        val loaderVer = loaderVersion ?: withTimeout(45_000) {
+            resolveLatestFabricLoader(mcVersion)
+        }
         val id = "fabric-loader-$loaderVer-$mcVersion"
         val versionDir = config.versionsDir.resolve(id).apply { createDirectories() }
         val profileFile = versionDir.resolve("$id.json")
@@ -61,7 +72,7 @@ class ModLoaderInstaller(
         }
         onProgress("Скачивание профиля Fabric $loaderVer…", 0.03f)
         val url = "https://meta.fabricmc.net/v2/versions/loader/$mcVersion/$loaderVer/profile/json"
-        val body = http.get(url).bodyAsText()
+        val body = withTimeout(60_000) { http.get(url).bodyAsText() }
         if (body.isBlank() || !body.contains("mainClass")) {
             error("Fabric Meta не вернул профиль для $mcVersion / $loaderVer")
         }
@@ -88,7 +99,19 @@ class ModLoaderInstaller(
         onProgress: (String, Float?) -> Unit,
     ): String {
         onProgress("Определение NeoForge…", 0.02f)
-        val nfVer = loaderVersion ?: resolveLatestNeoForge(mcVersion)
+        val nfVer = try {
+            loaderVersion ?: withTimeout(45_000) {
+                onProgress("Список версий NeoForge…", 0.025f)
+                resolveLatestNeoForge(mcVersion)
+            }
+        } catch (e: Exception) {
+            throw IllegalStateException(
+                "Не удалось определить NeoForge для MC $mcVersion: ${e.message ?: e}. " +
+                    "Проверьте доступ к maven.neoforged.net",
+                e,
+            )
+        }
+        onProgress("NeoForge $nfVer", 0.03f)
         val id = "neoforge-$nfVer"
         val profileFile = config.versionsDir.resolve(id).resolve("$id.json")
         if (profileFile.exists()) {
@@ -98,22 +121,34 @@ class ModLoaderInstaller(
 
         val cacheDir = config.dataDir.resolve("cache").apply { createDirectories() }
         val installer = cacheDir.resolve("neoforge-$nfVer-installer.jar")
-        if (!installer.exists()) {
+        if (!installer.exists() || installer.fileSize() < 10_000L) {
             onProgress("Скачивание установщика NeoForge $nfVer…", 0.03f)
             val url =
                 "https://maven.neoforged.net/releases/net/neoforged/neoforge/$nfVer/neoforge-$nfVer-installer.jar"
-            val bytes = http.get(url).readRawBytes()
             val tmp = installer.resolveSibling("${installer.fileName}.part")
-            tmp.writeBytes(bytes)
+            runCatching { Files.deleteIfExists(tmp) }
+            downloadFile(url, tmp) { read, total ->
+                if (total != null && total > 0L) {
+                    val pct = ((read * 100) / total).toInt().coerceIn(0, 99)
+                    onProgress("Установщик NeoForge $pct%", 0.03f + 0.01f * read.toFloat() / total)
+                } else if (read > 0L) {
+                    onProgress("Установщик NeoForge (${formatBytes(read)})…", 0.035f)
+                }
+            }
             Files.move(tmp, installer, StandardCopyOption.REPLACE_EXISTING)
         }
 
-        onProgress("Установка NeoForge $nfVer в клиент…", 0.04f)
+        onProgress("Подготовка Java для установщика…", 0.04f)
+        val javaBin = resolveJava(17) { msg, frac ->
+            onProgress(msg, if (frac != null) 0.04f + frac * 0.01f else 0.04f)
+        }
+
+        onProgress("Установка NeoForge $nfVer в клиент…", 0.045f)
         config.gameDir.createDirectories()
         // Official installer refuses --installClient unless a vanilla launcher profile exists.
         ensureMinecraftLauncherProfiles(config.gameDir)
-        val javaBin = resolveJava(17)
         val logFile = config.dataDir.resolve("neoforge-install.log")
+        runCatching { Files.deleteIfExists(logFile) }
         val pb = ProcessBuilder(
             javaBin,
             "-jar",
@@ -124,7 +159,22 @@ class ModLoaderInstaller(
             .directory(config.gameDir.toFile())
             .redirectErrorStream(true)
             .redirectOutput(logFile.toFile())
-        val code = withContextIo { pb.start().waitFor() }
+            // Prevent installer from blocking on stdin / console prompts.
+            .redirectInput(ProcessBuilder.Redirect.PIPE)
+
+        val code = withContext(Dispatchers.IO) {
+            val process = pb.start()
+            runCatching { process.outputStream.close() }
+            val finished = process.waitFor(12, TimeUnit.MINUTES)
+            if (!finished) {
+                process.destroyForcibly()
+                process.waitFor(15, TimeUnit.SECONDS)
+                error(
+                    "Установка NeoForge $nfVer зависла (>12 мин). См. ${logFile.toAbsolutePath()}",
+                )
+            }
+            process.exitValue()
+        }
         if (code != 0 || !profileFile.exists()) {
             val tip = runCatching {
                 logFile.toFile().readLines()
@@ -136,7 +186,7 @@ class ModLoaderInstaller(
                     }
                     .takeLast(8)
                     .joinToString(" ")
-                    .ifBlank { logFile.toFile().readText().takeLast(400) }
+                    .ifBlank { logFile.toFile().readText().takeLast(500) }
             }.getOrNull().orEmpty()
             error("Установка NeoForge $nfVer не удалась (код $code). $tip")
         }
@@ -177,22 +227,89 @@ class ModLoaderInstaller(
         )
     }
 
+    /**
+     * Prefer maven-metadata.xml (reliable, smaller). Fall back to JSON versions API.
+     */
     private suspend fun resolveLatestNeoForge(mcVersion: String): String {
         val prefix = neoForgeBranchPrefix(mcVersion)
-        val body = http.get("https://maven.neoforged.net/api/maven/versions/releases/net/neoforged/neoforge")
-            .bodyAsText()
+        val fromMeta = runCatching { resolveNeoForgeFromMavenMetadata(prefix) }.getOrNull()
+        if (!fromMeta.isNullOrBlank()) return fromMeta
+        return resolveNeoForgeFromJsonApi(prefix, mcVersion)
+    }
+
+    private suspend fun resolveNeoForgeFromMavenMetadata(prefix: String): String {
+        val body = http.get(NEOFORGE_MAVEN_METADATA).bodyAsText()
+        val versions = VERSION_TAG.findAll(body).map { it.groupValues[1] }.toList()
+        return pickLatestNeoForge(versions, prefix)
+            ?: error("Нет NeoForge в maven-metadata для ветки $prefix")
+    }
+
+    private suspend fun resolveNeoForgeFromJsonApi(prefix: String, mcVersion: String): String {
+        val body = http.get(NEOFORGE_VERSIONS_JSON).bodyAsText()
         val versions = json.decodeFromString(NeoForgeVersionsDto.serializer(), body).versions
-            .filter { it.startsWith("$prefix.") }
-        if (versions.isEmpty()) {
-            error("Нет NeoForge для Minecraft $mcVersion (ветка $prefix)")
-        }
-        val stable = versions.filter { !it.contains("beta", ignoreCase = true) && !it.contains("alpha", ignoreCase = true) }
-        val pool = if (stable.isNotEmpty()) stable else versions
-        return pool.maxWithOrNull(compareBy({ versionKey(it).getOrElse(0) { 0 } }, { versionKey(it).getOrElse(1) { 0 } }, { versionKey(it).getOrElse(2) { 0 } }, { versionKey(it).getOrElse(3) { 0 } }, { versionKey(it).getOrElse(4) { 0 } }))
+        return pickLatestNeoForge(versions, prefix)
             ?: error("Нет NeoForge для Minecraft $mcVersion (ветка $prefix)")
     }
 
+    private fun pickLatestNeoForge(versions: List<String>, prefix: String): String? {
+        val branch = versions.filter { it.startsWith("$prefix.") }
+        if (branch.isEmpty()) return null
+        val stable = branch.filter {
+            !it.contains("beta", ignoreCase = true) && !it.contains("alpha", ignoreCase = true)
+        }
+        val pool = if (stable.isNotEmpty()) stable else branch
+        return pool.maxWithOrNull(
+            compareBy(
+                { versionKey(it).getOrElse(0) { 0 } },
+                { versionKey(it).getOrElse(1) { 0 } },
+                { versionKey(it).getOrElse(2) { 0 } },
+                { versionKey(it).getOrElse(3) { 0 } },
+                { versionKey(it).getOrElse(4) { 0 } },
+            ),
+        )
+    }
+
+    private suspend fun downloadFile(
+        url: String,
+        target: java.nio.file.Path,
+        onBytes: (read: Long, total: Long?) -> Unit,
+    ) {
+        withTimeout(10 * 60_000L) {
+            http.prepareGet(url).execute { response ->
+                val total = response.headers["Content-Length"]?.toLongOrNull()
+                val channel: ByteReadChannel = response.bodyAsChannel()
+                target.parent?.createDirectories()
+                Files.newOutputStream(target).use { out ->
+                    var read = 0L
+                    var lastReport = 0L
+                    while (!channel.isClosedForRead) {
+                        val packet = channel.readRemaining(DEFAULT_BUFFER)
+                        val chunk = packet.readByteArray()
+                        if (chunk.isEmpty()) break
+                        out.write(chunk)
+                        read += chunk.size
+                        if (read - lastReport >= 256 * 1024 || (total != null && read >= total)) {
+                            onBytes(read, total)
+                            lastReport = read
+                        }
+                    }
+                    onBytes(read, total)
+                }
+            }
+        }
+        if (!target.exists() || target.fileSize() < 10_000L) {
+            error("Не удалось скачать установщик NeoForge")
+        }
+    }
+
     companion object {
+        private const val NEOFORGE_MAVEN_METADATA =
+            "https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml"
+        private const val NEOFORGE_VERSIONS_JSON =
+            "https://maven.neoforged.net/api/maven/versions/releases/net/neoforged/neoforge"
+        private val VERSION_TAG = Regex("<version>([^<]+)</version>")
+        private const val DEFAULT_BUFFER = 64 * 1024L
+
         /** MC 1.21.1 → 21.1, MC 26.2 → 26.2 */
         fun neoForgeBranchPrefix(mcVersion: String): String {
             val v = mcVersion.trim()
@@ -203,6 +320,12 @@ class ModLoaderInstaller(
             val cleaned = version.substringBefore("+").substringBefore("-beta").substringBefore("-alpha")
             return cleaned.split('.').map { it.toIntOrNull() ?: 0 }
         }
+
+        private fun formatBytes(n: Long): String = when {
+            n >= 1_048_576 -> "%.1f МБ".format(n / 1_048_576.0)
+            n >= 1024 -> "${n / 1024} КБ"
+            else -> "$n Б"
+        }
     }
 }
 
@@ -211,6 +334,3 @@ private data class NeoForgeVersionsDto(
     val isSnapshot: Boolean = false,
     val versions: List<String> = emptyList(),
 )
-
-private suspend fun <T> withContextIo(block: () -> T): T =
-    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { block() }

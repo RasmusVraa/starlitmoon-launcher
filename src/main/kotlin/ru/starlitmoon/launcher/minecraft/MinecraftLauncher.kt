@@ -69,10 +69,10 @@ class MinecraftLauncher(
         http = http,
         config = config,
         json = json,
-        resolveJava = { minMajor ->
+        resolveJava = { minMajor, onProgress ->
             findSystemJava()?.takeIf { javaMajorVersion(it) >= minMajor }
                 ?: runCatching {
-                    javaRuntimes.ensureRuntime("java-runtime-epsilon") { _, _ -> }
+                    javaRuntimes.ensureRuntime("java-runtime-epsilon", onProgress)
                         .toAbsolutePath().toString()
                         .takeIf { javaMajorVersion(it) >= minMajor }
                 }.getOrNull()
