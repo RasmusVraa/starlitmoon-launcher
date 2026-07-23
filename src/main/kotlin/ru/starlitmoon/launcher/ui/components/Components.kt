@@ -483,8 +483,8 @@ fun BrandMark(modifier: Modifier = Modifier, size: Dp = 44.dp) {
             Image(
                 bitmap = logo,
                 contentDescription = "StarlitMoon",
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize().padding(4.dp),
+                contentScale = ContentScale.Fit,
             )
         } else {
             Text(

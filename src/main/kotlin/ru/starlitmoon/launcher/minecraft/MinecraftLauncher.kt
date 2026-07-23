@@ -378,10 +378,12 @@ class MinecraftLauncher(
         val logFile = config.dataDir.resolve("last-launch.log")
         return try {
             onProgress("Запуск Minecraft…", 0.98f)
+            // Keep the exact command for debugging failed boots.
+            logFile.writeText(command.joinToString("\n") + "\n\n--- game output ---\n")
             val pb = ProcessBuilder(command)
                 .directory(gameDirectory.toFile())
                 .redirectErrorStream(true)
-                .redirectOutput(logFile.toFile())
+                .redirectOutput(ProcessBuilder.Redirect.appendTo(logFile.toFile()))
             val process = pb.start()
             onProgress("Игра запущена", 1f)
             LaunchResult(true, "Игра запущена", process)
@@ -532,9 +534,23 @@ class MinecraftLauncher(
             if (artifact.path.isBlank()) continue
             paths += config.librariesDir.resolve(artifact.path).toAbsolutePath().normalize().toString()
         }
-        paths += config.versionsDir.resolve(clientJarId).resolve("$clientJarId.jar")
-            .toAbsolutePath().normalize().toString()
+        // Forge/NeoForge BootstrapLauncher already provides module `minecraft` via libraries.
+        // Putting versions/1.21.1/1.21.1.jar on -cp creates automatic module `_1._21._1` and crashes:
+        // "Modules minecraft and _1._21._1 export package net.minecraft.data…"
+        if (shouldIncludeVanillaClientJar(meta)) {
+            paths += config.versionsDir.resolve(clientJarId).resolve("$clientJarId.jar")
+                .toAbsolutePath().normalize().toString()
+        }
         return paths.joinToString(File.pathSeparator)
+    }
+
+    private fun shouldIncludeVanillaClientJar(meta: VersionMeta): Boolean {
+        val main = meta.mainClass.lowercase()
+        if (main.contains("bootstraplauncher")) return false
+        val id = meta.id.lowercase()
+        if (id.startsWith("neoforge-")) return false
+        if (id.startsWith("forge-") || id.contains("-forge-")) return false
+        return true
     }
 
     private fun javaMajorVersion(javaBin: String): Int {

@@ -2,7 +2,7 @@
 ; Default install: %AppData%\Roaming\StarlitMoonLauncher (user-selectable)
 
 #define AppName "StarlitMoon Launcher"
-#define AppVersion "1.1.5"
+#define AppVersion "1.1.6"
 #define AppPublisher "StarlitMoon"
 #define AppURL "https://starlit-moon.ru"
 #define AppExeName "StarlitMoonLauncher.exe"
@@ -24,8 +24,8 @@ DisableDirPage=no
 AlwaysShowDirOnReadyPage=yes
 UsePreviousAppDir=yes
 AllowNoIcons=yes
-OutputDir=..\dist\v1.1.5
-OutputBaseFilename=StarlitMoonLauncher-Setup-1.1.5
+OutputDir=..\dist\v1.1.6
+OutputBaseFilename=StarlitMoonLauncher-Setup-1.1.6
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=dark
@@ -51,6 +51,9 @@ VersionInfoProductVersion={#AppVersion}
 [InstallDelete]
 Type: files; Name: "{app}\app\starlitmoon-launcher-*.jar"
 Type: files; Name: "{app}\app\StarlitMoonLauncher.cfg"
+Type: files; Name: "{app}\{#AppExeName}"
+Type: files; Name: "{userdesktop}\{#AppName}.lnk"
+Type: files; Name: "{group}\{#AppName}.lnk"
 
 [Languages]
 Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"
@@ -82,7 +85,7 @@ WillFreshInstall=Установка не найдена. Будет выполн
 DefaultHint=По умолчанию: %AppData%\Roaming\StarlitMoonLauncher
 
 [Tasks]
-Name: "desktopicon"; Description: "{cm:TaskDesktop}"; GroupDescription: "{cm:TaskAdditional}"; Flags: unchecked
+Name: "desktopicon"; Description: "{cm:TaskDesktop}"; GroupDescription: "{cm:TaskAdditional}"; Flags: checkedonce
 
 [Files]
 Source: "..\build\compose\binaries\main-release\app\StarlitMoonLauncher\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Check: ShouldInstallFiles

@@ -404,6 +404,13 @@ class LauncherViewModel(
                         infoMessage = "Для «${detail.name}» ещё нет ZIP-архива. Запуск через $loader."
                     }
                 }
+                // Pack ZIPs often ship versions/<mc>/<mc>.jar; with NeoForge that jar becomes
+                // automatic module `_1._21._1` and fights module `minecraft`.
+                if (loader == "neoforge" || loader == "forge") {
+                    withContext(Dispatchers.IO) {
+                        scrubPackVanillaClientJar(instanceDir!!, versionId)
+                    }
+                }
             }
             launchProgress = "Подготовка клиента…"
             launchProgressFraction = launchProgressFraction ?: 0.05f
@@ -491,6 +498,12 @@ class LauncherViewModel(
     }
 
     /** Legacy fallback: per-jar mods into the pack instance mods/ folder. */
+    private fun scrubPackVanillaClientJar(instanceDir: Path, mcVersion: String) {
+        val id = mcVersion.trim().ifBlank { return }
+        val jar = instanceDir.resolve("versions").resolve(id).resolve("$id.jar")
+        runCatching { Files.deleteIfExists(jar) }
+    }
+
     private suspend fun syncLegacyModJars(pack: ModpackDto, instanceDir: Path): Boolean {
         val mods = pack.mods.filter { !it.url.isNullOrBlank() && !it.fileName.isNullOrBlank() }
         if (mods.isEmpty()) return false
