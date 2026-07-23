@@ -48,6 +48,7 @@ import ru.starlitmoon.launcher.minecraft.MinecraftLauncher
 import ru.starlitmoon.launcher.minecraft.ModpackSync
 import ru.starlitmoon.launcher.minecraft.OfflineSkinBridge
 import ru.starlitmoon.launcher.minecraft.SkinManager
+import ru.starlitmoon.launcher.update.LauncherSelfUpdater
 import ru.starlitmoon.launcher.update.UpdateChecker
 import ru.starlitmoon.launcher.update.UpdateInfo
 import java.awt.Desktop
@@ -77,6 +78,9 @@ class LauncherViewModel(
     var isCheckingUpdates by mutableStateOf(false)
     var updateInfo by mutableStateOf<UpdateInfo?>(null)
     var updateDismissed by mutableStateOf(false)
+    var isApplyingUpdate by mutableStateOf(false)
+    var updateProgress by mutableStateOf<String?>(null)
+    var updateProgressFraction by mutableStateOf<Float?>(null)
     // Restore session from disk before first frame — avoids login flash.
     private val cachedBootSession = runCatching { api.cachedSession() }.getOrNull()
     var isLoggedIn by mutableStateOf(
@@ -295,11 +299,62 @@ class LauncherViewModel(
 
     fun downloadUpdate() {
         val update = updateInfo ?: return
-        runCatching { java.awt.Desktop.getDesktop().browse(java.net.URI(update.installerUrl ?: update.releasePageUrl)) }
-            .onFailure { errorMessage = "Не удалось открыть загрузку" }
+        val url = update.installerUrl
+        if (url.isNullOrBlank()) {
+            runCatching { java.awt.Desktop.getDesktop().browse(java.net.URI(update.releasePageUrl)) }
+                .onFailure { errorMessage = "Не удалось открыть страницу релиза" }
+            return
+        }
+        if (isApplyingUpdate) return
+        scope.launch {
+            isApplyingUpdate = true
+            updateDismissed = false
+            updateProgress = "Подготовка обновления…"
+            updateProgressFraction = 0f
+            errorMessage = null
+            runCatching {
+                val paths = withContext(Dispatchers.IO) { LauncherSelfUpdater.resolveInstallPaths() }
+                val name = update.installerName?.takeIf { it.endsWith(".exe", true) }
+                    ?: "StarlitMoonLauncher-Setup-${update.latestVersion}.exe"
+                val target = withContext(Dispatchers.IO) {
+                    val dir = configState.dataDir.resolve("updates").also { it.createDirectories() }
+                    dir.resolve(name)
+                }
+                withContext(Dispatchers.IO) {
+                    LauncherSelfUpdater.downloadInstaller(url, target) { frac, label ->
+                        SwingUtilities.invokeLater {
+                            updateProgressFraction = frac
+                            updateProgress = label
+                        }
+                    }
+                }
+                updateProgress = "Установка и перезапуск…"
+                updateProgressFraction = 1f
+                withContext(Dispatchers.IO) {
+                    LauncherSelfUpdater.scheduleInstallAndRestart(
+                        installer = target,
+                        installDir = paths.installDir,
+                        relaunchExe = paths.relaunchExe,
+                        launcherPid = ProcessHandle.current().pid(),
+                    )
+                }
+                infoMessage = "Обновление скачано — перезапуск…"
+                delay(400)
+                requestExit = true
+            }.onFailure { err ->
+                isApplyingUpdate = false
+                updateProgress = null
+                updateProgressFraction = null
+                errorMessage = err.message?.takeIf { it.isNotBlank() }
+                    ?: "Не удалось обновить лаунчер"
+            }
+        }
     }
 
-    fun dismissUpdate() { updateDismissed = true }
+    fun dismissUpdate() {
+        if (isApplyingUpdate) return
+        updateDismissed = true
+    }
 
     fun login(nickname: String, password: String) {
         if (nickname.isBlank() || password.isBlank()) {
@@ -1404,7 +1459,6 @@ class LauncherViewModel(
             username = userName,
             playing = isGameRunning,
             packName = selectedModpack?.name ?: selectedModpack?.slug,
-            serverHost = configState.serverHost,
         )
     }
 

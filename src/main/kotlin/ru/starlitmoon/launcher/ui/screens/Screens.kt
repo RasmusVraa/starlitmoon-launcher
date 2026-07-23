@@ -852,11 +852,19 @@ fun SettingsScreen(vm: LauncherViewModel) {
                         compact = true,
                     )
                     if (vm.updateInfo != null) {
-                        StarlitSecondaryButton(
-                            text = "Скачать ${vm.updateInfo!!.latestVersion}",
+                        StarlitPrimaryButton(
+                            text = when {
+                                vm.isApplyingUpdate -> "Обновление…"
+                                else -> "Обновить до ${vm.updateInfo!!.latestVersion}"
+                            },
                             onClick = { vm.downloadUpdate() },
+                            loading = vm.isApplyingUpdate,
+                            enabled = !vm.isApplyingUpdate,
                             compact = true,
                         )
+                    }
+                    if (vm.isApplyingUpdate && vm.updateProgress != null) {
+                        Text(vm.updateProgress!!, color = StarlitColors.Gold, fontSize = 12.sp)
                     }
                 }
             }

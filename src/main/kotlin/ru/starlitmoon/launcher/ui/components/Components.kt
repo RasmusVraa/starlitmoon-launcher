@@ -843,12 +843,16 @@ fun UpdateOverlay(
     update: UpdateInfo,
     onDownload: () -> Unit,
     onDismiss: () -> Unit,
+    applying: Boolean = false,
+    progressLabel: String? = null,
+    progressFraction: Float? = null,
 ) {
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(StarlitColors.OverlayScrim)
             .clickable(
+                enabled = !applying,
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
                 onClick = onDismiss,
@@ -869,7 +873,7 @@ fun UpdateOverlay(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Text(
-                    "Доступно обновление",
+                    if (applying) "Обновление лаунчера" else "Доступно обновление",
                     color = StarlitColors.Gold,
                     fontWeight = FontWeight.Bold,
                     fontSize = 18.sp,
@@ -879,7 +883,7 @@ fun UpdateOverlay(
                     color = StarlitColors.TextMuted,
                     fontSize = 14.sp,
                 )
-                if (update.releaseNotes.isNotBlank()) {
+                if (!applying && update.releaseNotes.isNotBlank()) {
                     Text(
                         update.releaseNotes.lines().take(6).joinToString("\n"),
                         color = StarlitColors.Text,
@@ -887,16 +891,26 @@ fun UpdateOverlay(
                         lineHeight = 18.sp,
                     )
                 }
+                if (applying) {
+                    StarlitProgressBar(
+                        progress = progressFraction,
+                        label = progressLabel ?: "Загрузка…",
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     StarlitPrimaryButton(
-                        text = "Обновить",
+                        text = if (applying) "Обновление…" else "Обновить",
                         onClick = onDownload,
-                        modifier = Modifier.width(140.dp),
+                        modifier = Modifier.width(160.dp),
+                        loading = applying,
+                        enabled = !applying,
                     )
                     StarlitSecondaryButton(
                         text = "Позже",
                         onClick = onDismiss,
                         modifier = Modifier.width(120.dp),
+                        enabled = !applying,
                     )
                 }
             }

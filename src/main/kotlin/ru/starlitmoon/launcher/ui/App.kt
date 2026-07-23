@@ -65,11 +65,14 @@ fun FrameWindowScope.LauncherApp(
                     IntegratedChromeBar(windowState = windowState, onClose = onClose)
                     Box(modifier = Modifier.weight(1f).fillMaxSize()) {
                         LoginScreen(vm)
-                        if (vm.updateInfo != null && !vm.updateDismissed) {
+                        if (vm.updateInfo != null && (!vm.updateDismissed || vm.isApplyingUpdate)) {
                             UpdateOverlay(
                                 update = vm.updateInfo!!,
                                 onDownload = vm::downloadUpdate,
                                 onDismiss = vm::dismissUpdate,
+                                applying = vm.isApplyingUpdate,
+                                progressLabel = vm.updateProgress,
+                                progressFraction = vm.updateProgressFraction,
                             )
                         }
                     }
@@ -126,11 +129,14 @@ fun FrameWindowScope.LauncherApp(
                                         info?.let { MessageBanner(it, false, vm::clearMessages) }
                                     }
                                 }
-                                if (vm.updateInfo != null && !vm.updateDismissed) {
+                                if (vm.updateInfo != null && (!vm.updateDismissed || vm.isApplyingUpdate)) {
                                     UpdateOverlay(
                                         update = vm.updateInfo!!,
                                         onDownload = vm::downloadUpdate,
                                         onDismiss = vm::dismissUpdate,
+                                        applying = vm.isApplyingUpdate,
+                                        progressLabel = vm.updateProgress,
+                                        progressFraction = vm.updateProgressFraction,
                                     )
                                 }
                             }

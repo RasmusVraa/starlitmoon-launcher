@@ -63,7 +63,6 @@ class DiscordPresence(
         username: String,
         playing: Boolean,
         packName: String?,
-        serverHost: String,
     ) {
         if (!enabled) return
         val c = client ?: return
@@ -76,13 +75,12 @@ class DiscordPresence(
                 }
                 val nick = username.trim().ifBlank { "игрок" }
                 val pack = packName?.trim()?.takeIf { it.length >= 2 } ?: "сборка не выбрана"
-                val host = serverHost.trim().ifBlank { "StarlitMoon" }
                 c.update {
                     type = ActivityType.PLAYING
                     name = "StarlitMoon"
                     if (playing) {
-                        details = clip("Играет · $pack")
-                        state = clip("Сервер $host")
+                        details = clip(pack)
+                        // Без state — иначе лишняя третья строка под деталями.
                         timestamps {
                             start = playStartedAt ?: now()
                         }
@@ -104,6 +102,7 @@ class DiscordPresence(
                         largeText = "StarlitMoon"
                         largeUrl = SITE_URL
                     }
+                    // Кнопки видны только другим пользователям (ограничение Discord).
                     button("Сайт", SITE_URL)
                     button("Discord", DISCORD_INVITE)
                 }
