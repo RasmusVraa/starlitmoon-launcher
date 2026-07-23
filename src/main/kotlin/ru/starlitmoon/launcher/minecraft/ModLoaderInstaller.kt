@@ -110,6 +110,8 @@ class ModLoaderInstaller(
 
         onProgress("Установка NeoForge $nfVer в клиент…", 0.04f)
         config.gameDir.createDirectories()
+        // Official installer refuses --installClient unless a vanilla launcher profile exists.
+        ensureMinecraftLauncherProfiles(config.gameDir)
         val javaBin = resolveJava(17)
         val logFile = config.dataDir.resolve("neoforge-install.log")
         val pb = ProcessBuilder(
@@ -124,11 +126,55 @@ class ModLoaderInstaller(
             .redirectOutput(logFile.toFile())
         val code = withContextIo { pb.start().waitFor() }
         if (code != 0 || !profileFile.exists()) {
-            val tip = runCatching { logFile.toFile().readText().takeLast(600) }.getOrNull().orEmpty()
+            val tip = runCatching {
+                logFile.toFile().readLines()
+                    .filter { line ->
+                        val l = line.lowercase()
+                        l.contains("error") || l.contains("exception") ||
+                            l.contains("no minecraft launcher profile") ||
+                            l.contains("failed") || l.contains("не")
+                    }
+                    .takeLast(8)
+                    .joinToString(" ")
+                    .ifBlank { logFile.toFile().readText().takeLast(400) }
+            }.getOrNull().orEmpty()
             error("Установка NeoForge $nfVer не удалась (код $code). $tip")
         }
         onProgress("NeoForge установлен ($id)", 0.05f)
         return id
+    }
+
+    /**
+     * NeoForge client installer checks for `launcher_profiles.json` (or the Microsoft Store
+     * variant) and aborts with "you need to run the launcher first" otherwise.
+     */
+    private fun ensureMinecraftLauncherProfiles(gameDir: java.nio.file.Path) {
+        val profiles = gameDir.resolve("launcher_profiles.json")
+        val msStore = gameDir.resolve("launcher_profiles_microsoft_store.json")
+        if (profiles.exists() || msStore.exists()) return
+        profiles.writeText(
+            """
+            {
+              "profiles": {
+                "StarlitMoon": {
+                  "name": "StarlitMoon",
+                  "type": "custom",
+                  "created": "1970-01-01T00:00:00.000Z",
+                  "lastUsed": "1970-01-01T00:00:00.000Z",
+                  "icon": "Furnace",
+                  "lastVersionId": "latest-release"
+                }
+              },
+              "selectedProfile": "StarlitMoon",
+              "clientToken": "00000000-0000-0000-0000-000000000000",
+              "launcherVersion": {
+                "name": "StarlitMoon",
+                "format": 21,
+                "profilesFormat": 2
+              }
+            }
+            """.trimIndent(),
+        )
     }
 
     private suspend fun resolveLatestNeoForge(mcVersion: String): String {
