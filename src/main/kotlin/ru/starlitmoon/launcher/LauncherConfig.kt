@@ -21,9 +21,9 @@ data class LauncherConfig(
     val minMemoryMb: Int = 2048,
     val maxMemoryMb: Int = 4096,
     val fullscreen: Boolean = false,
-    val autoJoinServer: Boolean = true,
+    val autoJoinServer: Boolean = false,
     val keepLauncherOpen: Boolean = false,
-    val autoLogin: Boolean = true,
+    val autoLogin: Boolean = false,
     val savePassword: Boolean = false,
     val vsync: Boolean = true,
     /** Пустая строка = ~/.starlitmoon-launcher/game */

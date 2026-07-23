@@ -25,7 +25,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Login
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Fullscreen
@@ -58,6 +57,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import ru.starlitmoon.launcher.LauncherConfig
 import ru.starlitmoon.launcher.LauncherVersion
@@ -85,7 +85,7 @@ import javax.swing.filechooser.FileNameExtensionFilter
 
 @Composable
 fun HomeScreen(vm: LauncherViewModel) {
-    val showProgress = vm.launchProgress != null || vm.isLoading
+    val showProgress = vm.launchProgress != null
     val packName = vm.selectedModpack?.name ?: "Vanilla"
 
     HeroBackground {
@@ -123,8 +123,8 @@ fun HomeScreen(vm: LauncherViewModel) {
                         text = "ИГРАТЬ",
                         onClick = { vm.play() },
                         modifier = Modifier.width(180.dp),
-                        loading = vm.isLoading,
-                        enabled = !vm.isLoading,
+                        loading = showProgress,
+                        enabled = !showProgress,
                     )
                 }
                 StarlitSecondaryButton(
@@ -491,16 +491,41 @@ fun SettingsScreen(vm: LauncherViewModel) {
         mutableStateOf(if (base.memoryAuto) 0f else base.maxMemoryMb / 1024f)
     }
     var fullscreen by remember(base) { mutableStateOf(base.fullscreen) }
-    var autoJoinServer by remember(base) { mutableStateOf(base.autoJoinServer) }
     var keepLauncherOpen by remember(base) { mutableStateOf(base.keepLauncherOpen) }
-    var autoLogin by remember(base) { mutableStateOf(base.autoLogin) }
     var savePassword by remember(base) { mutableStateOf(base.savePassword) }
     var vsync by remember(base) { mutableStateOf(base.vsync) }
-    var gamePath by remember(base) { mutableStateOf(base.gamePath) }
+    var saveHint by remember { mutableStateOf(false) }
 
     fun memoryLabel(): String = when {
         memoryAuto || memoryGb <= 0f -> "Автоматически"
         else -> "${memoryGb.toInt()} ГБ"
+    }
+
+    fun draftConfig(): LauncherConfig {
+        val maxMb = if (memoryAuto) base.maxMemoryMb else (memoryGb.toInt().coerceIn(1, 16) * 1024)
+        return base.copy(
+            memoryAuto = memoryAuto,
+            maxMemoryMb = maxMb,
+            minMemoryMb = (maxMb / 2).coerceAtLeast(1024),
+            fullscreen = fullscreen,
+            autoJoinServer = false,
+            keepLauncherOpen = keepLauncherOpen,
+            autoLogin = false,
+            savePassword = savePassword,
+            vsync = vsync,
+            gamePath = "",
+        )
+    }
+
+    LaunchedEffect(memoryAuto, memoryGb, fullscreen, keepLauncherOpen, savePassword, vsync) {
+        delay(400)
+        val next = draftConfig()
+        if (next != vm.configState) {
+            vm.saveSettings(next, notify = false)
+            saveHint = true
+            delay(1200)
+            saveHint = false
+        }
     }
 
     Column(
@@ -525,8 +550,8 @@ fun SettingsScreen(vm: LauncherViewModel) {
             letterSpacing = 1.sp,
         )
         Text(
-            "Клиент, память и папка игры",
-            color = StarlitColors.TextMuted,
+            if (saveHint) "Изменения сохранены автоматически" else "Клиент и память · автосохранение",
+            color = if (saveHint) StarlitColors.Online else StarlitColors.TextMuted,
             fontSize = 14.sp,
         )
 
@@ -574,31 +599,11 @@ fun SettingsScreen(vm: LauncherViewModel) {
                 HorizontalDivider(color = StarlitColors.Border)
 
                 SettingsRow(
-                    title = "Авто-подключение",
-                    subtitle = "Подключаться к ${base.serverHost} после запуска",
-                    icon = { Icon(Icons.AutoMirrored.Filled.OpenInNew, null, tint = StarlitColors.Gold) },
-                ) {
-                    StarlitToggle(checked = autoJoinServer, onCheckedChange = { autoJoinServer = it })
-                }
-
-                HorizontalDivider(color = StarlitColors.Border)
-
-                SettingsRow(
                     title = "Оставить лаунчер открытым",
                     subtitle = "Не закрывать окно после запуска игры",
                     icon = { Icon(Icons.Default.VideogameAsset, null, tint = StarlitColors.Gold) },
                 ) {
                     StarlitToggle(checked = keepLauncherOpen, onCheckedChange = { keepLauncherOpen = it })
-                }
-
-                HorizontalDivider(color = StarlitColors.Border)
-
-                SettingsRow(
-                    title = "Авто-вход на сервере",
-                    subtitle = "Команда /login после входа в мир",
-                    icon = { Icon(Icons.AutoMirrored.Filled.Login, null, tint = StarlitColors.Gold) },
-                ) {
-                    StarlitToggle(checked = autoLogin, onCheckedChange = { autoLogin = it })
                 }
 
                 HorizontalDivider(color = StarlitColors.Border)
@@ -629,31 +634,6 @@ fun SettingsScreen(vm: LauncherViewModel) {
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 SettingsRow(
-                    title = "Папка игры",
-                    subtitle = "Общие assets и версии клиента",
-                    icon = { Icon(Icons.Default.FolderOpen, null, tint = StarlitColors.Gold) },
-                ) {
-                    StarlitSecondaryButton(
-                        text = "Обзор",
-                        onClick = {
-                            val chooser = JFileChooser().apply {
-                                fileSelectionMode = JFileChooser.DIRECTORIES_ONLY
-                                dialogTitle = "Выберите папку игры"
-                                currentDirectory = base.gameDir.toFile()
-                            }
-                            if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
-                                gamePath = chooser.selectedFile?.absolutePath.orEmpty()
-                            }
-                        },
-                        modifier = Modifier.width(100.dp),
-                    )
-                }
-                StarlitTextField(
-                    value = gamePath,
-                    onValueChange = { gamePath = it },
-                    label = "Путь (пусто = по умолчанию)",
-                )
-                SettingsRow(
                     title = "Папка сборки",
                     subtitle = "ZIP модпака: mods, resourcepacks, config",
                     icon = { Icon(Icons.Default.FolderOpen, null, tint = StarlitColors.Gold) },
@@ -661,7 +641,8 @@ fun SettingsScreen(vm: LauncherViewModel) {
                     StarlitSecondaryButton(
                         text = "Открыть",
                         onClick = { vm.openPackFolder() },
-                        modifier = Modifier.width(100.dp),
+                        modifier = Modifier.width(110.dp),
+                        compact = true,
                     )
                 }
             }
@@ -681,54 +662,46 @@ fun SettingsScreen(vm: LauncherViewModel) {
                         text = if (vm.isCheckingUpdates) "Проверка…" else "Проверить обновления",
                         onClick = { vm.checkForUpdates(false) },
                         loading = vm.isCheckingUpdates,
+                        compact = true,
                     )
                     if (vm.updateInfo != null) {
                         StarlitSecondaryButton(
                             text = "Скачать ${vm.updateInfo!!.latestVersion}",
                             onClick = { vm.downloadUpdate() },
+                            compact = true,
                         )
                     }
                 }
             }
         }
 
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            StarlitPrimaryButton(
-                text = "Сохранить",
-                onClick = {
-                    val maxMb = if (memoryAuto) base.maxMemoryMb else (memoryGb.toInt().coerceIn(1, 16) * 1024)
-                    vm.saveSettings(
-                        base.copy(
-                            memoryAuto = memoryAuto,
-                            maxMemoryMb = maxMb,
-                            minMemoryMb = (maxMb / 2).coerceAtLeast(1024),
-                            fullscreen = fullscreen,
-                            autoJoinServer = autoJoinServer,
-                            keepLauncherOpen = keepLauncherOpen,
-                            autoLogin = autoLogin,
-                            savePassword = savePassword,
-                            vsync = vsync,
-                            gamePath = gamePath.trim(),
-                        ),
-                    )
-                },
-                modifier = Modifier.width(180.dp),
-            )
-            StarlitSecondaryButton(
-                text = "Сбросить",
-                onClick = {
-                    val defaults = LauncherConfig.load()
-                    memoryAuto = defaults.memoryAuto
-                    memoryGb = if (defaults.memoryAuto) 0f else defaults.maxMemoryMb / 1024f
-                    fullscreen = defaults.fullscreen
-                    autoJoinServer = defaults.autoJoinServer
-                    keepLauncherOpen = defaults.keepLauncherOpen
-                    autoLogin = defaults.autoLogin
-                    savePassword = defaults.savePassword
-                    vsync = defaults.vsync
-                    gamePath = defaults.gamePath
-                },
-            )
-        }
+        StarlitSecondaryButton(
+            text = "Сбросить настройки",
+            onClick = {
+                memoryAuto = true
+                memoryGb = 0f
+                fullscreen = false
+                keepLauncherOpen = false
+                savePassword = false
+                vsync = true
+                vm.saveSettings(
+                    base.copy(
+                        memoryAuto = true,
+                        maxMemoryMb = 4096,
+                        minMemoryMb = 2048,
+                        fullscreen = false,
+                        keepLauncherOpen = false,
+                        savePassword = false,
+                        vsync = true,
+                        autoJoinServer = false,
+                        autoLogin = false,
+                        gamePath = "",
+                    ),
+                    notify = true,
+                )
+            },
+            modifier = Modifier.width(220.dp),
+            compact = true,
+        )
     }
 }

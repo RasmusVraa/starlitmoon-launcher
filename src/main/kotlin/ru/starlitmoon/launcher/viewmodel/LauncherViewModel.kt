@@ -65,9 +65,13 @@ class LauncherViewModel(
     var isCheckingUpdates by mutableStateOf(false)
     var updateInfo by mutableStateOf<UpdateInfo?>(null)
     var updateDismissed by mutableStateOf(false)
-    var isLoggedIn by mutableStateOf(false)
-    var isAdmin by mutableStateOf(false)
-    var userName by mutableStateOf("")
+    // Restore session from disk before first frame — avoids login flash.
+    private val cachedBootSession = runCatching { api.cachedSession() }.getOrNull()
+    var isLoggedIn by mutableStateOf(
+        cachedBootSession != null && !cachedBootSession.userName.isNullOrBlank(),
+    )
+    var isAdmin by mutableStateOf(cachedBootSession?.isAdmin == true)
+    var userName by mutableStateOf(cachedBootSession?.userName.orEmpty())
     var userUuid by mutableStateOf<String?>(null)
     var errorMessage by mutableStateOf<String?>(null)
     var infoMessage by mutableStateOf<String?>(null)
@@ -312,14 +316,15 @@ class LauncherViewModel(
         }
     }
 
-    fun saveSettings(newConfig: LauncherConfig) {
+    fun saveSettings(newConfig: LauncherConfig, notify: Boolean = true) {
+        if (newConfig == configState) return
         LauncherConfig.save(newConfig)
         configState = newConfig
         mc.close()
         mc = MinecraftLauncher(configState)
         skins.close()
         skins = SkinManager(configState.skinsDir)
-        infoMessage = "Настройки сохранены"
+        if (notify) infoMessage = "Настройки сохранены"
     }
 
     fun installSkin(filePath: String) {

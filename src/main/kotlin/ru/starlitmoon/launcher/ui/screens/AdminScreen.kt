@@ -95,11 +95,7 @@ fun AdminScreen(vm: LauncherViewModel) {
             "Админ-панель",
             fontSize = 28.sp,
             fontWeight = FontWeight.ExtraBold,
-            style = androidx.compose.ui.text.TextStyle(
-                brush = Brush.linearGradient(
-                    listOf(StarlitColors.Text, StarlitColors.Gold, StarlitColors.Purple),
-                ),
-            ),
+            color = StarlitColors.Text,
         )
         Text("Управление данными сайта и игроками", color = StarlitColors.TextMuted, fontSize = 14.sp)
 

@@ -5,6 +5,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -162,35 +164,57 @@ fun StarlitPrimaryButton(
     enabled: Boolean = true,
     loading: Boolean = false,
     danger: Boolean = false,
+    compact: Boolean = false,
 ) {
-    val shape = RoundedCornerShape(StarlitDimens.Radius)
+    val shape = RoundedCornerShape(if (compact) StarlitDimens.RadiusSm else StarlitDimens.Radius)
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
+    val pressed by interaction.collectIsPressedAsState()
     val active = enabled && !loading
-    val bg = when {
-        !active -> if (danger) StarlitColors.Offline.copy(alpha = 0.35f) else StarlitColors.Gold.copy(alpha = 0.35f)
+    val base = when {
         danger -> StarlitColors.Offline
         else -> StarlitColors.Gold
+    }
+    val bg = when {
+        !active -> base.copy(alpha = 0.32f)
+        pressed -> if (danger) Color(0xFFC44D58) else StarlitColors.GoldDim
+        hovered -> if (danger) Color(0xFFF07A84) else Color(0xFFE0B85C)
+        else -> base
     }
     val fg = when {
         danger -> StarlitColors.Text
         active -> StarlitColors.OnGold
-        else -> StarlitColors.OnGold.copy(alpha = 0.6f)
+        else -> StarlitColors.OnGold.copy(alpha = 0.55f)
     }
+    val height = if (compact) 36.dp else 48.dp
     Box(
         modifier = modifier
-            .height(48.dp)
+            .height(height)
             .clip(shape)
-            .background(bg)
+            .background(
+                Brush.verticalGradient(
+                    listOf(bg.copy(alpha = if (active) 1f else 0.9f), bg.copy(alpha = 0.88f)),
+                ),
+            )
+            .border(
+                width = 1.dp,
+                brush = Brush.verticalGradient(
+                    listOf(Color.White.copy(alpha = if (active) 0.28f else 0.08f), Color.Transparent),
+                ),
+                shape = shape,
+            )
             .clickable(
                 enabled = active,
-                interactionSource = remember { MutableInteractionSource() },
+                interactionSource = interaction,
                 indication = null,
                 onClick = onClick,
-            ),
+            )
+            .padding(horizontal = if (compact) 12.dp else 18.dp),
         contentAlignment = Alignment.Center,
     ) {
         if (loading) {
             CircularProgressIndicator(
-                modifier = Modifier.size(20.dp),
+                modifier = Modifier.size(if (compact) 16.dp else 20.dp),
                 color = fg,
                 strokeWidth = 2.dp,
             )
@@ -198,8 +222,10 @@ fun StarlitPrimaryButton(
             Text(
                 text = text,
                 fontWeight = FontWeight.SemiBold,
-                fontSize = 14.sp,
-                letterSpacing = 0.4.sp,
+                fontSize = if (compact) 12.sp else 14.sp,
+                letterSpacing = 0.3.sp,
+                maxLines = 1,
+                softWrap = false,
                 color = fg,
             )
         }
@@ -212,23 +238,99 @@ fun StarlitSecondaryButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    compact: Boolean = false,
 ) {
-    val shape = RoundedCornerShape(StarlitDimens.Radius)
+    val shape = RoundedCornerShape(if (compact) StarlitDimens.RadiusSm else StarlitDimens.Radius)
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
+    val pressed by interaction.collectIsPressedAsState()
+    val borderColor = when {
+        !enabled -> StarlitColors.Border
+        pressed -> StarlitColors.Gold
+        hovered -> StarlitColors.Gold.copy(alpha = 0.85f)
+        else -> StarlitColors.BorderStrong
+    }
+    val bg = when {
+        !enabled -> StarlitColors.Surface.copy(alpha = 0.55f)
+        pressed -> StarlitColors.GoldMuted
+        hovered -> StarlitColors.SurfaceElevated
+        else -> StarlitColors.SurfaceHover
+    }
+    val height = if (compact) 36.dp else 48.dp
     Box(
         modifier = modifier
-            .height(48.dp)
+            .height(height)
             .clip(shape)
-            .background(StarlitColors.Surface)
-            .border(1.dp, StarlitColors.Purple.copy(alpha = 0.45f), shape)
-            .clickable(enabled = enabled, onClick = onClick),
+            .background(bg)
+            .border(1.dp, borderColor, shape)
+            .clickable(
+                enabled = enabled,
+                interactionSource = interaction,
+                indication = null,
+                onClick = onClick,
+            )
+            .padding(horizontal = if (compact) 10.dp else 16.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text(
             text = text,
-            fontWeight = FontWeight.Medium,
-            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = if (compact) 12.sp else 13.sp,
             letterSpacing = 0.2.sp,
+            maxLines = 1,
+            softWrap = false,
             color = if (enabled) StarlitColors.Text else StarlitColors.TextMuted,
+        )
+    }
+}
+
+@Composable
+fun StarlitIconButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    danger: Boolean = false,
+) {
+    val shape = RoundedCornerShape(StarlitDimens.RadiusSm)
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
+    val pressed by interaction.collectIsPressedAsState()
+    val border = when {
+        !enabled -> StarlitColors.Border
+        danger && (hovered || pressed) -> StarlitColors.Offline
+        hovered || pressed -> StarlitColors.Gold
+        else -> StarlitColors.BorderStrong
+    }
+    val bg = when {
+        !enabled -> StarlitColors.Surface.copy(alpha = 0.5f)
+        pressed -> if (danger) StarlitColors.Offline.copy(alpha = 0.22f) else StarlitColors.GoldMuted
+        hovered -> StarlitColors.SurfaceElevated
+        else -> StarlitColors.SurfaceHover
+    }
+    Box(
+        modifier = modifier
+            .size(36.dp)
+            .clip(shape)
+            .background(bg)
+            .border(1.dp, border, shape)
+            .clickable(
+                enabled = enabled,
+                interactionSource = interaction,
+                indication = null,
+                onClick = onClick,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = text,
+            fontWeight = FontWeight.Bold,
+            fontSize = 16.sp,
+            color = when {
+                !enabled -> StarlitColors.TextMuted
+                danger && hovered -> StarlitColors.Offline
+                else -> StarlitColors.Text
+            },
         )
     }
 }

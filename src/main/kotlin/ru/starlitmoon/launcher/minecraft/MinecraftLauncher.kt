@@ -376,18 +376,16 @@ class MinecraftLauncher(
             if (config.fullscreen && none { it == "--fullscreen" }) {
                 add("--fullscreen")
             }
-            if (config.autoJoinServer) {
-                if (none { it == "--quickPlayMultiplayer" || it == "--server" }) {
-                    add("--quickPlayMultiplayer")
-                    add("${config.serverHost}:25565")
-                }
-            } else {
-                // Strip auto-join if meta enabled it via features.
-                val qi = indexOf("--quickPlayMultiplayer")
-                if (qi >= 0) {
-                    removeAt(qi)
-                    if (qi < size) removeAt(qi)
-                }
+            // Never auto-join server — player connects from multiplayer list.
+            val qi = indexOf("--quickPlayMultiplayer")
+            if (qi >= 0) {
+                removeAt(qi)
+                if (qi < size) removeAt(qi)
+            }
+            val si = indexOf("--server")
+            if (si >= 0) {
+                removeAt(si)
+                if (si < size) removeAt(si)
             }
         }
 

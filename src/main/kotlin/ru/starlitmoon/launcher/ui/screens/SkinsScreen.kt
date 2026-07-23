@@ -32,6 +32,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import ru.starlitmoon.launcher.ui.components.LocalSkinFace
 import ru.starlitmoon.launcher.ui.components.SkinPreview3D
+import ru.starlitmoon.launcher.ui.components.StarlitIconButton
+import ru.starlitmoon.launcher.ui.components.StarlitPrimaryButton
 import ru.starlitmoon.launcher.ui.components.StarlitSecondaryButton
 import ru.starlitmoon.launcher.ui.theme.StarlitColors
 import ru.starlitmoon.launcher.viewmodel.LauncherViewModel
@@ -52,11 +54,7 @@ fun SkinsScreen(vm: LauncherViewModel) {
             "Скины",
             fontSize = 28.sp,
             fontWeight = FontWeight.ExtraBold,
-            style = androidx.compose.ui.text.TextStyle(
-                brush = Brush.linearGradient(
-                    listOf(StarlitColors.Text, StarlitColors.Gold, StarlitColors.Purple),
-                ),
-            ),
+            color = StarlitColors.Text,
         )
         Text(
             "Библиотека скинов и плащей · статичный 2D (скин спереди + плащ) · плащ оффлайн",
@@ -103,7 +101,7 @@ fun SkinsScreen(vm: LauncherViewModel) {
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 14.sp,
                 )
-                StarlitSecondaryButton(
+                StarlitPrimaryButton(
                     text = "Добавить скин",
                     onClick = {
                         val chooser = JFileChooser().apply {
@@ -135,7 +133,7 @@ fun SkinsScreen(vm: LauncherViewModel) {
                         val selected = entry.id == vm.activeSkinId
                         Column(
                             modifier = Modifier
-                                .width(140.dp)
+                                .width(168.dp)
                                 .clip(RoundedCornerShape(14.dp))
                                 .background(if (selected) StarlitColors.GoldMuted else Color(0x22101828))
                                 .border(
@@ -162,7 +160,10 @@ fun SkinsScreen(vm: LauncherViewModel) {
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
                                 StarlitSecondaryButton(
                                     text = if (entry.capeFileName != null) "Плащ ✓" else "Плащ",
                                     onClick = {
@@ -176,18 +177,18 @@ fun SkinsScreen(vm: LauncherViewModel) {
                                         }
                                     },
                                     modifier = Modifier.weight(1f),
+                                    compact = true,
                                 )
                                 if (entry.capeFileName != null) {
-                                    StarlitSecondaryButton(
+                                    StarlitIconButton(
                                         text = "−",
                                         onClick = { vm.setLibraryCape(entry.id, null) },
-                                        modifier = Modifier.width(36.dp),
                                     )
                                 }
-                                StarlitSecondaryButton(
+                                StarlitIconButton(
                                     text = "×",
                                     onClick = { vm.removeLibrarySkin(entry.id) },
-                                    modifier = Modifier.width(36.dp),
+                                    danger = true,
                                 )
                             }
                         }

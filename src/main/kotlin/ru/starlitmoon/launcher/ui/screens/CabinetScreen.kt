@@ -103,11 +103,7 @@ fun CabinetScreen(vm: LauncherViewModel) {
             "Личный кабинет",
             fontSize = 28.sp,
             fontWeight = FontWeight.ExtraBold,
-            style = androidx.compose.ui.text.TextStyle(
-                brush = Brush.linearGradient(
-                    listOf(StarlitColors.Text, StarlitColors.Gold, StarlitColors.Purple),
-                ),
-            ),
+            color = StarlitColors.Text,
         )
 
         // —— cabinet-shell ——
