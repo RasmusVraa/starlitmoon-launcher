@@ -94,6 +94,9 @@ class LauncherViewModel(
     var launchProgress by mutableStateOf<String?>(null)
     var launchProgressFraction by mutableStateOf<Float?>(null)
     var requestExit by mutableStateOf(false)
+    var isGameRunning by mutableStateOf(false)
+    private var gameProcess: Process? = null
+    private var gameWatchJob: Job? = null
     var onlinePlayers by mutableStateOf<List<String>>(emptyList())
     var adminSearch by mutableStateOf("")
     var accountSearch by mutableStateOf("")
@@ -418,22 +421,10 @@ class LauncherViewModel(
             }
             if (result.success) {
                 infoMessage = "Игра запущена ($loader). На сервере: /login"
-                if (!configState.keepLauncherOpen) {
-                    requestExit = true
-                }
-                result.process?.let { process ->
-                    scope.launch(Dispatchers.IO) {
-                        delay(5000)
-                        if (!process.isAlive) {
-                            val log = runCatching {
-                                configState.dataDir.resolve("last-launch.log").toFile().readText().takeLast(800)
-                            }.getOrNull()
-                            scope.launch {
-                                errorMessage = "Игра закрылась. ${log?.lineSequence()?.lastOrNull() ?: "См. лог запуска"}"
-                            }
-                        }
+                result.process?.let { attachGameProcess(it) }
+                    ?: run {
+                        if (!configState.keepLauncherOpen) requestExit = true
                     }
-                }
             } else {
                 errorMessage = result.message
             }
@@ -441,6 +432,62 @@ class LauncherViewModel(
             launchProgressFraction = null
             isLoading = false
         }
+    }
+
+    fun stopGame() {
+        val process = gameProcess ?: run {
+            isGameRunning = false
+            return
+        }
+        infoMessage = "Остановка игры…"
+        scope.launch(Dispatchers.IO) {
+            runCatching {
+                process.destroy()
+                if (!process.waitFor(4, java.util.concurrent.TimeUnit.SECONDS)) {
+                    process.destroyForcibly()
+                    process.waitFor(2, java.util.concurrent.TimeUnit.SECONDS)
+                }
+            }
+            SwingUtilities.invokeLater {
+                clearGameProcess()
+                infoMessage = "Игра остановлена"
+            }
+        }
+    }
+
+    private fun attachGameProcess(process: Process) {
+        gameWatchJob?.cancel()
+        gameProcess = process
+        isGameRunning = true
+        gameWatchJob = scope.launch(Dispatchers.IO) {
+            val startedAt = System.currentTimeMillis()
+            val code = runCatching { process.waitFor() }.getOrDefault(-1)
+            val livedMs = System.currentTimeMillis() - startedAt
+            val logTail = runCatching {
+                configState.dataDir.resolve("last-launch.log").toFile().readText().takeLast(900)
+            }.getOrNull()
+            val looksLikeCrash = code != 0 || livedMs < 8_000
+            SwingUtilities.invokeLater {
+                clearGameProcess()
+                if (looksLikeCrash && !logTail.isNullOrBlank()) {
+                    val hint = logTail.lineSequence()
+                        .map { it.trim() }
+                        .filter { it.isNotEmpty() }
+                        .lastOrNull()
+                        ?: "См. лог запуска"
+                    errorMessage = "Игра закрылась. $hint"
+                } else if (!configState.keepLauncherOpen) {
+                    requestExit = true
+                }
+            }
+        }
+    }
+
+    private fun clearGameProcess() {
+        gameWatchJob?.cancel()
+        gameWatchJob = null
+        gameProcess = null
+        isGameRunning = false
     }
 
     /** Legacy fallback: per-jar mods into the pack instance mods/ folder. */
@@ -851,6 +898,9 @@ class LauncherViewModel(
 
     fun dispose() {
         statusJob?.cancel()
+        gameWatchJob?.cancel()
+        runCatching { gameProcess?.destroyForcibly() }
+        clearGameProcess()
         api.close()
         mc.close()
         skins.close()

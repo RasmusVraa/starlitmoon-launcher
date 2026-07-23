@@ -160,14 +160,25 @@ fun StarlitPrimaryButton(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     loading: Boolean = false,
+    danger: Boolean = false,
 ) {
     val shape = RoundedCornerShape(StarlitDimens.Radius)
     val active = enabled && !loading
+    val bg = when {
+        !active -> if (danger) StarlitColors.Offline.copy(alpha = 0.35f) else StarlitColors.Gold.copy(alpha = 0.35f)
+        danger -> StarlitColors.Offline
+        else -> StarlitColors.Gold
+    }
+    val fg = when {
+        danger -> StarlitColors.Text
+        active -> StarlitColors.OnGold
+        else -> StarlitColors.OnGold.copy(alpha = 0.6f)
+    }
     Box(
         modifier = modifier
             .height(48.dp)
             .clip(shape)
-            .background(if (active) StarlitColors.Gold else StarlitColors.Gold.copy(alpha = 0.35f))
+            .background(bg)
             .clickable(
                 enabled = active,
                 interactionSource = remember { MutableInteractionSource() },
@@ -179,7 +190,7 @@ fun StarlitPrimaryButton(
         if (loading) {
             CircularProgressIndicator(
                 modifier = Modifier.size(20.dp),
-                color = StarlitColors.OnGold,
+                color = fg,
                 strokeWidth = 2.dp,
             )
         } else {
@@ -188,7 +199,7 @@ fun StarlitPrimaryButton(
                 fontWeight = FontWeight.SemiBold,
                 fontSize = 14.sp,
                 letterSpacing = 0.4.sp,
-                color = if (active) StarlitColors.OnGold else StarlitColors.OnGold.copy(alpha = 0.6f),
+                color = fg,
             )
         }
     }

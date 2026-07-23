@@ -104,12 +104,22 @@ fun HomeScreen(vm: LauncherViewModel) {
             )
             Spacer(Modifier.height(36.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                StarlitPrimaryButton(
-                    text = "ИГРАТЬ",
-                    onClick = { vm.play() },
-                    modifier = Modifier.width(180.dp),
-                    loading = vm.isLoading,
-                )
+                if (vm.isGameRunning) {
+                    StarlitPrimaryButton(
+                        text = "ОСТАНОВИТЬ",
+                        onClick = { vm.stopGame() },
+                        modifier = Modifier.width(180.dp),
+                        danger = true,
+                    )
+                } else {
+                    StarlitPrimaryButton(
+                        text = "ИГРАТЬ",
+                        onClick = { vm.play() },
+                        modifier = Modifier.width(180.dp),
+                        loading = vm.isLoading,
+                        enabled = !vm.isLoading,
+                    )
+                }
                 StarlitSecondaryButton(
                     text = "НАСТРОИТЬ",
                     onClick = { vm.currentTab = LauncherTab.Settings },

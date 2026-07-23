@@ -212,14 +212,20 @@ class MinecraftLauncher(
     private fun mergeVersionChain(chain: List<VersionMeta>): Pair<VersionMeta, String> {
         require(chain.isNotEmpty())
         val child = chain.first()
-        val libraries = chain.asReversed().flatMap { it.libraries }
+        // Parent → child; child wins on the same Maven key (avoids Duplicate key in NeoForge BootstrapLauncher).
+        val libraries = LinkedHashMap<String, Library>()
+        for (meta in chain.asReversed()) {
+            for (lib in meta.libraries) {
+                libraries[libraryDedupKey(lib.name)] = lib
+            }
+        }
         val jvm = chain.asReversed().flatMap { it.arguments?.resolvedJvm().orEmpty() }
         val game = chain.asReversed().flatMap { it.arguments?.game.orEmpty() }
         val merged = VersionMeta(
             id = child.id,
             type = child.type,
             mainClass = child.mainClass,
-            libraries = libraries,
+            libraries = libraries.values.toList(),
             downloads = chain.firstNotNullOfOrNull { it.downloads },
             assetIndex = chain.firstNotNullOfOrNull { it.assetIndex },
             arguments = VersionArguments(jvm = jvm, game = game),
@@ -229,6 +235,16 @@ class MinecraftLauncher(
         val jarId = chain.asReversed().firstOrNull { it.downloads?.client?.url != null }?.id
             ?: chain.last().id
         return merged to jarId
+    }
+
+    /** group:artifact[:classifier] — version ignored so NeoForge overrides vanilla duplicates. */
+    private fun libraryDedupKey(name: String): String {
+        val parts = name.split(':')
+        return when {
+            parts.size >= 4 -> "${parts[0]}:${parts[1]}:${parts[3]}"
+            parts.size >= 2 -> "${parts[0]}:${parts[1]}"
+            else -> name
+        }
     }
 
     /**
@@ -509,16 +525,16 @@ class MinecraftLauncher(
     }
 
     private fun buildClasspath(clientJarId: String, meta: VersionMeta): String {
-        val paths = buildList {
-            for (library in meta.libraries) {
-                if (!library.appliesToCurrentOs()) continue
-                val artifact = library.resolvedArtifact() ?: continue
-                if (artifact.path.isBlank()) continue
-                add(config.librariesDir.resolve(artifact.path))
-            }
-            add(config.versionsDir.resolve(clientJarId).resolve("$clientJarId.jar"))
+        val paths = LinkedHashSet<String>()
+        for (library in meta.libraries) {
+            if (!library.appliesToCurrentOs()) continue
+            val artifact = library.resolvedArtifact() ?: continue
+            if (artifact.path.isBlank()) continue
+            paths += config.librariesDir.resolve(artifact.path).toAbsolutePath().normalize().toString()
         }
-        return paths.joinToString(File.pathSeparator) { it.toAbsolutePath().toString() }
+        paths += config.versionsDir.resolve(clientJarId).resolve("$clientJarId.jar")
+            .toAbsolutePath().normalize().toString()
+        return paths.joinToString(File.pathSeparator)
     }
 
     private fun javaMajorVersion(javaBin: String): Int {
