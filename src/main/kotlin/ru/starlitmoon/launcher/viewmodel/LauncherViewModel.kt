@@ -1122,5 +1122,6 @@ class LauncherViewModel(
         mc.close()
         skins.close()
         updateChecker.close()
+        ru.starlitmoon.launcher.skin.SkinRenderApi.close()
     }
 }
