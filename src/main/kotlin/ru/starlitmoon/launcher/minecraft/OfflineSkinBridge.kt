@@ -44,10 +44,13 @@ class OfflineSkinBridge private constructor(
             username: String,
             uuidDashed: String,
             skinFile: Path?,
+            capeFile: Path? = null,
         ): OfflineSkinBridge? {
             if (skinFile == null || !skinFile.exists()) return null
             val skinBytes = Files.readAllBytes(skinFile)
             if (skinBytes.isEmpty()) return null
+            val capeBytes = capeFile?.takeIf { it.exists() }?.let { Files.readAllBytes(it) }
+                ?.takeIf { it.isNotEmpty() }
 
             val injector = ensureInjector(cacheDir)
             val uuidFlat = uuidDashed.replace("-", "").lowercase()
@@ -55,8 +58,15 @@ class OfflineSkinBridge private constructor(
             val port = server.localPort
             val base = "http://127.0.0.1:$port"
             val skinUrl = "$base/textures/skin.png"
+            val capeUrl = if (capeBytes != null) "$base/textures/cape.png" else null
+            val texturesInner = buildString {
+                append("\"SKIN\":{\"url\":${jsonString(skinUrl)},\"metadata\":{\"model\":\"classic\"}}")
+                if (capeUrl != null) {
+                    append(",\"CAPE\":{\"url\":${jsonString(capeUrl)}}")
+                }
+            }
             val texturesJson =
-                """{"timestamp":${System.currentTimeMillis()},"profileId":"$uuidFlat","profileName":${jsonString(username)},"textures":{"SKIN":{"url":${jsonString(skinUrl)},"metadata":{"model":"classic"}}}}"""
+                """{"timestamp":${System.currentTimeMillis()},"profileId":"$uuidFlat","profileName":${jsonString(username)},"textures":{$texturesInner}}"""
             val texturesB64 = Base64.getEncoder().encodeToString(texturesJson.toByteArray(StandardCharsets.UTF_8))
             val profileJson =
                 """{"id":"$uuidFlat","name":${jsonString(username)},"properties":[{"name":"textures","value":${jsonString(texturesB64)}}]}"""
@@ -74,7 +84,7 @@ class OfflineSkinBridge private constructor(
                         break
                     }
                     thread(isDaemon = true) {
-                        handleClient(socket, rootJson, profileJson, authJson, skinBytes)
+                        handleClient(socket, rootJson, profileJson, authJson, skinBytes, capeBytes)
                     }
                 }
             }
@@ -89,6 +99,7 @@ class OfflineSkinBridge private constructor(
             profileJson: String,
             authJson: String,
             skinBytes: ByteArray,
+            capeBytes: ByteArray?,
         ) {
             socket.use { sock ->
                 val input = BufferedInputStream(sock.getInputStream())
@@ -101,6 +112,8 @@ class OfflineSkinBridge private constructor(
                         writeResponse(sock, 200, "application/json; charset=utf-8", profileJson.toByteArray(StandardCharsets.UTF_8))
                     request.method == "GET" && path.endsWith("/textures/skin.png") ->
                         writeResponse(sock, 200, "image/png", skinBytes)
+                    request.method == "GET" && path.endsWith("/textures/cape.png") && capeBytes != null ->
+                        writeResponse(sock, 200, "image/png", capeBytes)
                     request.method == "POST" && path.contains("/authserver/") ->
                         writeResponse(sock, 200, "application/json; charset=utf-8", authJson.toByteArray(StandardCharsets.UTF_8))
                     else ->

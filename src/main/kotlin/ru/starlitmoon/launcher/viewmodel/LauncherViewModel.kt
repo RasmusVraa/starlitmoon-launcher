@@ -121,11 +121,29 @@ class LauncherViewModel(
     var skinLocalPath by mutableStateOf(configState.skinPath)
     var avatarRevision by mutableStateOf(0)
     var skinTextureHash by mutableStateOf<String?>(null)
+    var skinLibraryEntries by mutableStateOf<List<ru.starlitmoon.launcher.minecraft.SkinLibraryEntry>>(emptyList())
+    var activeSkinId by mutableStateOf<String?>(null)
+    var activeSkinPath by mutableStateOf<Path?>(null)
+    var activeCapePath by mutableStateOf<Path?>(null)
+    var activeSkinSlim by mutableStateOf(false)
 
     private var skins = SkinManager(configState.skinsDir)
+    private var skinLibrary = ru.starlitmoon.launcher.minecraft.SkinLibrary(configState)
 
     private var statusJob: Job? = null
     private var booted = false
+
+    private fun refreshSkinLibraryState() {
+        skinLibraryEntries = skinLibrary.list()
+        activeSkinId = skinLibrary.activeId()
+        val entry = skinLibrary.activeEntry()
+        activeSkinPath = entry?.let { skinLibrary.skinPath(it) }?.takeIf { it.exists() }
+            ?: configState.skinPath.trim().takeIf { it.isNotEmpty() }?.let { Path.of(it) }?.takeIf { it.exists() }
+        activeCapePath = entry?.let { skinLibrary.capePath(it) }
+        activeSkinSlim = entry?.slim == true
+        skinLocalPath = activeSkinPath?.toString().orEmpty()
+        avatarRevision++
+    }
 
     fun boot() {
         if (booted) return
@@ -298,6 +316,10 @@ class LauncherViewModel(
     }
 
     fun installSkin(filePath: String) {
+        addSkinToLibrary(filePath)
+    }
+
+    fun addSkinToLibrary(filePath: String, name: String? = null) {
         if (filePath.isBlank()) {
             errorMessage = "Выберите файл скина"
             return
@@ -310,31 +332,85 @@ class LauncherViewModel(
             skinBusy = true
             errorMessage = null
             runCatching {
-                val prepared = withContext(Dispatchers.IO) {
-                    skins.prepareFromFile(userName, Path.of(filePath))
+                withContext(Dispatchers.IO) {
+                    val entry = skinLibrary.addFromFile(Path.of(filePath), name)
+                    applyLibrarySkin(entry.id, upload = true)
+                    entry
                 }
-                val uploaded = api.uploadSkin(prepared.dataUrl)
-                prepared to uploaded
-            }.onSuccess { (prepared, uploaded) ->
-                val url = uploaded.skinUrl.orEmpty()
-                configState = configState.copy(
-                    skinPath = prepared.localPath.toString(),
-                    skinTextureUrl = url,
-                )
-                LauncherConfig.save(configState)
-                skinLocalPath = prepared.localPath.toString()
-                skinCommand = if (url.isNotBlank()) "/skin set $url" else ""
-                skinTextureHash = uploaded.skinTextureHash
-                avatarRevision++
-                infoMessage = uploaded.message?.takeIf { it.isNotBlank() }
-                    ?: "Скин установлен — будет в игре и в одиночном мире"
-                    ?: uploaded.warning
-                    ?: "Скин загружен на сайт"
-                runCatching { withContext(Dispatchers.IO) { api.me() } }
-                    .onSuccess { meData = it }
+            }.onSuccess {
+                infoMessage = "Скин «${it.name}» добавлен в библиотеку"
             }.onFailure { handleError(it) }
             skinBusy = false
         }
+    }
+
+    fun selectLibrarySkin(id: String) {
+        scope.launch {
+            skinBusy = true
+            runCatching {
+                withContext(Dispatchers.IO) { applyLibrarySkin(id, upload = true) }
+            }.onSuccess {
+                infoMessage = "Скин выбран"
+            }.onFailure { handleError(it) }
+            skinBusy = false
+        }
+    }
+
+    fun setLibraryCape(skinId: String, capePath: String?) {
+        scope.launch {
+            skinBusy = true
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    skinLibrary.setCape(skinId, capePath?.takeIf { it.isNotBlank() }?.let { Path.of(it) })
+                    if (skinLibrary.activeId() == skinId) {
+                        applyLibrarySkin(skinId, upload = false)
+                    } else {
+                        refreshSkinLibraryState()
+                    }
+                }
+            }.onSuccess {
+                infoMessage = if (capePath.isNullOrBlank()) "Плащ снят" else "Плащ установлен"
+            }.onFailure { handleError(it) }
+            skinBusy = false
+        }
+    }
+
+    fun removeLibrarySkin(id: String) {
+        scope.launch {
+            withContext(Dispatchers.IO) {
+                skinLibrary.remove(id)
+                skinLibrary.activeId()?.let { applyLibrarySkin(it, upload = false) }
+                    ?: run { refreshSkinLibraryState() }
+            }
+            infoMessage = "Скин удалён"
+        }
+    }
+
+    fun librarySkinPath(entry: ru.starlitmoon.launcher.minecraft.SkinLibraryEntry): Path =
+        skinLibrary.skinPath(entry)
+
+    fun libraryCapePath(entry: ru.starlitmoon.launcher.minecraft.SkinLibraryEntry): Path? =
+        skinLibrary.capePath(entry)
+
+    private suspend fun applyLibrarySkin(id: String, upload: Boolean) {
+        val entry = skinLibrary.select(id)
+        val path = skinLibrary.skinPath(entry)
+        val prepared = skins.prepareFromFile(userName, path)
+        var url = configState.skinTextureUrl
+        var hash = skinTextureHash
+        if (upload) {
+            val uploaded = api.uploadSkin(prepared.dataUrl)
+            url = uploaded.skinUrl.orEmpty()
+            hash = uploaded.skinTextureHash
+            skinCommand = if (url.isNotBlank()) "/skin set $url" else ""
+        }
+        configState = configState.copy(
+            skinPath = path.toString(),
+            skinTextureUrl = url,
+        )
+        LauncherConfig.save(configState)
+        skinTextureHash = hash
+        refreshSkinLibraryState()
     }
 
     fun copySkinCommand() {
@@ -439,7 +515,9 @@ class LauncherViewModel(
             yield()
             val result = withContext(Dispatchers.IO) {
                 mc = MinecraftLauncher(configState)
-                val skinPath = configState.skinPath.trim().takeIf { it.isNotEmpty() }?.let { Path.of(it) }
+                val skinPath = activeSkinPath
+                    ?: configState.skinsDir.resolve("active.png").takeIf { it.exists() }
+                    ?: configState.skinPath.trim().takeIf { it.isNotEmpty() }?.let { Path.of(it) }
                     ?: configState.skinsDir.resolve("${userName.trim().lowercase()}.png")
                 mc.launch(
                     username = userName,
@@ -977,6 +1055,10 @@ class LauncherViewModel(
         avatarRevision++
         statusDraft = me.cabinet?.player?.profileStatus ?: me.cabinet?.profileStatus.orEmpty()
         scope.launch {
+            withContext(Dispatchers.IO) {
+                skinLibrary.importActiveIfEmpty(userName)
+                refreshSkinLibraryState()
+            }
             notifications = withContext(Dispatchers.IO) {
                 runCatching { api.notifications() }.getOrDefault(emptyList())
             }

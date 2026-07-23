@@ -1,7 +1,10 @@
 package ru.starlitmoon.launcher
 
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.toComposeImageBitmap
@@ -16,6 +19,7 @@ import kotlinx.coroutines.swing.Swing
 import org.jetbrains.skia.Image
 import ru.starlitmoon.launcher.api.StarlitApiClient
 import ru.starlitmoon.launcher.ui.LauncherApp
+import ru.starlitmoon.launcher.ui.components.StarlitTitleBar
 import ru.starlitmoon.launcher.viewmodel.LauncherViewModel
 
 private fun loadWindowIcon(): Painter? {
@@ -26,16 +30,15 @@ private fun loadWindowIcon(): Painter? {
 }
 
 fun main() {
-    // Before any window: Windows taskbar identity (icon / pinning / grouping).
     WindowsShell.applyAppUserModelId()
 
-    // Вне application{}, иначе при рекомпозиции создаётся новый ViewModel и сбрасывается логин.
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Swing)
     val api = StarlitApiClient()
     val vm = LauncherViewModel(scope, api)
 
     application {
         val windowIcon = remember { loadWindowIcon() }
+        val windowState = rememberWindowState(width = 1100.dp, height = 720.dp)
         Window(
             onCloseRequest = {
                 vm.dispose()
@@ -43,10 +46,8 @@ fun main() {
                 exitApplication()
             },
             title = "StarlitMoon Launcher v${LauncherVersion.CURRENT}",
-            state = rememberWindowState(
-                width = 1100.dp,
-                height = 720.dp,
-            ),
+            state = windowState,
+            undecorated = true,
             icon = windowIcon,
         ) {
             LaunchedEffect(Unit) {
@@ -55,15 +56,25 @@ fun main() {
                     window.iconImages = images
                 }
             }
-            LauncherApp(
-                vm = vm,
-                api = api,
-                onRequestExit = {
-                    vm.dispose()
-                    api.close()
-                    exitApplication()
-                },
-            )
+            Column(Modifier.fillMaxSize()) {
+                StarlitTitleBar(
+                    windowState = windowState,
+                    onClose = {
+                        vm.dispose()
+                        api.close()
+                        exitApplication()
+                    },
+                )
+                LauncherApp(
+                    vm = vm,
+                    api = api,
+                    onRequestExit = {
+                        vm.dispose()
+                        api.close()
+                        exitApplication()
+                    },
+                )
+            }
         }
     }
 }

@@ -666,11 +666,20 @@ fun TopStatusBar(vm: LauncherViewModel) {
                     fontWeight = FontWeight.Medium,
                 )
             }
-            NetworkAvatar(
-                url = vm.avatarUrl(size = 64) + "&r=${vm.avatarRevision}",
-                fallbackName = vm.userName,
-                size = 36.dp,
-            )
+            if (vm.activeSkinPath != null) {
+                LocalSkinFace(
+                    skinPath = vm.activeSkinPath,
+                    fallbackName = vm.userName,
+                    size = 36.dp,
+                    revision = vm.avatarRevision,
+                )
+            } else {
+                NetworkAvatar(
+                    url = vm.avatarUrl(size = 64) + "&r=${vm.avatarRevision}",
+                    fallbackName = vm.userName,
+                    size = 36.dp,
+                )
+            }
         }
     }
 }

@@ -297,12 +297,13 @@ class MinecraftLauncher(
         val classpath = buildClasspath(clientJarId, versionMeta)
         val uuid = offlineUuid(username)
         val freshConfig = runCatching { LauncherConfig.load() }.getOrDefault(config)
-        val resolvedSkin = sequenceOf(
-            skinFile,
-            freshConfig.skinPath.trim().takeIf { it.isNotEmpty() }?.let { Path.of(it) },
-            freshConfig.skinsDir.resolve("${username.trim().lowercase()}.png"),
-            config.skinsDir.resolve("${username.trim().lowercase()}.png"),
-        ).filterNotNull().firstOrNull { it.exists() }
+            val resolvedSkin = sequenceOf(
+                skinFile,
+                freshConfig.skinsDir.resolve("active.png"),
+                freshConfig.skinPath.trim().takeIf { it.isNotEmpty() }?.let { Path.of(it) },
+                freshConfig.skinsDir.resolve("${username.trim().lowercase()}.png"),
+                config.skinsDir.resolve("${username.trim().lowercase()}.png"),
+            ).filterNotNull().firstOrNull { it.exists() }
         var skinError: String? = null
         val skinBridge = try {
             OfflineSkinBridge.startIfNeeded(
@@ -310,6 +311,10 @@ class MinecraftLauncher(
                 username = username,
                 uuidDashed = uuid,
                 skinFile = resolvedSkin,
+                capeFile = sequenceOf(
+                    freshConfig.skinsDir.resolve("active_cape.png"),
+                    config.skinsDir.resolve("active_cape.png"),
+                ).firstOrNull { it.exists() },
             )
         } catch (e: Exception) {
             skinError = e.message ?: e.toString()
