@@ -519,6 +519,8 @@ class LauncherViewModel(
         LauncherConfig.save(configState)
         skinTextureHash = hash
         refreshSkinLibraryState()
+        avatarRevision++
+        refreshDiscordPresence()
     }
 
     fun copySkinCommand() {
@@ -870,6 +872,7 @@ class LauncherViewModel(
                     statusDraft = me.cabinet?.player?.profileStatus
                         ?: me.cabinet?.profileStatus.orEmpty()
                 }
+                refreshDiscordPresence()
             }.onFailure { handleError(it) }
         }
     }
@@ -1459,7 +1462,22 @@ class LauncherViewModel(
             username = userName,
             playing = isGameRunning,
             packName = selectedModpack?.name ?: selectedModpack?.slug,
+            avatarImageUrl = discordAvatarImageUrl(),
         )
+    }
+
+    /** Public HTTPS avatar for Discord RPC (max ~300 chars). */
+    private fun discordAvatarImageUrl(): String? {
+        if (!isLoggedIn || userName.isBlank()) return null
+        val hash = skinTextureHash
+            ?: meData?.cabinet?.player?.skinTextureHash
+            ?: configState.skinTextureUrl.substringAfter("v=", "").takeIf { it.isNotBlank() }
+        val candidates = listOf(
+            api.avatarUrl(userName, userUuid, hash, skinUrl = null, size = 128),
+            api.avatarUrl(userName, userUuid, null, skinUrl = null, size = 128),
+            api.avatarUrl(userName, null, null, skinUrl = null, size = 128),
+        )
+        return candidates.firstOrNull { it.length in 12..300 }
     }
 
     private suspend fun refreshPublicData() {
