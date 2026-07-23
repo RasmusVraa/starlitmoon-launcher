@@ -87,11 +87,11 @@ afterEvaluate {
     tasks.withType<JavaExec>().configureEach {
         jvmArgs("--module-path", mp, "--add-modules", javafxModules)
     }
-    // Packaged EXE: dependency jars (incl. JavaFX) are under app/
+    // Packaged EXE: $APPDIR is the folder with dependency jars (incl. JavaFX)
     compose.desktop.application.jvmArgs.clear()
     compose.desktop.application.jvmArgs.addAll(
         listOf(
-            "--module-path", "app",
+            "--module-path", "\$APPDIR",
             "--add-modules", javafxModules,
         ),
     )
