@@ -45,6 +45,9 @@ private data class NotifyPrefsBody(val channel: String, val enabled: Boolean)
 private data class BadgeBody(val activeBadgeId: String? = null, val visible: Boolean)
 
 @Serializable
+private data class CommentsEnabledBody(val enabled: Boolean)
+
+@Serializable
 private data class PlayerPatchBody(
     val banned: Boolean? = null,
     val banReason: String? = null,
@@ -204,6 +207,17 @@ class StarlitApiClient(
             header("Cookie", cookieHeader(cookie))
             contentType(ContentType.Application.Json)
             setBody(BadgeBody(activeBadgeId, visible))
+        }
+        if (!response.status.isSuccess()) throw parseError(response)
+        return me(cookie)
+    }
+
+    suspend fun setCommentsEnabled(enabled: Boolean): MeResponse {
+        val cookie = needCookie()
+        val response = client.patch("$baseUrl/api/auth/comments-enabled") {
+            header("Cookie", cookieHeader(cookie))
+            contentType(ContentType.Application.Json)
+            setBody(CommentsEnabledBody(enabled))
         }
         if (!response.status.isSuccess()) throw parseError(response)
         return me(cookie)
@@ -384,10 +398,19 @@ class StarlitApiClient(
         return runCatching { response.body<ModpackResponse>().pack }.getOrNull()
     }
 
-    fun avatarUrl(player: String, uuid: String? = null): String {
+    fun avatarUrl(
+        player: String,
+        uuid: String? = null,
+        hash: String? = null,
+        skinUrl: String? = null,
+        size: Int = 64,
+    ): String {
         val p = java.net.URLEncoder.encode(player, Charsets.UTF_8)
-        return if (uuid.isNullOrBlank()) "$baseUrl/api/avatar?player=$p&size=64"
-        else "$baseUrl/api/avatar?player=$p&uuid=$uuid&size=64"
+        val parts = mutableListOf("player=$p", "size=$size")
+        if (!uuid.isNullOrBlank()) parts += "uuid=${java.net.URLEncoder.encode(uuid, Charsets.UTF_8)}"
+        if (!hash.isNullOrBlank()) parts += "hash=${java.net.URLEncoder.encode(hash, Charsets.UTF_8)}"
+        if (!skinUrl.isNullOrBlank()) parts += "url=${java.net.URLEncoder.encode(skinUrl, Charsets.UTF_8)}"
+        return "$baseUrl/api/avatar?${parts.joinToString("&")}"
     }
 
     fun close() = client.close()

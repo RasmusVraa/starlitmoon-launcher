@@ -119,6 +119,8 @@ class LauncherViewModel(
         configState.skinTextureUrl.let { if (it.isNotBlank()) "/skin set $it" else "" },
     )
     var skinLocalPath by mutableStateOf(configState.skinPath)
+    var avatarRevision by mutableStateOf(0)
+    var skinTextureHash by mutableStateOf<String?>(null)
 
     private var skins = SkinManager(configState.skinsDir)
 
@@ -155,8 +157,22 @@ class LauncherViewModel(
         }
     }
 
-    fun fetchModpacks() {
+    fun fetchModpacks(force: Boolean = false) {
         scope.launch {
+            if (!force && modpacks.isNotEmpty()) {
+                // Already cached — refresh quietly in background without clearing UI.
+                runCatching { withContext(Dispatchers.IO) { api.listModpacks() } }
+                    .onSuccess { packs ->
+                        if (packs.isNotEmpty()) {
+                            modpacks = packs
+                            val selectedId = configState.selectedModpackId
+                            selectedModpack = packs.firstOrNull { it.id == selectedId || it.slug == selectedId }
+                                ?: selectedModpack
+                                ?: packs.firstOrNull()
+                        }
+                    }
+                return@launch
+            }
             isLoadingModpacks = true
             runCatching { withContext(Dispatchers.IO) { api.listModpacks() } }
                 .onSuccess { packs ->
@@ -172,7 +188,7 @@ class LauncherViewModel(
                         }
                     }
                 }
-                .onFailure { /* keep empty list until API is live */ }
+                .onFailure { /* keep previous cache */ }
             isLoadingModpacks = false
         }
     }
@@ -308,6 +324,8 @@ class LauncherViewModel(
                 LauncherConfig.save(configState)
                 skinLocalPath = prepared.localPath.toString()
                 skinCommand = if (url.isNotBlank()) "/skin set $url" else ""
+                skinTextureHash = uploaded.skinTextureHash
+                avatarRevision++
                 infoMessage = uploaded.message?.takeIf { it.isNotBlank() }
                     ?: "Скин установлен — будет в игре и в одиночном мире"
                     ?: uploaded.warning
@@ -420,12 +438,16 @@ class LauncherViewModel(
             launchProgressFraction = launchProgressFraction ?: 0.05f
             yield()
             val result = withContext(Dispatchers.IO) {
+                mc = MinecraftLauncher(configState)
+                val skinPath = configState.skinPath.trim().takeIf { it.isNotEmpty() }?.let { Path.of(it) }
+                    ?: configState.skinsDir.resolve("${userName.trim().lowercase()}.png")
                 mc.launch(
                     username = userName,
                     preferredVersion = versionId,
                     instanceDir = instanceDir,
                     loader = loader,
                     loaderVersion = loaderVersion,
+                    skinFile = skinPath,
                 ) { msg, frac ->
                     reportLaunchProgress(msg, frac)
                 }
@@ -552,10 +574,13 @@ class LauncherViewModel(
         scope.launch {
             runCatching {
                 withContext(Dispatchers.IO) {
-                    meData = api.me()
+                    val me = api.me()
+                    meData = me
+                    skinTextureHash = me.cabinet?.player?.skinTextureHash ?: skinTextureHash
+                    avatarRevision++
                     notifications = api.notifications()
-                    statusDraft = meData?.cabinet?.player?.profileStatus
-                        ?: meData?.cabinet?.profileStatus.orEmpty()
+                    statusDraft = me.cabinet?.player?.profileStatus
+                        ?: me.cabinet?.profileStatus.orEmpty()
                 }
             }.onFailure { handleError(it) }
         }
@@ -592,11 +617,43 @@ class LauncherViewModel(
 
     fun setBadgeVisible(visible: Boolean) {
         scope.launch {
-            val id = meData?.cabinet?.player?.activeBadgeId
+            val id = meData?.cabinet?.badges?.activeBadgeId
+                ?: meData?.cabinet?.player?.activeBadgeId
             runCatching { withContext(Dispatchers.IO) { api.setBadge(id, visible) } }
                 .onSuccess { meData = it }
                 .onFailure { handleError(it) }
         }
+    }
+
+    fun setActiveBadge(badgeId: String?) {
+        scope.launch {
+            val id = badgeId?.takeIf { it.isNotBlank() }
+            runCatching {
+                withContext(Dispatchers.IO) { api.setBadge(id, visible = id != null) }
+            }.onSuccess {
+                meData = it
+                infoMessage = if (id == null) "Значок снят" else "Значок сохранён"
+            }.onFailure { handleError(it) }
+        }
+    }
+
+    fun setCommentsEnabled(enabled: Boolean) {
+        scope.launch {
+            runCatching { withContext(Dispatchers.IO) { api.setCommentsEnabled(enabled) } }
+                .onSuccess { meData = it }
+                .onFailure { handleError(it) }
+        }
+    }
+
+    fun openPublicProfile() {
+        val name = userName.trim()
+        if (name.isBlank()) return
+        val url = siteUrl("/player?player=${java.net.URLEncoder.encode(name, Charsets.UTF_8)}")
+        runCatching { java.awt.Desktop.getDesktop().browse(java.net.URI(url)) }
+    }
+
+    fun openSitePath(path: String) {
+        runCatching { java.awt.Desktop.getDesktop().browse(java.net.URI(siteUrl(path))) }
     }
 
     fun refreshAdmin() {
@@ -607,18 +664,34 @@ class LauncherViewModel(
                 withContext(Dispatchers.IO) {
                     adminMe = api.adminMe()
                     when (adminSubTab) {
-                        0 -> adminStats = runCatching { api.adminStats() }.getOrNull()
-                        1 -> adminPlayers = runCatching { api.adminPlayers(adminSearch).players }.getOrDefault(emptyList())
-                        2 -> adminApps = runCatching { api.adminApplications("pending").applications }.getOrDefault(emptyList())
-                        3 -> adminClans = runCatching { api.adminClans("pending").clans }.getOrDefault(emptyList())
-                        4 -> adminBank = runCatching { api.adminBank().cards }.getOrDefault(emptyList())
-                        6 -> adminAccounts = runCatching { api.adminAccounts(accountSearch).accounts }.getOrDefault(emptyList())
-                        7 -> loadConsoleOutputInternal()
-                        8 -> adminTreasury = runCatching { api.treasury() }.getOrNull()
-                        9 -> adminBadges = runCatching { api.adminBadges().badges }.getOrDefault(emptyList())
-                        10 -> {
+                        // Игроки / Банк / Значки / Карта / Кланы / Заявки / … / Консоль
+                        0, 1 -> {
+                            adminStats = runCatching { api.adminStats() }.getOrNull()
+                            adminPlayers = runCatching { api.adminPlayers(adminSearch).players }.getOrDefault(emptyList())
+                            adminAccounts = runCatching { api.adminAccounts(accountSearch).accounts }.getOrDefault(emptyList())
+                            adminBank = runCatching { api.adminBank().cards }.getOrDefault(emptyList())
+                            adminTreasury = runCatching { api.treasury() }.getOrNull()
                             adminProducts = runCatching { api.adminProducts().products }.getOrDefault(emptyList())
                             adminOrders = runCatching { api.adminOrders().orders }.getOrDefault(emptyList())
+                        }
+                        2 -> {
+                            adminStats = runCatching { api.adminStats() }.getOrNull()
+                            adminBadges = runCatching { api.adminBadges().badges }.getOrDefault(emptyList())
+                        }
+                        3, 6, 7, 8, 9, 10 -> {
+                            adminStats = runCatching { api.adminStats() }.getOrNull()
+                        }
+                        4 -> {
+                            adminStats = runCatching { api.adminStats() }.getOrNull()
+                            adminClans = runCatching { api.adminClans("pending").clans }.getOrDefault(emptyList())
+                        }
+                        5 -> {
+                            adminStats = runCatching { api.adminStats() }.getOrNull()
+                            adminApps = runCatching { api.adminApplications("pending").applications }.getOrDefault(emptyList())
+                        }
+                        11 -> {
+                            adminStats = runCatching { api.adminStats() }.getOrNull()
+                            loadConsoleOutputInternal()
                         }
                     }
                 }
@@ -870,7 +943,22 @@ class LauncherViewModel(
         infoMessage = null
     }
 
-    fun avatarUrl(): String = api.avatarUrl(userName, userUuid)
+    fun avatarUrl(size: Int = 64): String {
+        val hash = skinTextureHash
+            ?: meData?.cabinet?.player?.skinTextureHash
+            ?: configState.skinTextureUrl.substringAfter("v=", "").takeIf { it.isNotBlank() }
+        val skinUrl = configState.skinTextureUrl.trim().takeIf { it.isNotBlank() }
+            ?: meData?.cabinet?.player?.skinUrl
+        return api.avatarUrl(userName, userUuid, hash, skinUrl, size)
+    }
+
+    fun sessionCookie(): String? = api.sessionCookie()
+
+    fun siteUrl(path: String): String {
+        val base = configState.apiBaseUrl.trimEnd('/')
+        val p = if (path.startsWith("/")) path else "/$path"
+        return "$base$p"
+    }
 
     private fun applySession(me: MeResponse) {
         isLoggedIn = true
@@ -878,6 +966,15 @@ class LauncherViewModel(
         userName = me.user?.name.orEmpty()
         userUuid = me.user?.uuid
         meData = me
+        skinTextureHash = me.cabinet?.player?.skinTextureHash
+            ?: me.cabinet?.skinTextureHash
+            ?: skinTextureHash
+        val remoteSkin = me.cabinet?.player?.skinUrl.orEmpty().ifBlank { me.cabinet?.skinUrl.orEmpty() }
+        if (remoteSkin.isNotBlank() && remoteSkin != configState.skinTextureUrl) {
+            configState = configState.copy(skinTextureUrl = remoteSkin)
+            runCatching { LauncherConfig.save(configState) }
+        }
+        avatarRevision++
         statusDraft = me.cabinet?.player?.profileStatus ?: me.cabinet?.profileStatus.orEmpty()
         scope.launch {
             notifications = withContext(Dispatchers.IO) {

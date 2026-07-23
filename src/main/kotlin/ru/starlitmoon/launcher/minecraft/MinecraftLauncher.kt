@@ -259,6 +259,7 @@ class MinecraftLauncher(
         instanceDir: Path? = null,
         loader: String = "vanilla",
         loaderVersion: String? = null,
+        skinFile: Path? = null,
         onProgress: (String, Float?) -> Unit = { _, _ -> },
     ): LaunchResult {
         val mcVersion = preferredVersion.ifBlank { config.minecraftVersionId }
@@ -295,16 +296,25 @@ class MinecraftLauncher(
         val nativesDir = config.versionsDir.resolve(id).resolve("natives")
         val classpath = buildClasspath(clientJarId, versionMeta)
         val uuid = offlineUuid(username)
-        val skinBridge = runCatching {
-            val skinPath = config.skinPath.trim().takeIf { it.isNotEmpty() }?.let { Path.of(it) }
-                ?: config.skinsDir.resolve("${username.trim().lowercase()}.png")
+        val freshConfig = runCatching { LauncherConfig.load() }.getOrDefault(config)
+        val resolvedSkin = sequenceOf(
+            skinFile,
+            freshConfig.skinPath.trim().takeIf { it.isNotEmpty() }?.let { Path.of(it) },
+            freshConfig.skinsDir.resolve("${username.trim().lowercase()}.png"),
+            config.skinsDir.resolve("${username.trim().lowercase()}.png"),
+        ).filterNotNull().firstOrNull { it.exists() }
+        var skinError: String? = null
+        val skinBridge = try {
             OfflineSkinBridge.startIfNeeded(
-                cacheDir = config.dataDir.resolve("cache"),
+                cacheDir = freshConfig.dataDir.resolve("cache"),
                 username = username,
                 uuidDashed = uuid,
-                skinFile = skinPath,
+                skinFile = resolvedSkin,
             )
-        }.getOrNull()
+        } catch (e: Exception) {
+            skinError = e.message ?: e.toString()
+            null
+        }
         val vars = mapOf(
             "auth_player_name" to username,
             "version_name" to id,
@@ -390,8 +400,16 @@ class MinecraftLauncher(
         val logFile = config.dataDir.resolve("last-launch.log")
         return try {
             onProgress("Запуск Minecraft…", 0.98f)
-            // Keep the exact command for debugging failed boots.
-            logFile.writeText(command.joinToString("\n") + "\n\n--- game output ---\n")
+            val preamble = buildString {
+                appendLine(command.joinToString("\n"))
+                appendLine()
+                appendLine("skinFile=${resolvedSkin?.toAbsolutePath()}")
+                appendLine("skinAgent=${skinBridge != null}")
+                if (skinError != null) appendLine("skinError=$skinError")
+                appendLine()
+                appendLine("--- game output ---")
+            }
+            logFile.writeText(preamble)
             val pb = ProcessBuilder(command)
                 .directory(gameDirectory.toFile())
                 .redirectErrorStream(true)

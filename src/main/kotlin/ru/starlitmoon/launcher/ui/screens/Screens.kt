@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -35,6 +36,7 @@ import androidx.compose.material.icons.filled.VideogameAsset
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
@@ -47,6 +49,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -62,7 +65,6 @@ import ru.starlitmoon.launcher.api.ModpackDto
 import ru.starlitmoon.launcher.ui.components.BrandMark
 import ru.starlitmoon.launcher.ui.components.HeroBackground
 import ru.starlitmoon.launcher.ui.components.MessageBanner
-import ru.starlitmoon.launcher.ui.components.NetworkAvatar
 import ru.starlitmoon.launcher.ui.components.SectionTitle
 import ru.starlitmoon.launcher.ui.components.SettingsRow
 import ru.starlitmoon.launcher.ui.components.StarlitCard
@@ -72,14 +74,12 @@ import ru.starlitmoon.launcher.ui.components.StarlitSecondaryButton
 import ru.starlitmoon.launcher.ui.components.StarlitTextField
 import ru.starlitmoon.launcher.ui.components.StarlitToggle
 import ru.starlitmoon.launcher.ui.components.StatRow
-import ru.starlitmoon.launcher.ui.components.StatusDot
 import ru.starlitmoon.launcher.ui.theme.StarlitColors
 import ru.starlitmoon.launcher.ui.theme.StarlitDimens
 import ru.starlitmoon.launcher.viewmodel.LauncherTab
 import ru.starlitmoon.launcher.viewmodel.LauncherViewModel
 import java.awt.Desktop
 import java.net.URI
-import java.net.URLEncoder
 import javax.swing.JFileChooser
 import javax.swing.filechooser.FileNameExtensionFilter
 
@@ -172,7 +172,7 @@ private fun openUrl(url: String) {
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun BuildsScreen(vm: LauncherViewModel) {
-    LaunchedEffect(Unit) { vm.fetchModpacks() }
+    LaunchedEffect(Unit) { vm.fetchModpacks(force = false) }
 
     Column(modifier = Modifier.fillMaxSize()) {
         Text(
@@ -192,27 +192,20 @@ fun BuildsScreen(vm: LauncherViewModel) {
         )
         Spacer(Modifier.height(6.dp))
         Text(
-            "Это клиентские сборки для одного сервера StarlitMoon — не отдельные миры. ZIP распаковывается в папку сборки.",
+            "Клиентские сборки для сервера StarlitMoon.",
             color = StarlitColors.TextMuted,
             fontSize = 14.sp,
         )
         Spacer(Modifier.height(12.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            StarlitSecondaryButton(
-                text = "Папка сборки",
-                onClick = { vm.openPackFolder() },
-                modifier = Modifier.width(150.dp),
-            )
-            StarlitSecondaryButton(
-                text = "Обновить список",
-                onClick = { vm.fetchModpacks() },
-                modifier = Modifier.width(160.dp),
-            )
-        }
+        StarlitSecondaryButton(
+            text = "Обновить список",
+            onClick = { vm.fetchModpacks(force = true) },
+            modifier = Modifier.width(160.dp),
+        )
         Spacer(Modifier.height(20.dp))
 
         when {
-            vm.isLoadingModpacks -> {
+            vm.isLoadingModpacks && vm.modpacks.isEmpty() -> {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(color = StarlitColors.Gold, strokeWidth = 2.dp)
                 }
@@ -228,7 +221,7 @@ fun BuildsScreen(vm: LauncherViewModel) {
                         )
                         StarlitSecondaryButton(
                             text = "Обновить",
-                            onClick = { vm.fetchModpacks() },
+                            onClick = { vm.fetchModpacks(force = true) },
                             modifier = Modifier.width(140.dp),
                         )
                     }
@@ -269,69 +262,104 @@ private fun ModpackCard(
     val cover = remember(pack.coverUrl, apiBaseUrl) {
         resolvePackCoverUrl(pack.coverUrl, apiBaseUrl)
     }
+    val sizeLabel = remember(pack.archive?.size, pack.hasArchive) {
+        when {
+            pack.hasArchive && (pack.archive?.size ?: 0L) > 0L -> formatArchiveSize(pack.archive?.size)
+            else -> null
+        }
+    }
     StarlitCard(
         selected = selected,
         modifier = Modifier
             .fillMaxWidth()
-            .height(292.dp)
+            .height(268.dp)
             .clickable(onClick = onSelect),
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            NetworkCover(
-                url = cover,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(132.dp),
-            )
+            Box {
+                NetworkCover(
+                    url = cover,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(140.dp),
+                )
+                IconButton(
+                    onClick = onOpenFolder,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(8.dp)
+                        .size(36.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color(0xCC0A0C12)),
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                        contentDescription = "Открыть папку сборки",
+                        tint = StarlitColors.Gold,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+                if (selected) {
+                    Text(
+                        "Выбрана",
+                        color = StarlitColors.OnGold,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(8.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(StarlitColors.Gold)
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                    )
+                }
+            }
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                Text(
-                    pack.name ?: pack.slug ?: "Сборка",
-                    color = StarlitColors.Text,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 15.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        pack.name ?: pack.slug ?: "Сборка",
+                        color = StarlitColors.Text,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 15.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (sizeLabel != null) {
+                        Text(
+                            sizeLabel,
+                            color = StarlitColors.TextDim,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                        )
+                    }
+                }
                 Text(
                     pack.description?.ifBlank { null } ?: "Без описания",
                     color = StarlitColors.TextMuted,
                     fontSize = 12.sp,
                     lineHeight = 16.sp,
-                    maxLines = 2,
+                    maxLines = 3,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false),
                 )
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    TagChip(pack.loader?.uppercase() ?: "VANILLA")
-                    TagChip("MC ${pack.mcVersion ?: "—"}")
-                    when {
-                        pack.hasArchive -> TagChip(formatArchiveSize(pack.archive?.size))
-                        pack.modsCount > 0 -> TagChip("${pack.modsCount} модов")
-                        else -> TagChip("Без архива")
-                    }
-                }
-                if (selected) {
-                    Row(
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text("Выбрана", color = StarlitColors.Gold, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-                        StarlitSecondaryButton(
-                            text = "Папка",
-                            onClick = onOpenFolder,
-                            modifier = Modifier.width(88.dp),
-                        )
-                    }
-                }
+                Spacer(Modifier.weight(1f))
+                Text(
+                    listOfNotNull(
+                        pack.loader?.replaceFirstChar { it.uppercase() },
+                        pack.mcVersion?.let { "MC $it" },
+                    ).joinToString(" · "),
+                    color = StarlitColors.TextDim,
+                    fontSize = 11.sp,
+                )
             }
         }
     }
@@ -382,9 +410,11 @@ private fun NetworkCover(
 }
 
 private fun formatArchiveSize(bytes: Long?): String {
-    if (bytes == null || bytes <= 0L) return "ZIP"
+    if (bytes == null || bytes <= 0L) return ""
+    val gb = bytes / (1024.0 * 1024.0 * 1024.0)
+    if (gb >= 1.0) return "%.1f ГБ".format(gb)
     val mb = bytes / (1024.0 * 1024.0)
-    return if (mb >= 10) "ZIP ${mb.toInt()} МБ" else "ZIP ${"%.1f".format(mb)} МБ"
+    return if (mb >= 10) "${mb.toInt()} МБ" else "%.1f МБ".format(mb)
 }
 
 @Composable
@@ -449,267 +479,6 @@ fun LoginScreen(vm: LauncherViewModel) {
                     )
                 }
             }
-        }
-    }
-}
-
-@Composable
-fun CabinetScreen(vm: LauncherViewModel) {
-    if (!vm.isLoggedIn) {
-        LoginScreen(vm)
-        return
-    }
-    LaunchedEffect(Unit) { vm.refreshCabinet() }
-    val player = vm.meData?.cabinet?.player
-    val sections = vm.meData?.cabinet?.sections.orEmpty().ifEmpty {
-        listOf(
-            ru.starlitmoon.launcher.api.PrivacySectionDto("stats", "Статистика", visible = true),
-            ru.starlitmoon.launcher.api.PrivacySectionDto("discord", "Discord", visible = true),
-            ru.starlitmoon.launcher.api.PrivacySectionDto("telegram", "Telegram", visible = true),
-            ru.starlitmoon.launcher.api.PrivacySectionDto("status", "Статус", visible = true),
-            ru.starlitmoon.launcher.api.PrivacySectionDto("bank", "Банк", visible = true),
-            ru.starlitmoon.launcher.api.PrivacySectionDto("activity", "Активность", visible = true),
-            ru.starlitmoon.launcher.api.PrivacySectionDto("clan", "Клан", visible = true),
-        )
-    }
-    val notify = vm.meData?.cabinet?.notificationPrefs.orEmpty()
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(bottom = 28.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        SectionTitle(
-            title = "Личный кабинет",
-            subtitle = vm.userName,
-        )
-        StarlitCard(modifier = Modifier.fillMaxWidth()) {
-            Column(
-                modifier = Modifier.padding(24.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(vm.userName, color = StarlitColors.Text, fontWeight = FontWeight.SemiBold, fontSize = 20.sp)
-                    Spacer(Modifier.width(10.dp))
-                    if (player?.online == true) StatusDot(true)
-                    player?.activeBadge?.let {
-                        Text(
-                            "${it.emoji.orEmpty()} ${it.name.orEmpty()}",
-                            color = StarlitColors.Gold,
-                            fontSize = 13.sp,
-                        )
-                    }
-                }
-                StatRow("UUID", vm.userUuid ?: "—")
-                StatRow("Ранги", player?.ranks?.joinToString(", ")?.ifBlank { "—" } ?: "—")
-                StatRow("Предупреждения", (player?.warnCount ?: 0).toString())
-                if (player?.banned == true) {
-                    Text(
-                        "Бан: ${player.banReason ?: "без причины"}",
-                        color = StarlitColors.Offline,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                }
-                player?.stats?.let { s ->
-                    StatRow("Наиграно", "${(s.playtimeMinutes ?: 0) / 60} ч")
-                    StatRow("Смерти", (s.deaths ?: 0).toString())
-                    StatRow("Убийства мобов", (s.mobKills ?: 0).toString())
-                }
-                player?.discord?.username?.let { StatRow("Discord", it) }
-                player?.telegram?.username?.let { StatRow("Telegram", it) }
-            }
-        }
-
-        SkinSection(vm)
-
-        StarlitCard(modifier = Modifier.fillMaxWidth()) {
-            Column(
-                modifier = Modifier.padding(24.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Text("Статус профиля", color = StarlitColors.Text, fontWeight = FontWeight.SemiBold)
-                StarlitTextField(vm.statusDraft, { vm.statusDraft = it }, "Текст статуса")
-                StarlitPrimaryButton(
-                    text = "Сохранить",
-                    onClick = { vm.saveProfileStatus() },
-                    loading = vm.isLoading,
-                )
-            }
-        }
-
-        StarlitCard(modifier = Modifier.fillMaxWidth()) {
-            Column(
-                modifier = Modifier.padding(24.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text("Приватность", color = StarlitColors.Text, fontWeight = FontWeight.SemiBold)
-                sections.forEach { section ->
-                    val id = section.id ?: return@forEach
-                    val visible = section.visible && !section.hidden
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text(section.label ?: id, color = StarlitColors.TextMuted)
-                        StarlitSecondaryButton(
-                            text = if (visible) "Видно" else "Скрыто",
-                            onClick = { vm.setPrivacy(id, !visible) },
-                            modifier = Modifier.width(100.dp),
-                        )
-                    }
-                }
-            }
-        }
-
-        StarlitCard(modifier = Modifier.fillMaxWidth()) {
-            Column(
-                modifier = Modifier.padding(24.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text("Уведомления", color = StarlitColors.Text, fontWeight = FontWeight.SemiBold)
-                listOf("ingame" to "В игре", "discord" to "Discord").forEach { (key, label) ->
-                    val enabled = notify[key] != false
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text(label, color = StarlitColors.TextMuted)
-                        StarlitSecondaryButton(
-                            text = if (enabled) "Вкл" else "Выкл",
-                            onClick = { vm.setNotifyPref(key, !enabled) },
-                            modifier = Modifier.width(88.dp),
-                        )
-                    }
-                }
-                val badgeVisible = player?.badgeVisible != false
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Значок", color = StarlitColors.TextMuted)
-                    StarlitSecondaryButton(
-                        text = if (badgeVisible) "Виден" else "Скрыт",
-                        onClick = { vm.setBadgeVisible(!badgeVisible) },
-                        modifier = Modifier.width(100.dp),
-                    )
-                }
-            }
-        }
-
-        StarlitCard(modifier = Modifier.fillMaxWidth()) {
-            Column(
-                modifier = Modifier.padding(24.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text("Лента", color = StarlitColors.Text, fontWeight = FontWeight.SemiBold)
-                if (vm.notifications.isEmpty()) {
-                    Text("Пока пусто", color = StarlitColors.TextMuted, fontSize = 13.sp)
-                } else {
-                    vm.notifications.take(10).forEach { n ->
-                        Text(
-                            n.title ?: "Уведомление",
-                            color = StarlitColors.Text,
-                            fontWeight = FontWeight.Medium,
-                            fontSize = 13.sp,
-                        )
-                        Text(n.message.orEmpty(), color = StarlitColors.TextMuted, fontSize = 12.sp)
-                        Spacer(Modifier.height(4.dp))
-                    }
-                }
-            }
-        }
-
-        if (vm.isAdmin) {
-            StarlitSecondaryButton(
-                text = "Открыть админ-панель",
-                onClick = { vm.currentTab = LauncherTab.Admin },
-                modifier = Modifier.width(220.dp),
-            )
-        }
-    }
-}
-
-@Composable
-private fun SkinSection(vm: LauncherViewModel) {
-    var selectedPath by remember { mutableStateOf("") }
-    val avatarUrl = remember(vm.userName) {
-        "https://starlit-moon.ru/api/avatar?player=${URLEncoder.encode(vm.userName, "UTF-8")}&size=128"
-    }
-
-    StarlitCard(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(24.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            Text("Скин", color = StarlitColors.Text, fontWeight = FontWeight.SemiBold)
-
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-                verticalAlignment = Alignment.Top,
-            ) {
-                NetworkAvatar(url = avatarUrl, fallbackName = vm.userName, size = 96.dp)
-
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    if (vm.skinLocalPath.isNotBlank()) {
-                        StarlitTextField(
-                            value = vm.skinLocalPath,
-                            onValueChange = {},
-                            label = "Установленный файл скина",
-                            readOnly = true,
-                        )
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        StarlitSecondaryButton(
-                            text = "Выбрать PNG",
-                            onClick = {
-                                val chooser = JFileChooser().apply {
-                                    fileSelectionMode = JFileChooser.FILES_ONLY
-                                    dialogTitle = "Выберите файл скина"
-                                    fileFilter = FileNameExtensionFilter("PNG изображение", "png")
-                                }
-                                if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
-                                    selectedPath = chooser.selectedFile?.absolutePath.orEmpty()
-                                }
-                            },
-                            modifier = Modifier.width(160.dp),
-                        )
-                        StarlitPrimaryButton(
-                            text = "Установить скин",
-                            onClick = { vm.installSkin(selectedPath) },
-                            enabled = selectedPath.isNotBlank() && !vm.skinBusy,
-                            loading = vm.skinBusy,
-                            modifier = Modifier.width(180.dp),
-                        )
-                    }
-                    if (selectedPath.isNotBlank()) {
-                        Text(selectedPath, color = StarlitColors.TextDim, fontSize = 11.sp)
-                    }
-                }
-            }
-
-            if (vm.skinCommand.isNotBlank()) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        vm.skinCommand,
-                        color = StarlitColors.Gold,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium,
-                        modifier = Modifier.weight(1f),
-                    )
-                    StarlitSecondaryButton(
-                        text = "Копировать команду",
-                        onClick = { vm.copySkinCommand() },
-                        modifier = Modifier.width(190.dp),
-                    )
-                }
-            }
-
-            Text(
-                "Скин загружается на starlit-moon.ru и применяется на сервере через SkinsRestorer автоматически.",
-                color = StarlitColors.TextMuted,
-                fontSize = 12.sp,
-                lineHeight = 17.sp,
-            )
         }
     }
 }

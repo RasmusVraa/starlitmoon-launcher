@@ -30,8 +30,30 @@ data class CabinetDto(
     val privacy: PrivacyDto? = null,
     val sections: List<PrivacySectionDto> = emptyList(),
     val notificationPrefs: Map<String, Boolean>? = null,
+    val notificationChannels: List<NotifyChannelDto> = emptyList(),
+    val badges: CabinetBadgesDto? = null,
+    val commentsEnabled: Boolean? = null,
     val skinUrl: String? = null,
+    val skinTextureHash: String? = null,
     val profileStatus: String? = null,
+)
+
+@Serializable
+data class CabinetBadgesDto(
+    val owned: List<BadgeDto> = emptyList(),
+    val activeBadgeId: String? = null,
+    val badgeVisible: Boolean = false,
+    val activeBadge: BadgeDto? = null,
+)
+
+@Serializable
+data class NotifyChannelDto(
+    val id: String? = null,
+    val label: String? = null,
+    val hint: String? = null,
+    val enabled: Boolean = true,
+    val available: Boolean = true,
+    val disabledReason: String? = null,
 )
 
 @Serializable

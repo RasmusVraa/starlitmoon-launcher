@@ -667,7 +667,7 @@ fun TopStatusBar(vm: LauncherViewModel) {
                 )
             }
             NetworkAvatar(
-                url = vm.avatarUrl(),
+                url = vm.avatarUrl(size = 64) + "&r=${vm.avatarRevision}",
                 fallbackName = vm.userName,
                 size = 36.dp,
             )

@@ -1,0 +1,17 @@
+---
+description: Always publish StarlitMoon Launcher releases to GitHub
+alwaysApply: true
+---
+
+# GitHub releases
+
+When shipping a launcher version (version bump, installer build, or user asks to release/deploy):
+
+1. Commit the versioned source changes to `main` (do not commit temp `_*.png` / `_*.ico` scratch icons or `*-out.txt`).
+2. Build Windows artifacts:
+   - Inno Setup: `.\scripts\build-installer.ps1 -Version X.Y.Z` → `dist\vX.Y.Z\StarlitMoonLauncher-Setup-X.Y.Z.exe`
+   - Compose package (if used in prior releases): `StarlitMoonLauncher-X.Y.Z.exe`
+3. Tag `vX.Y.Z`, push `main` + tags, and create/update the GitHub release with **both** EXE assets when available.
+4. Return the release URL when done.
+
+Do not stop at a local build — publishing to GitHub Releases is required unless the user explicitly says otherwise.
