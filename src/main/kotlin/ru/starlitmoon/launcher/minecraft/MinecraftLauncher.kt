@@ -294,6 +294,7 @@ class MinecraftLauncher(
         }
 
         val gameDirectory = (instanceDir ?: config.gameDir).also { it.createDirectories() }
+        applyClientDisplayOptions(gameDirectory)
         val nativesDir = config.versionsDir.resolve(id).resolve("natives")
         val classpath = buildClasspath(clientJarId, versionMeta)
         val uuid = offlineUuid(username)
@@ -381,8 +382,11 @@ class MinecraftLauncher(
             // Borderless needs a normal windowed HWND — never exclusive fullscreen.
             if (config.borderlessFullscreen) {
                 removeAll { it == "--fullscreen" }
-            } else if (config.fullscreen && none { it == "--fullscreen" }) {
+            } else if (config.fullscreen) {
+                removeAll { it == "--fullscreen" }
                 add("--fullscreen")
+            } else {
+                removeAll { it == "--fullscreen" }
             }
             // Never auto-join server — player connects from multiplayer list.
             removeFlagAndValue("--server")
@@ -423,6 +427,38 @@ class MinecraftLauncher(
         } catch (e: Exception) {
             skinBridge?.close()
             LaunchResult(false, e.message ?: "Не удалось запустить")
+        }
+    }
+
+    /**
+     * Minecraft often ignores launch flags if options.txt already has values.
+     * Patch display-related keys so launcher toggles actually apply.
+     */
+    private fun applyClientDisplayOptions(gameDir: Path) {
+        val file = gameDir.resolve("options.txt")
+        val lines = linkedMapOf<String, String>()
+        if (file.exists()) {
+            runCatching { file.readText() }.getOrNull()
+                ?.lineSequence()
+                ?.forEach { raw ->
+                    val line = raw.trimEnd('\r')
+                    if (line.isBlank()) return@forEach
+                    val idx = line.indexOf(':')
+                    if (idx <= 0) return@forEach
+                    lines[line.substring(0, idx)] = line.substring(idx + 1)
+                }
+        }
+        val exclusive = config.fullscreen && !config.borderlessFullscreen
+        lines["fullscreen"] = exclusive.toString()
+        // 26.1+: controls exclusive vs borderless-ish fullscreen inside the client.
+        lines["exclusiveFullscreen"] = exclusive.toString()
+        lines["enableVsync"] = config.vsync.toString()
+        if (config.borderlessFullscreen) {
+            lines["fullscreen"] = "false"
+            lines["exclusiveFullscreen"] = "false"
+        }
+        runCatching {
+            file.writeText(lines.entries.joinToString("\n") { "${it.key}:${it.value}" } + "\n")
         }
     }
 

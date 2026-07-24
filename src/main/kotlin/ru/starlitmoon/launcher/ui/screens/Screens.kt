@@ -773,7 +773,7 @@ fun SettingsScreen(vm: LauncherViewModel) {
     }
 
     LaunchedEffect(memoryAuto, memoryGb, fullscreen, borderlessFullscreen, keepLauncherOpen, savePassword, vsync, discordRpcEnabled, animationsEnabled) {
-        delay(400)
+        delay(120)
         val next = draftConfig()
         if (next != vm.configState) {
             vm.saveSettings(next, notify = false)
@@ -838,7 +838,7 @@ fun SettingsScreen(vm: LauncherViewModel) {
 
                 SettingsRow(
                     title = "Полный экран",
-                    subtitle = "Эксклюзивный fullscreen Minecraft",
+                    subtitle = "Запуск Minecraft на весь экран",
                     icon = { Icon(Icons.Default.Fullscreen, null, tint = StarlitColors.Gold) },
                 ) {
                     StarlitToggle(
