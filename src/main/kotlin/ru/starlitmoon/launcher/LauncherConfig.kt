@@ -21,6 +21,8 @@ data class LauncherConfig(
     val minMemoryMb: Int = 2048,
     val maxMemoryMb: Int = 4096,
     val fullscreen: Boolean = false,
+    /** Безрамочный режим (окно на весь экран без рамки), как BorderlessMinecraft. */
+    val borderlessFullscreen: Boolean = false,
     val autoJoinServer: Boolean = false,
     val keepLauncherOpen: Boolean = false,
     val autoLogin: Boolean = false,

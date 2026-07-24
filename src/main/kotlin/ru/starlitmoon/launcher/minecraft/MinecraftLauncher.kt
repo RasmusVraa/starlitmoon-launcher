@@ -378,7 +378,10 @@ class MinecraftLauncher(
             removeFlagAndValue("--quickPlaySingleplayer")
             removeFlagAndValue("--quickPlayMultiplayer")
             removeFlagAndValue("--quickPlayRealms")
-            if (config.fullscreen && none { it == "--fullscreen" }) {
+            // Borderless needs a normal windowed HWND — never exclusive fullscreen.
+            if (config.borderlessFullscreen) {
+                removeAll { it == "--fullscreen" }
+            } else if (config.fullscreen && none { it == "--fullscreen" }) {
                 add("--fullscreen")
             }
             // Never auto-join server — player connects from multiplayer list.

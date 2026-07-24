@@ -27,6 +27,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Animation
+import androidx.compose.material.icons.filled.CropFree
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.Memory
@@ -739,6 +740,7 @@ fun SettingsScreen(vm: LauncherViewModel) {
         mutableStateOf(if (base.memoryAuto) 0f else base.maxMemoryMb / 1024f)
     }
     var fullscreen by remember(base) { mutableStateOf(base.fullscreen) }
+    var borderlessFullscreen by remember(base) { mutableStateOf(base.borderlessFullscreen) }
     var keepLauncherOpen by remember(base) { mutableStateOf(base.keepLauncherOpen) }
     var savePassword by remember(base) { mutableStateOf(base.savePassword) }
     var vsync by remember(base) { mutableStateOf(base.vsync) }
@@ -758,6 +760,7 @@ fun SettingsScreen(vm: LauncherViewModel) {
             maxMemoryMb = maxMb,
             minMemoryMb = (maxMb / 2).coerceAtLeast(1024),
             fullscreen = fullscreen,
+            borderlessFullscreen = borderlessFullscreen,
             autoJoinServer = false,
             keepLauncherOpen = keepLauncherOpen,
             autoLogin = false,
@@ -769,7 +772,7 @@ fun SettingsScreen(vm: LauncherViewModel) {
         )
     }
 
-    LaunchedEffect(memoryAuto, memoryGb, fullscreen, keepLauncherOpen, savePassword, vsync, discordRpcEnabled, animationsEnabled) {
+    LaunchedEffect(memoryAuto, memoryGb, fullscreen, borderlessFullscreen, keepLauncherOpen, savePassword, vsync, discordRpcEnabled, animationsEnabled) {
         delay(400)
         val next = draftConfig()
         if (next != vm.configState) {
@@ -835,10 +838,32 @@ fun SettingsScreen(vm: LauncherViewModel) {
 
                 SettingsRow(
                     title = "Полный экран",
-                    subtitle = "Запуск Minecraft на весь экран",
+                    subtitle = "Эксклюзивный fullscreen Minecraft",
                     icon = { Icon(Icons.Default.Fullscreen, null, tint = StarlitColors.Gold) },
                 ) {
-                    StarlitToggle(checked = fullscreen, onCheckedChange = { fullscreen = it })
+                    StarlitToggle(
+                        checked = fullscreen,
+                        onCheckedChange = {
+                            fullscreen = it
+                            if (it) borderlessFullscreen = false
+                        },
+                    )
+                }
+
+                HorizontalDivider(color = StarlitColors.Border)
+
+                SettingsRow(
+                    title = "Безрамочный режим",
+                    subtitle = "Окно на весь экран без рамки (как BorderlessMinecraft)",
+                    icon = { Icon(Icons.Default.CropFree, null, tint = StarlitColors.Gold) },
+                ) {
+                    StarlitToggle(
+                        checked = borderlessFullscreen,
+                        onCheckedChange = {
+                            borderlessFullscreen = it
+                            if (it) fullscreen = false
+                        },
+                    )
                 }
 
                 HorizontalDivider(color = StarlitColors.Border)
@@ -967,6 +992,7 @@ fun SettingsScreen(vm: LauncherViewModel) {
                 memoryAuto = true
                 memoryGb = 0f
                 fullscreen = false
+                borderlessFullscreen = false
                 keepLauncherOpen = false
                 savePassword = false
                 vsync = true
@@ -978,6 +1004,7 @@ fun SettingsScreen(vm: LauncherViewModel) {
                         maxMemoryMb = 4096,
                         minMemoryMb = 2048,
                         fullscreen = false,
+                        borderlessFullscreen = false,
                         keepLauncherOpen = false,
                         savePassword = false,
                         vsync = true,

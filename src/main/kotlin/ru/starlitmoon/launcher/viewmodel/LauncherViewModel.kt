@@ -46,6 +46,7 @@ import ru.starlitmoon.launcher.api.PlayerBankDto
 import ru.starlitmoon.launcher.api.ServerStatus
 import ru.starlitmoon.launcher.api.StarlitApiClient
 import ru.starlitmoon.launcher.api.StarlitApiException
+import ru.starlitmoon.launcher.minecraft.BorderlessMinecraft
 import ru.starlitmoon.launcher.minecraft.MinecraftLauncher
 import ru.starlitmoon.launcher.minecraft.ModpackSync
 import ru.starlitmoon.launcher.minecraft.OfflineSkinBridge
@@ -949,6 +950,11 @@ class LauncherViewModel(
         gameStopRequested = false
         isGameRunning = true
         refreshDiscordPresence()
+        if (configState.borderlessFullscreen) {
+            scope.launch(Dispatchers.IO) {
+                runCatching { BorderlessMinecraft.applyWhenReady(process) }
+            }
+        }
         gameWatchJob = scope.launch(Dispatchers.IO) {
             val startedAt = System.currentTimeMillis()
             // Poll isAlive — waitFor alone can miss exits on some Windows/javaw setups.
