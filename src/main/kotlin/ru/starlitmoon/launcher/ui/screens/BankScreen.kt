@@ -552,7 +552,7 @@ private fun BankPlasticCard(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(if (compact) 12.dp else 16.dp),
+                .padding(if (compact) 16.dp else 20.dp),
             verticalArrangement = Arrangement.SpaceBetween,
         ) {
             Row(
@@ -564,12 +564,12 @@ private fun BankPlasticCard(
                     "Starlit Bank",
                     color = Color.White.copy(alpha = 0.95f),
                     fontWeight = FontWeight.Bold,
-                    fontSize = if (compact) 12.sp else 14.sp,
+                    fontSize = if (compact) 16.sp else 18.sp,
                     letterSpacing = 0.5.sp,
                 )
                 Box(
                     modifier = Modifier
-                        .size(if (compact) 20.dp else 26.dp, if (compact) 14.dp else 18.dp)
+                        .size(if (compact) 26.dp else 30.dp, if (compact) 18.dp else 20.dp)
                         .clip(RoundedCornerShape(3.dp))
                         .background(
                             Brush.linearGradient(
@@ -579,11 +579,11 @@ private fun BankPlasticCard(
                 )
             }
 
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
                     "Баланс",
                     color = Color.White.copy(alpha = 0.72f),
-                    fontSize = 11.sp,
+                    fontSize = if (compact) 14.sp else 15.sp,
                     fontWeight = FontWeight.Medium,
                 )
                 Row(verticalAlignment = Alignment.Bottom) {
@@ -591,15 +591,15 @@ private fun BankPlasticCard(
                         RuInteger.format(balance),
                         color = Color.White,
                         fontWeight = FontWeight.ExtraBold,
-                        fontSize = if (compact) 22.sp else 26.sp,
+                        fontSize = if (compact) 34.sp else 38.sp,
                     )
-                    Spacer(Modifier.width(6.dp))
+                    Spacer(Modifier.width(8.dp))
                     Text(
                         "АР",
                         color = Color(0xFFFDE68A),
                         fontWeight = FontWeight.Bold,
-                        fontSize = if (compact) 13.sp else 15.sp,
-                        modifier = Modifier.padding(bottom = 4.dp),
+                        fontSize = if (compact) 18.sp else 20.sp,
+                        modifier = Modifier.padding(bottom = 5.dp),
                     )
                 }
             }
@@ -610,7 +610,11 @@ private fun BankPlasticCard(
                 verticalAlignment = Alignment.Bottom,
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("Код", color = Color.White.copy(alpha = 0.65f), fontSize = 10.sp)
+                    Text(
+                        "Код",
+                        color = Color.White.copy(alpha = 0.65f),
+                        fontSize = if (compact) 13.sp else 14.sp,
+                    )
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -619,7 +623,7 @@ private fun BankPlasticCard(
                             code,
                             color = Color(0xFFFDE68A),
                             fontWeight = FontWeight.SemiBold,
-                            fontSize = if (compact) 12.sp else 14.sp,
+                            fontSize = if (compact) 16.sp else 18.sp,
                             letterSpacing = 0.6.sp,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -627,7 +631,7 @@ private fun BankPlasticCard(
                         if (onCopyCode != null) {
                             Box(
                                 modifier = Modifier
-                                    .size(28.dp)
+                                    .size(30.dp)
                                     .clip(RoundedCornerShape(8.dp))
                                     .background(Color.White.copy(alpha = 0.14f))
                                     .border(1.dp, Color(0xFFFDE68A).copy(alpha = 0.4f), RoundedCornerShape(8.dp))
@@ -637,20 +641,24 @@ private fun BankPlasticCard(
                                 Text(
                                     if (copiedHint) "✓" else "⧉",
                                     color = Color(0xFFFDE68A),
-                                    fontSize = 13.sp,
+                                    fontSize = 14.sp,
                                     fontWeight = FontWeight.Bold,
                                 )
                             }
                         }
                     }
                 }
-                Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text("Владелец", color = Color.White.copy(alpha = 0.65f), fontSize = 10.sp)
+                Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        "Владелец",
+                        color = Color.White.copy(alpha = 0.65f),
+                        fontSize = if (compact) 13.sp else 14.sp,
+                    )
                     Text(
                         owner,
                         color = Color.White,
                         fontWeight = FontWeight.SemiBold,
-                        fontSize = if (compact) 11.sp else 13.sp,
+                        fontSize = if (compact) 15.sp else 17.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
