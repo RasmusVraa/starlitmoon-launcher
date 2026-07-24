@@ -8,13 +8,16 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredHeight
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -218,23 +221,26 @@ fun BankScreen(vm: LauncherViewModel) {
 
         BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
             val gap = 14.dp
-            // Card keeps real plastic proportions; transfer matches that height exactly.
-            val cardW = (maxWidth * 0.52f).coerceIn(340.dp, 440.dp)
-            val cardH = cardW / 1.586f
-            val transferW = (maxWidth - cardW - gap).coerceAtMost(360.dp)
+            val cardW = (maxWidth * 0.55f).coerceIn(360.dp, 460.dp)
+            val transferW = (maxWidth - cardW - gap).coerceIn(300.dp, 380.dp)
 
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(IntrinsicSize.Min),
                 horizontalArrangement = Arrangement.spacedBy(gap),
                 verticalAlignment = Alignment.Top,
             ) {
+                // Grows to transfer's natural height — never shrinks transfer.
                 BankPlasticCard(
                     balance = card?.balance ?: 0,
                     code = card?.cardCode ?: "—",
                     owner = card?.ownerName ?: vm.userName.ifBlank { "—" },
                     themeId = themeId,
                     imageUrl = imageUrl,
-                    modifier = Modifier.width(cardW).height(cardH),
+                    modifier = Modifier
+                        .width(cardW)
+                        .fillMaxHeight(),
                     compact = true,
                     fillBounds = true,
                     onCopyCode = {
@@ -248,40 +254,32 @@ fun BankScreen(vm: LauncherViewModel) {
                     copiedHint = copiedHint,
                 )
 
-                StarlitCard(
-                    modifier = Modifier
-                        .width(transferW)
-                        .height(cardH),
-                ) {
+                StarlitCard(modifier = Modifier.width(transferW)) {
                     Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(horizontal = 14.dp, vertical = 12.dp),
-                        verticalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(
-                                "Перевод",
-                                color = StarlitColors.Text,
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = 15.sp,
-                            )
-                            StarlitTextField(
-                                value = toCode,
-                                onValueChange = { toCode = it },
-                                label = "Код карты получателя",
-                            )
-                            StarlitTextField(
-                                value = amountText,
-                                onValueChange = { amountText = it.filter { ch -> ch.isDigit() } },
-                                label = "Сумма (АР)",
-                            )
-                            StarlitTextField(
-                                value = comment,
-                                onValueChange = { comment = it },
-                                label = "Комментарий",
-                            )
-                        }
+                        Text(
+                            "Перевод",
+                            color = StarlitColors.Text,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 15.sp,
+                        )
+                        StarlitTextField(
+                            value = toCode,
+                            onValueChange = { toCode = it },
+                            label = "Код карты получателя",
+                        )
+                        StarlitTextField(
+                            value = amountText,
+                            onValueChange = { amountText = it.filter { ch -> ch.isDigit() } },
+                            label = "Сумма (АР)",
+                        )
+                        StarlitTextField(
+                            value = comment,
+                            onValueChange = { comment = it },
+                            label = "Комментарий",
+                        )
                         val treasuryCode = bank.treasuryDonationCode
                         val canTransfer = !vm.isLoadingBank &&
                             toCode.isNotBlank() &&
@@ -461,7 +459,7 @@ private fun BankActionButton(
     }
     Box(
         modifier = modifier
-            .height(34.dp)
+            .requiredHeight(36.dp)
             .clip(shape)
             .background(bg)
             .border(1.dp, borderColor, shape)
