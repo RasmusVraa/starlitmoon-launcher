@@ -46,7 +46,12 @@ jobs:
           $portable = Get-ChildItem "build\compose\binaries\main-release\exe\*.exe" | Select-Object -First 1
           if (-not $portable) { throw "portable EXE not found" }
           Copy-Item $portable.FullName "StarlitMoonLauncher-${{ steps.ver.outputs.version }}.exe" -Force
-
+          $appDir = "build\compose\binaries\main-release\app\StarlitMoonLauncher"
+          if (-not (Test-Path $appDir)) { throw "App dir missing" }
+          $zip = "StarlitMoonLauncher-${{ steps.ver.outputs.version }}-windows.zip"
+          if (Test-Path $zip) { Remove-Item $zip -Force }
+          Compress-Archive -Path (Join-Path $appDir "*") -DestinationPath $zip -CompressionLevel Optimal
+          Write-Host "ZIP: $zip"
       - name: Install Inno Setup
         shell: pwsh
         run: |
@@ -145,8 +150,11 @@ jobs:
           files: |
             StarlitMoonLauncher-Setup-${{ steps.ver.outputs.version }}.exe
             StarlitMoonLauncher-${{ steps.ver.outputs.version }}.exe
+            StarlitMoonLauncher-${{ steps.ver.outputs.version }}-windows.zip
           body: |
             ## Сборка
-            - Windows Setup + portable
+            - Windows Setup (первая установка)
+            - ZIP для быстрого обновления из лаунчера
+            - Portable EXE
 
             Free code signing provided by SignPath.io, certificate by SignPath Foundation (если секреты SignPath настроены).

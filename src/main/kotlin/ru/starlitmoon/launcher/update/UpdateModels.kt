@@ -19,11 +19,24 @@ data class GitHubAsset(
     val size: Long = 0,
 )
 
+enum class UpdatePackageKind {
+    /** App folder ZIP — in-place file replace + restart (preferred). */
+    ZIP,
+    /** Legacy Inno Setup silent install. */
+    SETUP,
+}
+
 data class UpdateInfo(
     val currentVersion: String,
     val latestVersion: String,
     val releaseNotes: String,
     val releasePageUrl: String,
-    val installerUrl: String?,
-    val installerName: String?,
-)
+    val packageUrl: String?,
+    val packageName: String?,
+    val packageKind: UpdatePackageKind,
+) {
+    /** @deprecated use [packageUrl] */
+    val installerUrl: String? get() = packageUrl
+    /** @deprecated use [packageName] */
+    val installerName: String? get() = packageName
+}
