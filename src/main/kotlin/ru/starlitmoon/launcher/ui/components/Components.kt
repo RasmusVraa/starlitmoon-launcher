@@ -185,7 +185,7 @@ fun StarlitPrimaryButton(
     val targetBg = when {
         !active -> base.copy(alpha = 0.32f)
         pressed -> if (danger) Color(0xFFC44D58) else StarlitColors.GoldDim
-        hovered -> if (danger) Color(0xFFF07A84) else Color(0xFFE0B85C)
+        hovered -> if (danger) Color(0xFFF07A84) else StarlitColors.GoldHover
         else -> base
     }
     val bg = starlitAnimateColor(targetBg, label = "primaryBg")

@@ -21,15 +21,52 @@ import kotlin.io.path.writeText
 /**
  * Downloads a pack ZIP (`.minecraft`-like layout) into `~/.starlitmoon-launcher/packs/{slug}/`
  * and extracts it. Skips work when the stored sha256 marker matches the remote archive.
+ *
+ * Updates keep saves / options / servers / existing config / user-added mods;
+ * pack ZIP settings are not applied over user files.
  */
 object ModpackSync {
     private const val MARKER = ".starlit-archive.sha256"
+    private const val MANAGED_MODS = ".starlit-managed-mods"
     private const val ZIP_NAME = "pack.zip"
     /** No bytes for this long → fail (avoids eternal «Подготовка» / silent hang). */
     private const val READ_TIMEOUT_MS = 90_000
     private const val CONNECT_TIMEOUT_MS = 30_000
     /** Stale incomplete .part older than this is discarded before resume. */
     private const val STALE_PART_MS = 6L * 60L * 60L * 1000L
+
+    /** Root names never deleted on update (worlds, settings, caches). */
+    private val PRESERVE_ROOTS = setOf(
+        ".cache",
+        MARKER,
+        MANAGED_MODS,
+        "saves",
+        "logs",
+        "crash-reports",
+        "options.txt",
+        "optionsof.txt",
+        "optionsshaders.txt",
+        "servers.dat",
+        "servers.dat_old",
+        "usercache.json",
+        "usernamecache.json",
+        "config",
+        "local",
+        "XaeroWorldMap",
+        "XaeroWaypoints",
+        "xaero",
+        "mods", // cleared selectively — user jars kept
+    )
+
+    private val USER_SETTING_FILES = setOf(
+        "options.txt",
+        "optionsof.txt",
+        "optionsshaders.txt",
+        "servers.dat",
+        "servers.dat_old",
+        "usercache.json",
+        "usernamecache.json",
+    )
 
     fun packDir(dataDir: Path, pack: ModpackDto): Path {
         val slug = pack.slug?.trim()?.ifBlank { null }
@@ -103,11 +140,13 @@ object ModpackSync {
         }
 
         onProgress("Распаковка сборки…", 0.90f)
-        clearManagedContent(dir)
-        extractZip(zipPath, dir) { done, total ->
+        val zipMods = listZipModFileNames(zipPath)
+        clearManagedContent(dir, zipMods)
+        extractZip(zipPath, dir, preserveUserFiles = true) { done, total ->
             val frac = if (total > 0) 0.90f + 0.09f * done.toFloat() / total else 0.95f
             onProgress("Распаковка $done/$total…", frac)
         }
+        writeManagedMods(dir, zipMods)
 
         if (expectedSha.isNotBlank()) {
             marker.writeText(expectedSha)
@@ -118,13 +157,90 @@ object ModpackSync {
         return true
     }
 
-    private fun clearManagedContent(dir: Path) {
-        val keep = setOf(".cache", MARKER, "saves", "logs", "crash-reports")
+    /** Deletes pack content except worlds, logs, user settings/config/user mods. */
+    private fun clearManagedContent(dir: Path, zipMods: Set<String>) {
         if (!dir.exists()) return
+        clearManagedMods(dir.resolve("mods"), dir, zipMods)
         dir.listDirectoryEntries().forEach { child ->
-            if (child.name in keep) return@forEach
+            if (child.name in PRESERVE_ROOTS) return@forEach
             runCatching { child.toFile().deleteRecursively() }
         }
+    }
+
+    /**
+     * Removes only pack-owned jars. User-added mods (not in `.starlit-managed-mods`) stay.
+     * Without a managed list yet: only replace jars that are also in the new ZIP.
+     */
+    private fun clearManagedMods(modsDir: Path, packDir: Path, zipMods: Set<String>) {
+        if (!modsDir.exists()) return
+        val managed = readManagedMods(packDir)
+        modsDir.listDirectoryEntries().forEach { child ->
+            if (!Files.isRegularFile(child)) return@forEach
+            val name = child.name
+            val remove = if (managed.isNotEmpty()) name in managed else name in zipMods
+            if (remove) runCatching { Files.deleteIfExists(child) }
+        }
+    }
+
+    private fun readManagedMods(packDir: Path): Set<String> {
+        val marker = packDir.resolve(MANAGED_MODS)
+        if (!marker.exists()) return emptySet()
+        return runCatching {
+            marker.readText().lineSequence()
+                .map { it.trim() }
+                .filter { it.isNotEmpty() && !it.startsWith("#") }
+                .toSet()
+        }.getOrDefault(emptySet())
+    }
+
+    private fun writeManagedMods(packDir: Path, names: Set<String>) {
+        val marker = packDir.resolve(MANAGED_MODS)
+        if (names.isEmpty()) {
+            Files.deleteIfExists(marker)
+            return
+        }
+        marker.writeText(names.sorted().joinToString("\n") + "\n")
+    }
+
+    /** Basename of each file under `mods/` in the ZIP (after strip-prefix). */
+    private fun listZipModFileNames(zipPath: Path): Set<String> {
+        val prefix = detectStripPrefix(zipPath)
+        val out = linkedSetOf<String>()
+        runCatching {
+            ZipFile(zipPath.toFile()).use { zip ->
+                val entries = zip.entries()
+                while (entries.hasMoreElements()) {
+                    val entry = entries.nextElement()
+                    if (entry.isDirectory) continue
+                    var name = entry.name.replace('\\', '/').trimStart('/')
+                    if (prefix.isNotEmpty() && name.startsWith(prefix)) {
+                        name = name.removePrefix(prefix)
+                    }
+                    if (name.isBlank() || name.contains("..")) continue
+                    if (!name.startsWith("mods/")) continue
+                    val rest = name.removePrefix("mods/")
+                    if (rest.isBlank() || rest.contains('/')) continue
+                    out += rest
+                }
+            }
+        }
+        return out
+    }
+
+    private fun shouldSkipExtract(relative: String, out: Path): Boolean {
+        val norm = relative.trimStart('/').replace('\\', '/')
+        if (norm.isBlank()) return true
+        val top = norm.substringBefore('/')
+        // Never touch worlds / logs from the ZIP.
+        if (top == "saves" || top == "logs" || top == "crash-reports") return true
+        if (top == "XaeroWorldMap" || top == "XaeroWaypoints" || top == "xaero") return true
+        // Root user settings: keep existing, allow first-install from ZIP.
+        if (norm in USER_SETTING_FILES) return out.exists()
+        // Config / local: keep existing files, still add new ones from ZIP.
+        if ((top == "config" || top == "local") && out.exists()) return true
+        // User mods: never overwrite a jar that isn't from the pack (managed list / will be replaced above).
+        // Pack jars were deleted in clearManagedMods; extract always writes pack mods.
+        return false
     }
 
     private fun downloadTo(
@@ -267,7 +383,12 @@ object ModpackSync {
         return "$n Б"
     }
 
-    private fun extractZip(zipPath: Path, dest: Path, onEntry: (Int, Int) -> Unit = { _, _ -> }) {
+    private fun extractZip(
+        zipPath: Path,
+        dest: Path,
+        preserveUserFiles: Boolean = true,
+        onEntry: (Int, Int) -> Unit = { _, _ -> },
+    ) {
         dest.createDirectories()
         val prefix = detectStripPrefix(zipPath)
         val totalEntries = runCatching {
@@ -286,6 +407,11 @@ object ModpackSync {
                     continue
                 }
                 val out = dest.resolve(name)
+                if (preserveUserFiles && shouldSkipExtract(name, out)) {
+                    zis.closeEntry()
+                    done++
+                    continue
+                }
                 if (entry.isDirectory) {
                     out.createDirectories()
                 } else {

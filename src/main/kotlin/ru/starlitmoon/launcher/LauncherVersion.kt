@@ -1,5 +1,5 @@
 package ru.starlitmoon.launcher
 
 object LauncherVersion {
-    const val CURRENT = "1.2.8"
+    const val CURRENT = "1.3.0"
 }

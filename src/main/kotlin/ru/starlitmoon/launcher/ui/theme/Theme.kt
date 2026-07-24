@@ -9,7 +9,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /**
- * Cinematic dark palette — gold primary, purple secondary accents.
+ * Cinematic dark palette — pastel purple primary accents.
+ * `Gold*` names are kept as the primary accent tokens (historically gold).
  */
 object StarlitColors {
     val Background = Color(0xFF07090F)
@@ -19,14 +20,16 @@ object StarlitColors {
     val Border = Color(0xFF1E2433)
     val BorderStrong = Color(0xFF2A3245)
 
-    val Gold = Color(0xFFD4A84B)
-    val GoldMuted = Color(0x26D4A84B)
-    val GoldDim = Color(0xFF9C7B37)
-    val OnGold = Color(0xFF16130B)
+    /** Primary accent — soft pastel lilac. */
+    val Gold = Color(0xFFC9B4E8)
+    val GoldMuted = Color(0x33C9B4E8)
+    val GoldDim = Color(0xFF8F7AB5)
+    val GoldHover = Color(0xFFD8CAF2)
+    val OnGold = Color(0xFF1A1528)
 
-    val Purple = Color(0xFF7B5EA7)
-    val PurpleMuted = Color(0x337B5EA7)
-    val PurpleDim = Color(0xFF5A4478)
+    val Purple = Color(0xFF9B82C4)
+    val PurpleMuted = Color(0x339B82C4)
+    val PurpleDim = Color(0xFF6E5A94)
 
     val Text = Color(0xFFEDEFF4)
     val TextMuted = Color(0xFF8A93A8)

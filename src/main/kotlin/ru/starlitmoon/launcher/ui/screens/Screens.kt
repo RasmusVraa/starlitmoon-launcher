@@ -375,11 +375,11 @@ fun BuildsScreen(vm: LauncherViewModel) {
         reinstallTarget?.let { pack ->
             val name = pack.name ?: pack.slug ?: "сборку"
             StarlitConfirmDialog(
-                title = "Переустановка сборки",
-                message = "Переустановить «$name»?\nТекущие файлы сборки (кроме сохранений) будут заменены.",
-                confirmText = "Переустановить",
+                title = "Обновление сборки",
+                message = "Обновить «$name»?\nМоды и файлы сборки заменятся.\nМиры, сервера, options, config и ваши моды сохранятся.",
+                confirmText = "Обновить",
                 cancelText = "Отмена",
-                danger = true,
+                danger = false,
                 onConfirm = { vm.reinstallModpack(pack) },
                 onDismiss = { reinstallTarget = null },
             )
@@ -472,31 +472,16 @@ private fun ModpackCard(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(horizontal = 14.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        pack.name ?: pack.slug ?: "Сборка",
-                        color = StarlitColors.Text,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 15.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f),
-                    )
-                    if (sizeLabel != null) {
-                        Text(
-                            sizeLabel,
-                            color = StarlitColors.TextDim,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium,
-                        )
-                    }
-                }
+                Text(
+                    pack.name ?: pack.slug ?: "Сборка",
+                    color = StarlitColors.Text,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 15.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(6.dp))
                 Text(
                     pack.description?.ifBlank { null } ?: "Без описания",
                     color = StarlitColors.TextMuted,
@@ -507,37 +492,51 @@ private fun ModpackCard(
                 )
                 val tags = pack.tags.map { it.trim() }.filter { it.isNotEmpty() }.distinct().take(8)
                 if (tags.isNotEmpty()) {
+                    Spacer(Modifier.height(8.dp))
                     FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalArrangement = Arrangement.spacedBy(5.dp),
                     ) {
                         tags.forEach { tag ->
-                            Text(
-                                tag,
-                                color = StarlitColors.Gold,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
+                            Box(
                                 modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
+                                    .height(24.dp)
+                                    .clip(RoundedCornerShape(7.dp))
                                     .background(StarlitColors.GoldMuted)
-                                    .border(1.dp, StarlitColors.Gold.copy(alpha = 0.35f), RoundedCornerShape(6.dp))
-                                    .padding(horizontal = 7.dp, vertical = 3.dp),
-                            )
+                                    .border(1.dp, StarlitColors.Gold.copy(alpha = 0.4f), RoundedCornerShape(7.dp))
+                                    .padding(horizontal = 9.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    tag,
+                                    color = StarlitColors.Gold,
+                                    fontSize = 12.sp,
+                                    lineHeight = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
                         }
                     }
                 }
-                Text(
-                    listOfNotNull(
-                        pack.loader?.replaceFirstChar { it.uppercase() },
-                        pack.mcVersion?.let { "MC $it" },
-                    ).joinToString(" · "),
-                    color = StarlitColors.TextDim,
-                    fontSize = 11.sp,
-                )
                 Spacer(Modifier.weight(1f))
+                val meta = listOfNotNull(
+                    pack.loader?.replaceFirstChar { it.uppercase() },
+                    pack.mcVersion?.let { "MC $it" },
+                    sizeLabel,
+                ).joinToString(" · ")
+                if (meta.isNotBlank()) {
+                    Text(
+                        meta,
+                        color = StarlitColors.TextDim,
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
                 if (pack.hasArchive) {
+                    Spacer(Modifier.height(8.dp))
                     StarlitSecondaryButton(
                         text = if (needsUpdate) "Обновить сборку" else "Переустановить",
                         onClick = onReinstall,
