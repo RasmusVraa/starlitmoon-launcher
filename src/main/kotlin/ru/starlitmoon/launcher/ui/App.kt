@@ -5,8 +5,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -15,7 +13,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.window.WindowDraggableArea
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -23,7 +20,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.FrameWindowScope
 import androidx.compose.ui.window.WindowState
 import ru.starlitmoon.launcher.api.StarlitApiClient
@@ -159,22 +155,6 @@ fun FrameWindowScope.LauncherApp(
                                                         LauncherTab.Admin -> AdminScreen(vm)
                                                         LauncherTab.Settings -> SettingsScreen(vm)
                                                     }
-                                                }
-                                            }
-                                            // While download runs in background, block other tabs.
-                                            if (vm.isClientUpdateBusy) {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .fillMaxSize()
-                                                        .background(StarlitColors.OverlayScrim)
-                                                        .clickable { vm.openClientUpdatePage() },
-                                                    contentAlignment = Alignment.Center,
-                                                ) {
-                                                    Text(
-                                                        "Идёт обновление клиента — нажмите, чтобы вернуться",
-                                                        color = StarlitColors.Text,
-                                                        fontSize = 14.sp,
-                                                    )
                                                 }
                                             }
                                         }

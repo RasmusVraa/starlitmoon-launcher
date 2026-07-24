@@ -153,10 +153,8 @@ class LauncherViewModel(
     }
 
     fun selectTab(tab: LauncherTab) {
-        if (clientUpdate != null) {
-            clientUpdateVisible = true
-            return
-        }
+        // Allow browsing other pages while a client update runs in the background.
+        clientUpdateVisible = false
         currentTab = tab
     }
     /** Id сборки, ZIP которой сейчас заливается в админке (для оверлея прогресса). */

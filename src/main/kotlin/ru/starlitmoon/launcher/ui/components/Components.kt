@@ -697,7 +697,6 @@ fun BrandWordmark(modifier: Modifier = Modifier) {
 @Composable
 fun SidebarNav(vm: LauncherViewModel) {
     var confirmLogout by remember { mutableStateOf(false) }
-    val locked = vm.isClientUpdateBusy
     Box(
         modifier = Modifier
             .width(StarlitDimens.SidebarWidth)
@@ -713,7 +712,7 @@ fun SidebarNav(vm: LauncherViewModel) {
             Spacer(Modifier.height(18.dp))
 
             fun go(tab: LauncherTab) {
-                if (locked) vm.openClientUpdatePage() else vm.selectTab(tab)
+                vm.selectTab(tab)
             }
 
             SidebarIcon(
@@ -722,7 +721,6 @@ fun SidebarNav(vm: LauncherViewModel) {
                 contentDescription = "Главная",
                 onClick = { go(LauncherTab.Home) },
                 enabled = true,
-                dimmed = locked,
             )
             Spacer(Modifier.height(10.dp))
             SidebarIcon(
@@ -730,7 +728,6 @@ fun SidebarNav(vm: LauncherViewModel) {
                 selected = !vm.clientUpdateVisible && vm.currentTab == LauncherTab.Builds,
                 contentDescription = "Сборки",
                 onClick = { go(LauncherTab.Builds) },
-                dimmed = locked,
             )
             Spacer(Modifier.height(10.dp))
             SidebarIcon(
@@ -738,7 +735,6 @@ fun SidebarNav(vm: LauncherViewModel) {
                 selected = !vm.clientUpdateVisible && vm.currentTab == LauncherTab.Cabinet,
                 contentDescription = "Кабинет",
                 onClick = { go(LauncherTab.Cabinet) },
-                dimmed = locked,
             )
             Spacer(Modifier.height(10.dp))
             SidebarIcon(
@@ -746,7 +742,6 @@ fun SidebarNav(vm: LauncherViewModel) {
                 selected = !vm.clientUpdateVisible && vm.currentTab == LauncherTab.Bank,
                 contentDescription = "Банк",
                 onClick = { go(LauncherTab.Bank) },
-                dimmed = locked,
             )
             Spacer(Modifier.height(10.dp))
             SidebarIcon(
@@ -754,7 +749,6 @@ fun SidebarNav(vm: LauncherViewModel) {
                 selected = !vm.clientUpdateVisible && vm.currentTab == LauncherTab.Skins,
                 contentDescription = "Скины",
                 onClick = { go(LauncherTab.Skins) },
-                dimmed = locked,
             )
             Spacer(Modifier.height(10.dp))
             SidebarIcon(
@@ -762,7 +756,6 @@ fun SidebarNav(vm: LauncherViewModel) {
                 selected = !vm.clientUpdateVisible && vm.currentTab == LauncherTab.Logs,
                 contentDescription = "Логи",
                 onClick = { go(LauncherTab.Logs) },
-                dimmed = locked,
             )
             if (vm.isAdmin) {
                 Spacer(Modifier.height(10.dp))
@@ -771,7 +764,6 @@ fun SidebarNav(vm: LauncherViewModel) {
                     selected = !vm.clientUpdateVisible && vm.currentTab == LauncherTab.Admin,
                     contentDescription = "Админ",
                     onClick = { go(LauncherTab.Admin) },
-                    dimmed = locked,
                 )
             }
 
@@ -781,19 +773,14 @@ fun SidebarNav(vm: LauncherViewModel) {
                 selected = !vm.clientUpdateVisible && vm.currentTab == LauncherTab.Settings,
                 contentDescription = "Настройки",
                 onClick = { go(LauncherTab.Settings) },
-                dimmed = locked,
             )
             Spacer(Modifier.height(10.dp))
             SidebarIcon(
                 icon = Icons.AutoMirrored.Filled.Logout,
                 selected = false,
                 contentDescription = "Выйти",
-                onClick = {
-                    if (locked) vm.openClientUpdatePage()
-                    else confirmLogout = true
-                },
+                onClick = { confirmLogout = true },
                 tintOverride = StarlitColors.TextMuted,
-                dimmed = locked,
             )
             Spacer(Modifier.height(18.dp))
         }

@@ -84,7 +84,8 @@ object ModpackSync {
         if (!pack.hasArchive) return false
         val remote = pack.archive?.sha256?.trim()?.lowercase().orEmpty()
         if (remote.isBlank()) return false
-        val local = localArchiveSha(dataDir, pack) ?: return true
+        // Not installed locally → download, not "update".
+        val local = localArchiveSha(dataDir, pack) ?: return false
         return local != remote
     }
 

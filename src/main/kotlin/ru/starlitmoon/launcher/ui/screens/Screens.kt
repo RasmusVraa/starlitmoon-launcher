@@ -373,10 +373,35 @@ fun BuildsScreen(vm: LauncherViewModel) {
 
         reinstallTarget?.let { pack ->
             val name = pack.name ?: pack.slug ?: "сборку"
+            val installed = run {
+                vm.packUiRevision
+                vm.isPackInstalled(pack)
+            }
+            val needsUpdate = run {
+                vm.packUiRevision
+                vm.packNeedsUpdate(pack)
+            }
+            val (title, message, confirm) = when {
+                !installed -> Triple(
+                    "Скачивание сборки",
+                    "Скачать «$name» на диск?",
+                    "Скачать",
+                )
+                needsUpdate -> Triple(
+                    "Обновление сборки",
+                    "Обновить «$name» под чистую?\nУдалится всё, кроме миров (и карт Xaero), затем сборка скачается заново.",
+                    "Обновить",
+                )
+                else -> Triple(
+                    "Переустановка сборки",
+                    "Переустановить «$name» под чистую?\nУдалится всё, кроме миров (и карт Xaero), затем сборка скачается заново.",
+                    "Переустановить",
+                )
+            }
             StarlitConfirmDialog(
-                title = "Обновление сборки",
-                message = "Обновить «$name» под чистую?\nУдалится всё, кроме миров (и карт Xaero), затем сборка скачается заново.",
-                confirmText = "Обновить",
+                title = title,
+                message = message,
+                confirmText = confirm,
                 cancelText = "Отмена",
                 danger = false,
                 onConfirm = { vm.reinstallModpack(pack) },
@@ -570,7 +595,11 @@ private fun ModpackCard(
                     ) {
                         if (pack.hasArchive) {
                             StarlitSecondaryButton(
-                                text = if (needsUpdate) "Обновить" else "Переустановить",
+                                text = when {
+                                    !installed -> "Скачать"
+                                    needsUpdate -> "Обновить"
+                                    else -> "Переустановить"
+                                },
                                 onClick = onReinstall,
                                 modifier = Modifier.weight(1f),
                                 compact = true,
