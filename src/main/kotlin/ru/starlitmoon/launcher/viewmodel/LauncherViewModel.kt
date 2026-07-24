@@ -1047,9 +1047,14 @@ class LauncherViewModel(
             isLoading = true
             runCatching {
                 withContext(Dispatchers.IO) {
-                    val me = api.adminMe()
-                    adminMe = me
-                    if (me.permissionDefs.isNotEmpty()) adminPermissionDefs = me.permissionDefs
+                    runCatching { api.adminMe() }
+                        .onSuccess { me ->
+                            adminMe = me
+                            if (me.permissionDefs.isNotEmpty()) adminPermissionDefs = me.permissionDefs
+                        }
+                        .onFailure { err ->
+                            if (adminMe == null) throw err
+                        }
                     adminStats = runCatching { api.adminStats() }.getOrNull()
                     when (adminSubTab) {
                         0 -> { // Игроки: профили / аккаунты / уведомления
@@ -1615,13 +1620,17 @@ class LauncherViewModel(
     }
 
     private fun handleError(error: Throwable) {
-        errorMessage = when (error) {
-            is StarlitApiException -> {
-                if (error.cabinetBlocked) buildString {
-                    append(error.message)
-                    error.applicationStatus?.let { append(" ($it)") }
-                } else error.message
+        val raw = error.message.orEmpty()
+        errorMessage = when {
+            error is StarlitApiException && error.cabinetBlocked -> buildString {
+                append(error.message)
+                error.applicationStatus?.let { append(" ($it)") }
             }
+            error is StarlitApiException -> error.message
+            raw.contains("timed out", ignoreCase = true) ||
+                raw.contains("timeout", ignoreCase = true) ||
+                error::class.simpleName?.contains("Timeout", ignoreCase = true) == true ->
+                "Сайт не ответил вовремя. Обнови ещё раз через пару секунд."
             else -> error.message ?: "Ошибка"
         }
     }

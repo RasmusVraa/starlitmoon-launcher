@@ -4,6 +4,10 @@ import ru.starlitmoon.launcher.api.ModpackDto
 import java.io.BufferedInputStream
 import java.net.HttpURLConnection
 import java.net.URI
+import java.nio.ByteBuffer
+import java.nio.charset.Charset
+import java.nio.charset.CodingErrorAction
+import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
@@ -15,7 +19,6 @@ import kotlin.io.path.exists
 import kotlin.io.path.fileSize
 import kotlin.io.path.listDirectoryEntries
 import kotlin.io.path.name
-import kotlin.io.path.readText
 import kotlin.io.path.writeText
 
 /**
@@ -35,6 +38,25 @@ object ModpackSync {
     /** Stale incomplete .part older than this is discarded before resume. */
     private const val STALE_PART_MS = 6L * 60L * 60L * 1000L
 
+    /**
+     * ZIP entry names are often CP437/CP866 without UTF-8 flag.
+     * Default UTF-8 ZipInputStream throws `malformed input off : N`.
+     * ISO-8859-1 maps every byte 1:1 and never fails decoding.
+     */
+    private val ZIP_CHARSET: Charset = StandardCharsets.ISO_8859_1
+
+    private fun openZip(path: Path): ZipFile = ZipFile(path.toFile(), ZIP_CHARSET)
+
+    private fun openZipStream(path: Path): ZipInputStream =
+        ZipInputStream(Files.newInputStream(path), ZIP_CHARSET)
+
+    private fun readTextLenient(path: Path): String {
+        val bytes = Files.readAllBytes(path)
+        val decoder = StandardCharsets.UTF_8.newDecoder()
+            .onMalformedInput(CodingErrorAction.REPLACE)
+            .onUnmappableCharacter(CodingErrorAction.REPLACE)
+        return decoder.decode(ByteBuffer.wrap(bytes)).toString()
+    }
     /** Root names never deleted on update (worlds, settings, caches). */
     private val PRESERVE_ROOTS = setOf(
         ".cache",
@@ -78,8 +100,8 @@ object ModpackSync {
 
     fun localArchiveSha(dataDir: Path, pack: ModpackDto): String? {
         val marker = packDir(dataDir, pack).resolve(MARKER)
-        if (!marker.exists()) return null
-        return marker.readText().trim().lowercase().takeIf { it.isNotBlank() }
+        return marker.let { if (!it.exists()) null else readTextLenient(it) }
+            .orEmpty().trim().lowercase().takeIf { it.isNotBlank() }
     }
 
     fun needsUpdate(dataDir: Path, pack: ModpackDto): Boolean {
@@ -121,7 +143,9 @@ object ModpackSync {
             Files.deleteIfExists(zipPath.resolveSibling("${zipPath.name}.part"))
         }
 
-        if (!force && expectedSha.isNotBlank() && marker.exists() && marker.readText().trim().lowercase() == expectedSha) {
+        if (!force && expectedSha.isNotBlank() && marker.exists() &&
+            readTextLenient(marker).trim().lowercase() == expectedSha
+        ) {
             onProgress("Сборка уже актуальна", 1f)
             return true
         }
@@ -186,7 +210,7 @@ object ModpackSync {
         val marker = packDir.resolve(MANAGED_MODS)
         if (!marker.exists()) return emptySet()
         return runCatching {
-            marker.readText().lineSequence()
+            readTextLenient(marker).lineSequence()
                 .map { it.trim() }
                 .filter { it.isNotEmpty() && !it.startsWith("#") }
                 .toSet()
@@ -207,7 +231,7 @@ object ModpackSync {
         val prefix = detectStripPrefix(zipPath)
         val out = linkedSetOf<String>()
         runCatching {
-            ZipFile(zipPath.toFile()).use { zip ->
+            openZip(zipPath).use { zip ->
                 val entries = zip.entries()
                 while (entries.hasMoreElements()) {
                     val entry = entries.nextElement()
@@ -392,10 +416,10 @@ object ModpackSync {
         dest.createDirectories()
         val prefix = detectStripPrefix(zipPath)
         val totalEntries = runCatching {
-            ZipFile(zipPath.toFile()).use { it.size() }
+            openZip(zipPath).use { it.size() }
         }.getOrDefault(0)
         var done = 0
-        ZipInputStream(Files.newInputStream(zipPath)).use { zis ->
+        openZipStream(zipPath).use { zis ->
             while (true) {
                 val entry = zis.nextEntry ?: break
                 var name = entry.name.replace('\\', '/')
@@ -432,7 +456,7 @@ object ModpackSync {
     private fun detectStripPrefix(zipPath: Path): String {
         val tops = linkedSetOf<String>()
         runCatching {
-            ZipFile(zipPath.toFile()).use { zip ->
+            openZip(zipPath).use { zip ->
                 val entries = zip.entries()
                 var checked = 0
                 while (entries.hasMoreElements() && checked < 200) {

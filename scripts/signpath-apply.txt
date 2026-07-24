@@ -1,0 +1,22 @@
+# Free PUBLIC code signing for this OSS project (MIT license).
+#
+# Self-signed (scripts/create-dev-codesign-cert.ps1) is FREE but does NOT fix
+# Smart App Control for players downloading from GitHub.
+#
+# SignPath Foundation signs with a real CA cert for free for qualifying OSS:
+#   https://signpath.org/
+#
+# AFTER APPROVAL — add in GitHub → Settings → Secrets and variables → Actions
+#   Secrets:
+#     SIGNPATH_API_TOKEN
+#     SIGNPATH_ORGANIZATION_ID
+#   Variables (optional):
+#     SIGNPATH_PROJECT_SLUG = starlitmoon-launcher
+#     SIGNPATH_SIGNING_POLICY_SLUG = release-signing
+#
+# Then tell the agent: "SignPath готов" + paste org id / project slug / policy slug
+# (token — only into GitHub Secrets, never into chat).
+#
+# Release: tag vX.Y.Z or Actions → Release → Run workflow
+#
+# Credit: "Free code signing provided by SignPath.io, certificate by SignPath Foundation"
