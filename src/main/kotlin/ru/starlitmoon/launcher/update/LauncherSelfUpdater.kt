@@ -377,10 +377,12 @@ object LauncherSelfUpdater {
         ).pathString
         val pb = ProcessBuilder(wscript, "//B", "//Nologo", vbsPath)
         pb.directory(cwd.toFile())
-        pb.redirectInput(ProcessBuilder.Redirect.DISCARD)
+        // DISCARD is only valid for WRITE streams (stdout/stderr). Using it on stdin
+        // throws: "Redirect invalid for reading: WRITE".
         pb.redirectOutput(ProcessBuilder.Redirect.DISCARD)
         pb.redirectError(ProcessBuilder.Redirect.DISCARD)
         val proc = pb.start()
+        runCatching { proc.outputStream.close() }
         proc.waitFor(5, TimeUnit.SECONDS)
         Thread.sleep(400)
         LauncherLog.info("Self-update: hidden helper launched via wscript")
