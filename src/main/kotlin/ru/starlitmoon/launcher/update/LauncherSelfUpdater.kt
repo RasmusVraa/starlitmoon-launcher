@@ -36,6 +36,7 @@ object LauncherSelfUpdater {
     private const val EXE_NAME = "StarlitMoonLauncher.exe"
     private const val UPDATE_FLAG = "pending.flag"
     private const val APPLY_CMD = "apply-update.cmd"
+    private const val APPLY_VBS = "apply-update.vbs"
     private const val APPLY_LOG = "apply-update.log"
 
     val pendingApply: AtomicBoolean = AtomicBoolean(false)
@@ -213,6 +214,7 @@ object LauncherSelfUpdater {
             appendLine("rmdir /s /q \"%STAGING%\" >NUL 2>&1")
             appendLine("echo [%TIME%] done>>\"%LOG%\"")
             appendLine("ping -n 2 127.0.0.1 >NUL")
+            appendLine("del /f /q \"%~dp0$APPLY_VBS\" >NUL 2>&1")
             appendLine("del /f /q \"%~f0\" >NUL 2>&1")
         }.replace("\n", "\r\n")
 
@@ -276,6 +278,7 @@ object LauncherSelfUpdater {
             appendLine("del /f /q \"%SETUP%\" >NUL 2>&1")
             appendLine("echo [%TIME%] done>>\"%LOG%\"")
             appendLine("ping -n 2 127.0.0.1 >NUL")
+            appendLine("del /f /q \"%~dp0$APPLY_VBS\" >NUL 2>&1")
             appendLine("del /f /q \"%~f0\" >NUL 2>&1")
         }.replace("\n", "\r\n")
         Files.write(cmd, batch.toByteArray(StandardCharsets.UTF_8))
@@ -308,7 +311,7 @@ object LauncherSelfUpdater {
             flag.deleteIfExists()
             updateDir.resolve(APPLY_CMD).deleteIfExists()
             updateDir.resolve("apply-update.ps1").deleteIfExists()
-            updateDir.resolve("apply-update.vbs").deleteIfExists()
+            updateDir.resolve(APPLY_VBS).deleteIfExists()
         }
     }
 
@@ -341,28 +344,46 @@ object LauncherSelfUpdater {
 
     data class InstallPaths(val installDir: Path, val relaunchExe: Path)
 
+    /**
+     * Launch apply helper with **no visible console**.
+     * `cmd /c start` always flashes a window ("StarlitUpdate") and can fail with
+     * "Не удается найти пакетный файл" when quoting breaks — use hidden WScript instead.
+     */
     private fun startDetachedCmd(cmdFile: Path, cwd: Path, log: Path) {
         val cmdPath = cmdFile.toAbsolutePath().normalize().pathString
+        val vbs = cmdFile.resolveSibling(APPLY_VBS)
+        val vbsPath = vbs.toAbsolutePath().normalize().pathString
         runCatching {
             Files.writeString(
                 log,
-                "[${java.time.LocalTime.now()}] spawn $cmdPath\r\n",
+                "[${java.time.LocalTime.now()}] spawn-hidden $cmdPath\r\n",
                 StandardCharsets.UTF_8,
                 StandardOpenOption.CREATE,
                 StandardOpenOption.TRUNCATE_EXISTING,
                 StandardOpenOption.WRITE,
             )
         }
-        // Single /c string so paths with spaces (Program Files) stay quoted for `start`.
-        val line = "start \"StarlitUpdate\" /MIN \"$cmdPath\""
-        val pb = ProcessBuilder("cmd.exe", "/c", line)
+        val escapedCmd = cmdPath.replace("\"", "\"\"")
+        val vbsBody = (
+            "Set sh = CreateObject(\"WScript.Shell\")\r\n" +
+                "sh.Run \"\"\"$escapedCmd\"\"\", 0, False\r\n"
+            )
+        Files.write(vbs, vbsBody.toByteArray(StandardCharsets.UTF_8))
+
+        val wscript = Path.of(
+            System.getenv("SystemRoot") ?: "C:\\Windows",
+            "System32",
+            "wscript.exe",
+        ).pathString
+        val pb = ProcessBuilder(wscript, "//B", "//Nologo", vbsPath)
         pb.directory(cwd.toFile())
+        pb.redirectInput(ProcessBuilder.Redirect.DISCARD)
         pb.redirectOutput(ProcessBuilder.Redirect.DISCARD)
         pb.redirectError(ProcessBuilder.Redirect.DISCARD)
         val proc = pb.start()
-        proc.waitFor(8, TimeUnit.SECONDS)
-        Thread.sleep(1000)
-        LauncherLog.info("Self-update: detached helper launched")
+        proc.waitFor(5, TimeUnit.SECONDS)
+        Thread.sleep(400)
+        LauncherLog.info("Self-update: hidden helper launched via wscript")
     }
 
     /** Must be called OUTSIDE runCatching — exitProcess can throw into onFailure otherwise. */
