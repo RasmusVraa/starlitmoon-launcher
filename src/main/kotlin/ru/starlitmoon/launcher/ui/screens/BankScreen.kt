@@ -16,10 +16,10 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -222,8 +222,7 @@ fun BankScreen(vm: LauncherViewModel) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(IntrinsicSize.Min)
-                .heightIn(max = 248.dp),
+                .height(IntrinsicSize.Min),
             horizontalArrangement = Arrangement.spacedBy(14.dp),
             verticalAlignment = Alignment.Top,
         ) {
@@ -234,7 +233,7 @@ fun BankScreen(vm: LauncherViewModel) {
                 themeId = themeId,
                 imageUrl = imageUrl,
                 modifier = Modifier
-                    .width(320.dp)
+                    .weight(1.25f)
                     .fillMaxHeight(),
                 compact = true,
                 fillBounds = true,
@@ -249,31 +248,32 @@ fun BankScreen(vm: LauncherViewModel) {
                 copiedHint = copiedHint,
             )
 
-            StarlitCard(modifier = Modifier.weight(1f).fillMaxHeight()) {
+            StarlitCard(
+                modifier = Modifier
+                    .widthIn(max = 380.dp)
+                    .weight(1f, fill = false)
+                    .fillMaxHeight(),
+            ) {
                 Column(
-                    modifier = Modifier
-                        .fillMaxHeight()
-                        .padding(horizontal = 14.dp, vertical = 12.dp),
-                    verticalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                        Text("Перевод", color = StarlitColors.Text, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
-                        StarlitTextField(
-                            value = toCode,
-                            onValueChange = { toCode = it },
-                            label = "Код карты получателя",
-                        )
-                        StarlitTextField(
-                            value = amountText,
-                            onValueChange = { amountText = it.filter { ch -> ch.isDigit() } },
-                            label = "Сумма (АР)",
-                        )
-                        StarlitTextField(
-                            value = comment,
-                            onValueChange = { comment = it },
-                            label = "Комментарий",
-                        )
-                    }
+                    Text("Перевод", color = StarlitColors.Text, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                    StarlitTextField(
+                        value = toCode,
+                        onValueChange = { toCode = it },
+                        label = "Код карты получателя",
+                    )
+                    StarlitTextField(
+                        value = amountText,
+                        onValueChange = { amountText = it.filter { ch -> ch.isDigit() } },
+                        label = "Сумма (АР)",
+                    )
+                    StarlitTextField(
+                        value = comment,
+                        onValueChange = { comment = it },
+                        label = "Комментарий",
+                    )
                     val treasuryCode = bank.treasuryDonationCode
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -392,9 +392,16 @@ fun BankScreen(vm: LauncherViewModel) {
                                             apiBase = apiBase,
                                             isActive = designs?.active != null && designs.active == id,
                                             busy = id != null && vm.bankBusyDesignId == id,
-                                            locked = vm.bankBusyDesignId != null,
-                                            onBuy = { id?.let { vm.purchaseBankDesign(it) } },
-                                            onEquip = { id?.let { vm.equipBankDesign(it) } },
+                                            onBuy = {
+                                                if (vm.bankBusyDesignId == null) {
+                                                    id?.let { vm.purchaseBankDesign(it) }
+                                                }
+                                            },
+                                            onEquip = {
+                                                if (vm.bankBusyDesignId == null) {
+                                                    id?.let { vm.equipBankDesign(it) }
+                                                }
+                                            },
                                             modifier = Modifier.width(tileW),
                                         )
                                     }
@@ -422,19 +429,21 @@ private fun BankActionButton(
     danger: Boolean = false,
 ) {
     val shape = RoundedCornerShape(10.dp)
-    val active = enabled && !loading
+    val clickable = enabled && !loading
+    // Keep full colors while loading — only truly disabled buttons go dim.
+    val looksOn = enabled || loading
     val borderColor = when {
-        danger -> StarlitColors.Offline.copy(alpha = if (active) 0.65f else 0.3f)
-        emphasized -> StarlitColors.Gold.copy(alpha = if (active) 0.55f else 0.25f)
+        danger -> StarlitColors.Offline.copy(alpha = if (looksOn) 0.65f else 0.3f)
+        emphasized -> StarlitColors.Gold.copy(alpha = if (looksOn) 0.55f else 0.25f)
         else -> StarlitColors.BorderStrong
     }
     val bg = when {
-        danger -> StarlitColors.Offline.copy(alpha = if (active) 0.16f else 0.08f)
-        emphasized -> StarlitColors.Gold.copy(alpha = if (active) 0.14f else 0.06f)
+        danger -> StarlitColors.Offline.copy(alpha = if (looksOn) 0.16f else 0.08f)
+        emphasized -> StarlitColors.Gold.copy(alpha = if (looksOn) 0.14f else 0.06f)
         else -> StarlitColors.SurfaceElevated
     }
     val fg = when {
-        !active -> StarlitColors.TextDim
+        !looksOn -> StarlitColors.TextDim
         danger -> StarlitColors.Offline
         emphasized -> StarlitColors.Gold
         else -> StarlitColors.Text
@@ -445,7 +454,7 @@ private fun BankActionButton(
             .clip(shape)
             .background(bg)
             .border(1.dp, borderColor, shape)
-            .clickable(enabled = active, onClick = onClick),
+            .clickable(enabled = clickable, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         if (loading) {
@@ -722,7 +731,6 @@ private fun DesignShopTile(
     apiBase: String,
     isActive: Boolean,
     busy: Boolean,
-    locked: Boolean,
     onBuy: () -> Unit,
     onEquip: () -> Unit,
     modifier: Modifier = Modifier,
@@ -734,7 +742,6 @@ private fun DesignShopTile(
     val imageUrl = resolveBankImageUrl(design.imageUrl, apiBase)
     val emoji = design.emoji?.takeIf { it.isNotBlank() } ?: "◆"
     val tileShape = RoundedCornerShape(12.dp)
-    val canAct = !locked || busy
 
     Column(
         modifier = modifier
@@ -793,7 +800,7 @@ private fun DesignShopTile(
                     text = "Применить",
                     onClick = onEquip,
                     loading = busy,
-                    enabled = canAct,
+                    enabled = true,
                     emphasized = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -803,7 +810,7 @@ private fun DesignShopTile(
                     text = if (design.free) "Бесплатно" else "Купить · ${formatAr(design.price)}",
                     onClick = onBuy,
                     loading = busy,
-                    enabled = canAct,
+                    enabled = true,
                     emphasized = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
