@@ -8,11 +8,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -219,10 +217,8 @@ fun BankScreen(vm: LauncherViewModel) {
         )
 
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(IntrinsicSize.Min),
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
             verticalAlignment = Alignment.Top,
         ) {
             BankPlasticCard(
@@ -231,8 +227,8 @@ fun BankScreen(vm: LauncherViewModel) {
                 owner = card?.ownerName ?: vm.userName.ifBlank { "—" },
                 themeId = themeId,
                 imageUrl = imageUrl,
-                modifier = Modifier.weight(1f).fillMaxHeight(),
-                fillBounds = true,
+                modifier = Modifier.width(260.dp),
+                compact = true,
                 onCopyCode = {
                     val code = card?.cardCode.orEmpty()
                     if (code.isBlank()) return@BankPlasticCard
@@ -244,31 +240,27 @@ fun BankScreen(vm: LauncherViewModel) {
                 copiedHint = copiedHint,
             )
 
-            StarlitCard(modifier = Modifier.weight(1f).fillMaxHeight()) {
+            StarlitCard(modifier = Modifier.weight(1f)) {
                 Column(
-                    modifier = Modifier
-                        .fillMaxHeight()
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text("Перевод", color = StarlitColors.Text, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
-                        StarlitTextField(
-                            value = toCode,
-                            onValueChange = { toCode = it },
-                            label = "Код карты получателя",
-                        )
-                        StarlitTextField(
-                            value = amountText,
-                            onValueChange = { amountText = it.filter { ch -> ch.isDigit() } },
-                            label = "Сумма (АР)",
-                        )
-                        StarlitTextField(
-                            value = comment,
-                            onValueChange = { comment = it },
-                            label = "Комментарий",
-                        )
-                    }
+                    Text("Перевод", color = StarlitColors.Text, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                    StarlitTextField(
+                        value = toCode,
+                        onValueChange = { toCode = it },
+                        label = "Код карты получателя",
+                    )
+                    StarlitTextField(
+                        value = amountText,
+                        onValueChange = { amountText = it.filter { ch -> ch.isDigit() } },
+                        label = "Сумма (АР)",
+                    )
+                    StarlitTextField(
+                        value = comment,
+                        onValueChange = { comment = it },
+                        label = "Комментарий",
+                    )
                     val treasuryCode = bank.treasuryDonationCode
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -298,6 +290,13 @@ fun BankScreen(vm: LauncherViewModel) {
                         )
                     }
                 }
+            }
+        }
+
+        LaunchedEffect(copiedHint) {
+            if (copiedHint) {
+                kotlinx.coroutines.delay(1600)
+                copiedHint = false
             }
         }
 
@@ -428,7 +427,7 @@ private fun BankActionButton(
     }
     Box(
         modifier = modifier
-            .height(38.dp)
+            .height(34.dp)
             .clip(shape)
             .background(bg)
             .border(1.dp, borderColor, shape)
@@ -461,7 +460,6 @@ private fun BankPlasticCard(
     imageUrl: String?,
     modifier: Modifier = Modifier,
     compact: Boolean = false,
-    fillBounds: Boolean = false,
     onCopyCode: (() -> Unit)? = null,
     copiedHint: Boolean = false,
 ) {
@@ -470,7 +468,7 @@ private fun BankPlasticCard(
     val hasArt = !imageUrl.isNullOrBlank()
     Box(
         modifier = modifier
-            .then(if (fillBounds) Modifier else Modifier.aspectRatio(1.586f))
+            .aspectRatio(1.586f)
             .clip(shape)
             .background(Color(0xFF0E0C16))
             .border(1.dp, Color.White.copy(alpha = 0.08f), shape),
@@ -556,7 +554,7 @@ private fun BankPlasticCard(
                         RuInteger.format(balance),
                         color = Color.White,
                         fontWeight = FontWeight.ExtraBold,
-                        fontSize = if (compact) 24.sp else 32.sp,
+                        fontSize = if (compact) 22.sp else 26.sp,
                     )
                     Spacer(Modifier.width(6.dp))
                     Text(
@@ -592,18 +590,18 @@ private fun BankPlasticCard(
                         if (onCopyCode != null) {
                             Box(
                                 modifier = Modifier
-                                    .clip(RoundedCornerShape(999.dp))
+                                    .size(28.dp)
+                                    .clip(RoundedCornerShape(8.dp))
                                     .background(Color.White.copy(alpha = 0.14f))
-                                    .border(1.dp, Color(0xFFFDE68A).copy(alpha = 0.35f), RoundedCornerShape(999.dp))
-                                    .clickable(onClick = onCopyCode)
-                                    .padding(horizontal = 10.dp, vertical = 5.dp),
+                                    .border(1.dp, Color(0xFFFDE68A).copy(alpha = 0.4f), RoundedCornerShape(8.dp))
+                                    .clickable(onClick = onCopyCode),
                                 contentAlignment = Alignment.Center,
                             ) {
                                 Text(
-                                    if (copiedHint) "Скопировано" else "Копировать",
+                                    if (copiedHint) "✓" else "⧉",
                                     color = Color(0xFFFDE68A),
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
                                 )
                             }
                         }
