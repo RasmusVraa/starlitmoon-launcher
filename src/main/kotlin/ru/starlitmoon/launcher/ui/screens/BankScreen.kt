@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -214,13 +213,14 @@ fun BankScreen(vm: LauncherViewModel) {
 
         BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
             val gap = 14.dp
-            // Plastic card ~ half; transfer card takes the rest as one panel.
-            val cardW = (maxWidth * 0.48f).coerceIn(320.dp, 440.dp)
+            // Slightly wider plastic card; both blocks share a short landscape height.
+            val cardW = (maxWidth * 0.56f).coerceIn(380.dp, 500.dp)
+            val rowH = cardW / 1.55f
 
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(IntrinsicSize.Min),
+                    .height(rowH),
                 horizontalArrangement = Arrangement.spacedBy(gap),
                 verticalAlignment = Alignment.Top,
             ) {
@@ -258,12 +258,12 @@ fun BankScreen(vm: LauncherViewModel) {
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
                         verticalArrangement = Arrangement.SpaceBetween,
                     ) {
                         Column(
                             modifier = Modifier.fillMaxWidth(),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
                             Text(
                                 "Перевод",

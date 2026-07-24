@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -951,23 +952,32 @@ private fun NotificationsBell(vm: LauncherViewModel) {
             )
         }
         if (vm.notificationUnreadCount > 0) {
+            val label = if (vm.notificationUnreadCount > 99) "99+" else vm.notificationUnreadCount.toString()
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .offset(x = 1.dp, y = (-1).dp)
-                    .height(16.dp)
-                    .defaultMinSize(minWidth = 16.dp)
-                    .clip(RoundedCornerShape(8.dp))
+                    .offset(x = 2.dp, y = (-2).dp)
+                    .sizeIn(minWidth = 15.dp, minHeight = 15.dp)
+                    .height(15.dp)
+                    .clip(CircleShape)
                     .background(StarlitColors.Offline)
-                    .padding(horizontal = 4.dp),
+                    .padding(horizontal = if (label.length > 1) 4.dp else 0.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    if (vm.notificationUnreadCount > 99) "99+" else vm.notificationUnreadCount.toString(),
-                    color = StarlitColors.OnGold,
-                    fontSize = 9.sp,
+                    text = label,
+                    color = Color.White,
+                    fontSize = 10.sp,
+                    lineHeight = 10.sp,
                     fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
                     maxLines = 1,
+                    style = androidx.compose.ui.text.TextStyle(
+                        lineHeightStyle = androidx.compose.ui.text.style.LineHeightStyle(
+                            alignment = androidx.compose.ui.text.style.LineHeightStyle.Alignment.Center,
+                            trim = androidx.compose.ui.text.style.LineHeightStyle.Trim.Both,
+                        ),
+                    ),
                 )
             }
         }
