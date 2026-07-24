@@ -39,9 +39,9 @@ import ru.starlitmoon.launcher.ui.theme.StarlitColors
 import ru.starlitmoon.launcher.viewmodel.ClientUpdateLabels
 import ru.starlitmoon.launcher.viewmodel.ClientUpdateProgress
 
-/** Accent from the update-page mock (pink progress). */
-private val UpdateAccent = Color(0xFFFF2D7B)
-private val TrackColor = Color(0xFF2A2D35)
+/** Accent — pastel purple (brand Gold token). */
+private val UpdateAccent = StarlitColors.Gold
+private val TrackColor = StarlitColors.BorderStrong
 private val PanelBg = Color(0xFF101218)
 
 @Composable
@@ -141,7 +141,7 @@ fun ClientUpdateScreen(
                 title = "Текущий этап · ${progress.status}",
                 percent = progress.stagePercent,
                 value = progress.stageProgress,
-                fill = Color.White.copy(alpha = 0.85f),
+                fill = StarlitColors.Text.copy(alpha = 0.75f),
                 modifier = Modifier.weight(1f),
             )
         }

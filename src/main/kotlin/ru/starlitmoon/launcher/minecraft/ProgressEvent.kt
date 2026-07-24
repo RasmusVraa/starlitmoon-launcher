@@ -12,6 +12,8 @@ data class ProgressEvent(
     val filesTotal: Int? = null,
     val currentFile: String? = null,
     val threads: Int? = null,
+    /** Instant / smoothed bytes per second from the producer thread. */
+    val speedBps: Long? = null,
     val kind: Kind = Kind.Generic,
 ) {
     enum class Kind { Generic, Download, Extract, Verify }

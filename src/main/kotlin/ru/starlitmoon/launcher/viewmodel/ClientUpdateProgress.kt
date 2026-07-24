@@ -76,7 +76,12 @@ object ClientUpdateLabels {
 
     fun formatSpeed(bps: Long): String {
         if (bps <= 0L) return "—"
-        return "${formatBytes(bps)}/с"
+        // Show MB/s or KB/s with one decimal for readability.
+        return when {
+            bps >= 1024L * 1024L -> "%.1f МБ/с".format(bps / (1024.0 * 1024.0))
+            bps >= 1024L -> "%.0f КБ/с".format(bps / 1024.0)
+            else -> "$bps Б/с"
+        }
     }
 
     fun formatEta(remainingBytes: Long, bps: Long): String {

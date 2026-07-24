@@ -376,14 +376,28 @@ object ModpackSync {
             BufferedInputStream(conn.inputStream).use { input ->
                 Files.newOutputStream(tmp, *outOptions).use { output ->
                     val buf = ByteArray(1024 * 256)
-                    var lastReport = 0L
+                    var speedWindowBytes = downloaded
+                    var speedWindowAtNs = System.nanoTime()
+                    var lastUiAtNs = 0L
+                    var speedEma = 0.0
                     while (true) {
                         val n = input.read(buf)
                         if (n <= 0) break
                         output.write(buf, 0, n)
                         downloaded += n
-                        if (downloaded - lastReport >= 256 * 1024 || (total > 0 && downloaded >= total)) {
-                            lastReport = downloaded
+                        val nowNs = System.nanoTime()
+                        val sinceBytes = downloaded - speedWindowBytes
+                        val dtSec = (nowNs - speedWindowAtNs) / 1_000_000_000.0
+                        // Advance speed window only after enough time+bytes so МБ/с is stable.
+                        if (dtSec >= 0.25 && sinceBytes >= 64 * 1024) {
+                            val instant = sinceBytes / dtSec
+                            speedEma = if (speedEma <= 0.0) instant else speedEma * 0.6 + instant * 0.4
+                            speedWindowBytes = downloaded
+                            speedWindowAtNs = nowNs
+                        }
+                        val uiDtSec = if (lastUiAtNs == 0L) 1.0 else (nowNs - lastUiAtNs) / 1_000_000_000.0
+                        if (uiDtSec >= 0.2 || (total > 0 && downloaded >= total)) {
+                            lastUiAtNs = nowNs
                             val frac = if (total > 0) {
                                 (0.02f + 0.85f * (downloaded.toFloat() / total.toFloat())).coerceIn(0.02f, 0.87f)
                             } else {
@@ -402,6 +416,7 @@ object ModpackSync {
                                     bytesTotal = total.takeIf { it > 0 },
                                     currentFile = tmp.name.removeSuffix(".part"),
                                     threads = 1,
+                                    speedBps = speedEma.toLong().takeIf { it > 0 },
                                     kind = ProgressEvent.Kind.Download,
                                 ),
                             )

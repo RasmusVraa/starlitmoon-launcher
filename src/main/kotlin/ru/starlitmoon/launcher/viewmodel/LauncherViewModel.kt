@@ -882,25 +882,36 @@ class LauncherViewModel(
 
             val bytesDone = event?.bytesDone ?: clientUpdate?.downloadedBytes ?: 0L
             val bytesTotal = event?.bytesTotal ?: clientUpdate?.totalBytes
-            val now = System.currentTimeMillis()
-            var speed: Long? = clientUpdate?.speedBps
-            if (event?.bytesDone != null && event.bytesDone > speedSampleBytes && speedSampleAtMs > 0L) {
-                val dt = (now - speedSampleAtMs) / 1000.0
-                if (dt > 0.08) {
-                    val inst = (event.bytesDone - speedSampleBytes) / dt
-                    speedEmaBps = if (speedEmaBps <= 0) inst else speedEmaBps * 0.65 + inst * 0.35
-                    speed = speedEmaBps.toLong().takeIf { it > 0 }
+            // Prefer producer-side speed (IO thread). Fall back only for downloads without speedBps.
+            val speed: Long? = when {
+                event?.speedBps != null -> event.speedBps
+                event?.kind == ProgressEvent.Kind.Download && event.bytesDone != null -> {
+                    val now = System.currentTimeMillis()
+                    var next: Long? = clientUpdate?.speedBps
+                    if (event.bytesDone > speedSampleBytes && speedSampleAtMs > 0L) {
+                        val dt = (now - speedSampleAtMs) / 1000.0
+                        if (dt >= 0.2) {
+                            val inst = (event.bytesDone - speedSampleBytes) / dt
+                            speedEmaBps = if (speedEmaBps <= 0) inst else speedEmaBps * 0.55 + inst * 0.45
+                            next = speedEmaBps.toLong().takeIf { it > 0 }
+                        }
+                    }
+                    if (event.bytesDone > speedSampleBytes) {
+                        speedSampleBytes = event.bytesDone
+                        speedSampleAtMs = now
+                    }
+                    next
                 }
-            }
-            if (event?.bytesDone != null) {
-                speedSampleBytes = event.bytesDone
-                speedSampleAtMs = now
+                event?.kind == ProgressEvent.Kind.Extract || event?.kind == ProgressEvent.Kind.Verify -> null
+                phase != ClientUpdatePhase.Download -> null
+                else -> clientUpdate?.speedBps
             }
 
             val remaining = when {
                 bytesTotal != null && bytesTotal > bytesDone && speed != null && speed > 0 ->
                     ClientUpdateLabels.formatEta(bytesTotal - bytesDone, speed)
                 phase == ClientUpdatePhase.Prep -> "Расчёт..."
+                phase == ClientUpdatePhase.Verify -> "Проверка…"
                 stageFrac >= 0.99f -> "Почти готово"
                 else -> clientUpdate?.remainingLabel ?: "Расчёт..."
             }

@@ -962,7 +962,7 @@ private fun ClientUpdateMiniChip(
     percent: Int,
     onClick: () -> Unit,
 ) {
-    val accent = Color(0xFFFF2D7B)
+    val accent = StarlitColors.Gold
     val shape = RoundedCornerShape(10.dp)
     Column(
         modifier = Modifier
@@ -985,7 +985,7 @@ private fun ClientUpdateMiniChip(
                 .fillMaxWidth()
                 .height(4.dp)
                 .clip(RoundedCornerShape(50))
-                .background(Color(0xFF2A2D35)),
+                .background(StarlitColors.BorderStrong),
         ) {
             Box(
                 modifier = Modifier
