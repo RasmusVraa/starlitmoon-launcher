@@ -356,9 +356,10 @@ class LauncherViewModel(
             updateProgress = "Подготовка обновления…"
             updateProgressFraction = 0f
             errorMessage = null
-            runCatching {
+            var readyToExit = false
+            try {
                 val paths = withContext(Dispatchers.IO) { LauncherSelfUpdater.resolveInstallPaths() }
-                LauncherLog.info("Self-update → ${paths.installDir}")
+                LauncherLog.info("Self-update → ${paths.installDir} kind=${update.packageKind}")
                 val kind = update.packageKind
                 val name = update.packageName?.takeIf { it.isNotBlank() }
                     ?: if (kind == UpdatePackageKind.ZIP) {
@@ -373,34 +374,25 @@ class LauncherViewModel(
                 withContext(Dispatchers.IO) {
                     LauncherSelfUpdater.downloadPackage(url, target) { frac, label ->
                         SwingUtilities.invokeLater {
-                            updateProgressFraction = frac * 0.9f
+                            updateProgressFraction = (frac * 0.92f).coerceIn(0f, 0.92f)
                             updateProgress = label
                         }
                     }
                 }
-                updateProgress = if (kind == UpdatePackageKind.ZIP) {
-                    "Подготовка файлов…"
-                } else {
-                    "Установка и перезапуск…"
-                }
-                updateProgressFraction = 0.92f
+                updateProgress = "Перезапуск…"
+                updateProgressFraction = 0.96f
                 withContext(Dispatchers.IO) {
                     when (kind) {
                         UpdatePackageKind.ZIP -> {
                             val staging = configState.dataDir.resolve("updates")
                                 .resolve("staging-${update.latestVersion}")
-                            LauncherSelfUpdater.prepareZipUpdateAndRestart(
+                            LauncherSelfUpdater.scheduleZipUpdateAndRestart(
                                 zipPath = target,
                                 stagingDir = staging,
                                 installDir = paths.installDir,
                                 relaunchExe = paths.relaunchExe,
                                 launcherPid = ProcessHandle.current().pid(),
-                            ) { msg, frac ->
-                                SwingUtilities.invokeLater {
-                                    updateProgress = msg
-                                    updateProgressFraction = frac
-                                }
-                            }
+                            )
                         }
                         UpdatePackageKind.SETUP -> {
                             LauncherSelfUpdater.scheduleInstallAndRestart(
@@ -413,21 +405,25 @@ class LauncherViewModel(
                     }
                 }
                 selfUpdateScheduled = true
+                readyToExit = true
                 updateProgress = "Перезапуск…"
                 updateProgressFraction = 1f
                 infoMessage = "Обновление готово — перезапуск…"
-                // Hard exit: Compose requestExit often never tears down before the apply helper
-                // is cancelled or the UI resets the update overlay.
-                delay(200)
-                runCatching { disposeForSelfUpdate() }
-                LauncherSelfUpdater.exitForApply()
-            }.onFailure { err ->
+            } catch (err: Throwable) {
+                if (err is kotlinx.coroutines.CancellationException) throw err
                 LauncherLog.error("Self-update failed: ${err.message}")
                 isApplyingUpdate = false
                 updateProgress = null
                 updateProgressFraction = null
                 errorMessage = err.message?.takeIf { it.isNotBlank() }
                     ?: "Не удалось обновить лаунчер"
+                return@launch
+            }
+            // NEVER put exitProcess inside runCatching — it surfaces as failure and resets the UI.
+            if (readyToExit) {
+                delay(250)
+                runCatching { disposeForSelfUpdate() }
+                LauncherSelfUpdater.exitForApply()
             }
         }
     }

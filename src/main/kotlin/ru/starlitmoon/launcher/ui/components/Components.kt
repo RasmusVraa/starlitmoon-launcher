@@ -1093,6 +1093,7 @@ fun UpdateOverlay(
     applying: Boolean = false,
     progressLabel: String? = null,
     progressFraction: Float? = null,
+    error: String? = null,
 ) {
     Box(
         modifier = Modifier
@@ -1130,10 +1131,18 @@ fun UpdateOverlay(
                     color = StarlitColors.TextMuted,
                     fontSize = 14.sp,
                 )
-                if (!applying && update.releaseNotes.isNotBlank()) {
+                if (!applying && update.releaseNotes.isNotBlank() && error.isNullOrBlank()) {
                     Text(
                         update.releaseNotes.lines().take(6).joinToString("\n"),
                         color = StarlitColors.Text,
+                        fontSize = 13.sp,
+                        lineHeight = 18.sp,
+                    )
+                }
+                if (!error.isNullOrBlank() && !applying) {
+                    Text(
+                        error,
+                        color = StarlitColors.Offline,
                         fontSize = 13.sp,
                         lineHeight = 18.sp,
                     )
@@ -1147,7 +1156,7 @@ fun UpdateOverlay(
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     StarlitPrimaryButton(
-                        text = if (applying) "Обновление…" else "Обновить",
+                        text = if (applying) "Обновление…" else if (!error.isNullOrBlank()) "Повторить" else "Обновить",
                         onClick = onDownload,
                         modifier = Modifier.width(160.dp),
                         loading = applying,

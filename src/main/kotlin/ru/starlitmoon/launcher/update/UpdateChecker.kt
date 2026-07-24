@@ -96,6 +96,13 @@ class UpdateChecker(
         private data class Picked(val name: String, val downloadUrl: String, val kind: UpdatePackageKind)
 
         private fun pickPackage(assets: List<GitHubAsset>): Picked? {
+            // Setup first — Inno replaces files reliably; ZIP extract in-process was broken.
+            val setup = assets.firstOrNull { a ->
+                a.name.endsWith(".exe", ignoreCase = true) && a.name.contains("Setup", ignoreCase = true)
+            }
+            if (setup != null) {
+                return Picked(setup.name, setup.downloadUrl, UpdatePackageKind.SETUP)
+            }
             val zip = assets.firstOrNull { a ->
                 a.name.endsWith(".zip", ignoreCase = true) &&
                     (a.name.contains("windows", ignoreCase = true) ||
@@ -104,12 +111,6 @@ class UpdateChecker(
             }
             if (zip != null) {
                 return Picked(zip.name, zip.downloadUrl, UpdatePackageKind.ZIP)
-            }
-            val setup = assets.firstOrNull { a ->
-                a.name.endsWith(".exe", ignoreCase = true) && a.name.contains("Setup", ignoreCase = true)
-            }
-            if (setup != null) {
-                return Picked(setup.name, setup.downloadUrl, UpdatePackageKind.SETUP)
             }
             val anyExe = assets.firstOrNull { it.name.endsWith(".exe", ignoreCase = true) } ?: return null
             return Picked(anyExe.name, anyExe.downloadUrl, UpdatePackageKind.SETUP)

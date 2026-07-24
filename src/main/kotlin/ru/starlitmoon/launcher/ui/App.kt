@@ -99,6 +99,7 @@ fun FrameWindowScope.LauncherApp(
                                         applying = vm.isApplyingUpdate,
                                         progressLabel = vm.updateProgress,
                                         progressFraction = vm.updateProgressFraction,
+                                        error = vm.errorMessage,
                                     )
                                 }
                             }
@@ -175,6 +176,7 @@ fun FrameWindowScope.LauncherApp(
                                                 applying = vm.isApplyingUpdate,
                                                 progressLabel = vm.updateProgress,
                                                 progressFraction = vm.updateProgressFraction,
+                                                error = vm.errorMessage,
                                             )
                                         }
                                     }
