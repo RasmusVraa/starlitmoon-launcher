@@ -1,5 +1,8 @@
 #Requires -Version 5
-param([string]$Version = "1.2.8")
+param(
+  [string]$Version = "1.3.2",
+  [switch]$Sign
+)
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 Set-Location $Root
@@ -20,3 +23,8 @@ if (-not (Test-Path $iscc)) { throw "ISCC.exe not found" }
 New-Item -ItemType Directory -Force -Path "dist\v$Version" | Out-Null
 & $iscc "installer\starlitmoon.iss"
 Write-Host "OK: dist\v$Version\StarlitMoonLauncher-Setup-$Version.exe"
+
+$pfx = Join-Path $Root "certs\starlitmoon-codesign.pfx"
+if ($Sign -or (Test-Path $pfx)) {
+  & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Root "scripts\sign-release.ps1") -Version $Version
+}
