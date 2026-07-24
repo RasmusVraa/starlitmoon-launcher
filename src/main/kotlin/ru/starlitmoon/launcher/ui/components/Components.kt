@@ -964,23 +964,34 @@ private fun ClientUpdateMiniChip(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
+        // Force track into the geometric vertical center of the chip.
         Box(
             modifier = Modifier
                 .weight(1f)
-                .height(8.dp)
-                .clip(RoundedCornerShape(50))
-                .background(StarlitColors.BorderStrong),
+                .fillMaxHeight(),
+            contentAlignment = Alignment.Center,
         ) {
             Box(
                 modifier = Modifier
-                    .fillMaxHeight()
-                    .fillMaxWidth((percent.coerceIn(0, 100) / 100f))
+                    .fillMaxWidth()
+                    .height(8.dp)
                     .clip(RoundedCornerShape(50))
-                    .background(accent),
-            )
+                    .background(StarlitColors.BorderStrong),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .fillMaxWidth((percent.coerceIn(0, 100) / 100f))
+                        .clip(RoundedCornerShape(50))
+                        .background(accent),
+                )
+            }
         }
+        // Same geometric center as the track; Skia glyphs sit high — nudge down.
         Box(
-            modifier = Modifier.fillMaxHeight(),
+            modifier = Modifier
+                .width(34.dp)
+                .fillMaxHeight(),
             contentAlignment = Alignment.Center,
         ) {
             Text(
@@ -990,8 +1001,8 @@ private fun ClientUpdateMiniChip(
                 fontWeight = FontWeight.Bold,
                 lineHeight = 12.sp,
                 maxLines = 1,
-                // Skia font metrics sit slightly high; nudge to optical center.
-                modifier = Modifier.offset(y = 1.dp),
+                softWrap = false,
+                modifier = Modifier.offset(y = 3.dp),
             )
         }
     }
