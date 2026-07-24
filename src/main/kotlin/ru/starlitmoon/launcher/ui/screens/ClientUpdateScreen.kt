@@ -1,7 +1,6 @@
 package ru.starlitmoon.launcher.ui.screens
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -47,7 +46,6 @@ private val PanelBg = Color(0xFF101218)
 @Composable
 fun ClientUpdateScreen(
     progress: ClientUpdateProgress,
-    onMinimize: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -98,19 +96,6 @@ fun ClientUpdateScreen(
                     strokeWidth = 2.dp,
                     trackColor = TrackColor,
                 )
-                if (onMinimize != null) {
-                    Spacer(Modifier.width(14.dp))
-                    Text(
-                        "Свернуть",
-                        color = StarlitColors.Gold,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable(onClick = onMinimize)
-                            .padding(horizontal = 10.dp, vertical = 6.dp),
-                    )
-                }
             }
         }
 

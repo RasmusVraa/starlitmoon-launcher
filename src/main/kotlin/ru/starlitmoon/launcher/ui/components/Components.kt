@@ -951,26 +951,30 @@ private fun ClientUpdateMiniChip(
 ) {
     val accent = StarlitColors.Gold
     val shape = RoundedCornerShape(10.dp)
+    // Match notifications bell outer box: 36dp tall, same corner radius/border.
     Column(
         modifier = Modifier
-            .width(88.dp)
+            .height(36.dp)
+            .width(56.dp)
             .clip(shape)
             .background(StarlitColors.SurfaceHover)
             .border(1.dp, StarlitColors.Border, shape)
             .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 7.dp),
-        verticalArrangement = Arrangement.spacedBy(5.dp),
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+        verticalArrangement = Arrangement.SpaceBetween,
     ) {
         Text(
             "$percent%",
             color = StarlitColors.Text,
-            fontSize = 11.sp,
+            fontSize = 10.sp,
             fontWeight = FontWeight.Bold,
+            lineHeight = 10.sp,
+            maxLines = 1,
         )
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(4.dp)
+                .height(3.dp)
                 .clip(RoundedCornerShape(50))
                 .background(StarlitColors.BorderStrong),
         ) {

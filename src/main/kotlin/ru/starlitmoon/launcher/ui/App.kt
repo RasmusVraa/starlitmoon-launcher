@@ -126,7 +126,6 @@ fun FrameWindowScope.LauncherApp(
                                         if (update != null && vm.clientUpdateVisible) {
                                             ClientUpdateScreen(
                                                 progress = update,
-                                                onMinimize = { vm.dismissClientUpdatePage() },
                                             )
                                         } else {
                                             AnimatedContent(
