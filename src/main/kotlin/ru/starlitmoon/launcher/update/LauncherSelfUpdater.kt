@@ -35,7 +35,7 @@ object LauncherSelfUpdater {
     private const val EXE_NAME = "StarlitMoonLauncher.exe"
     private const val UPDATE_FLAG = "pending.flag"
     private const val APPLY_PS1 = "apply-update.ps1"
-    private const val APPLY_VBS = "apply-update.vbs"
+    private const val APPLY_LOG = "apply-update.log"
 
     suspend fun downloadPackage(
         url: String,
@@ -138,7 +138,7 @@ object LauncherSelfUpdater {
         val updateDir = installDir.resolve("update").also { it.createDirectories() }
         val flag = updateDir.resolve(UPDATE_FLAG)
         val ps1 = updateDir.resolve(APPLY_PS1)
-        val vbs = updateDir.resolve(APPLY_VBS)
+        val log = updateDir.resolve(APPLY_LOG)
 
         fun psLit(path: String): String = "'" + path.replace("'", "''") + "'"
 
@@ -151,9 +151,16 @@ object LauncherSelfUpdater {
         val flagPath = flag.toAbsolutePath().normalize().pathString
         val stagingPath = stagingDir.toAbsolutePath().normalize().pathString
         val zipAbs = zipPath.toAbsolutePath().normalize().pathString
+        val logPath = log.toAbsolutePath().normalize().pathString
 
         val script = """
-            ${'$'}ErrorActionPreference = 'SilentlyContinue'
+            ${'$'}ErrorActionPreference = 'Continue'
+            ${'$'}log = ${psLit(logPath)}
+            function Log(${'$'}msg) {
+              ${'$'}line = ('[{0}] {1}' -f (Get-Date -Format 'HH:mm:ss'), ${'$'}msg)
+              Add-Content -LiteralPath ${'$'}log -Value ${'$'}line -Encoding UTF8 -ErrorAction SilentlyContinue
+            }
+            Log 'apply-update started'
             ${'$'}pidToWait = $launcherPid
             ${'$'}src = ${psLit(src)}
             ${'$'}dir = ${psLit(dir)}
@@ -162,35 +169,61 @@ object LauncherSelfUpdater {
             ${'$'}flag = ${psLit(flagPath)}
             ${'$'}staging = ${psLit(stagingPath)}
             ${'$'}zip = ${psLit(zipAbs)}
-            ${'$'}deadline = (Get-Date).AddMinutes(5)
+            ${'$'}deadline = (Get-Date).AddMinutes(3)
             while ((Get-Date) -lt ${'$'}deadline) {
-              if (-not (Test-Path -LiteralPath ${'$'}flag)) { exit 0 }
-              if (-not (Get-Process -Id ${'$'}pidToWait -ErrorAction SilentlyContinue)) { break }
-              Start-Sleep -Milliseconds 200
+              if (-not (Test-Path -LiteralPath ${'$'}flag)) { Log 'flag removed — abort'; exit 0 }
+              ${'$'}alive = ${'$'}false
+              try {
+                if (Get-Process -Id ${'$'}pidToWait -ErrorAction Stop) { ${'$'}alive = ${'$'}true }
+              } catch { ${'$'}alive = ${'$'}false }
+              if (-not ${'$'}alive) {
+                # Also wait until install-dir launcher EXE releases file locks.
+                ${'$'}lockers = @(Get-Process -Name 'StarlitMoonLauncher','java','javaw' -ErrorAction SilentlyContinue |
+                  Where-Object {
+                    ${'$'}p = ${'$'}_.Path
+                    if ([string]::IsNullOrWhiteSpace(${'$'}p)) { ${'$'}false }
+                    else { ${'$'}p.StartsWith(${'$'}dir, [System.StringComparison]::OrdinalIgnoreCase) }
+                  })
+                if (${'$'}lockers.Count -eq 0) { break }
+                Log ("waiting for lockers: " + ((${'$'}lockers | ForEach-Object { ${'$'}_.Id }) -join ','))
+              }
+              Start-Sleep -Milliseconds 250
             }
-            if (-not (Test-Path -LiteralPath ${'$'}flag)) { exit 0 }
-            Remove-Item -LiteralPath ${'$'}flag -Force -ErrorAction SilentlyContinue
-            if (-not (Test-Path -LiteralPath ${'$'}src)) { exit 1 }
+            if (-not (Test-Path -LiteralPath ${'$'}flag)) { Log 'flag gone after wait'; exit 0 }
+            if (-not (Test-Path -LiteralPath ${'$'}src)) { Log 'staging missing'; exit 1 }
+            Log 'copying files via robocopy'
+            Start-Sleep -Milliseconds 500
+            ${'$'}copied = ${'$'}false
+            for (${'$'}i = 1; ${'$'}i -le 8; ${'$'}i++) {
+              & robocopy ${'$'}src ${'$'}dir /E /IS /IT /R:1 /W:1 /NFL /NDL /NJH /NJS /NP | Out-Null
+              ${'$'}code = ${'$'}LASTEXITCODE
+              Log ("robocopy attempt ${'$'}i exit=${'$'}code")
+              if (${'$'}code -lt 8) { ${'$'}copied = ${'$'}true; break }
+              Start-Sleep -Milliseconds 700
+            }
+            if (-not ${'$'}copied) { Log 'robocopy failed'; exit 8 }
+            ${'$'}launch = ${'$'}null
+            if (Test-Path -LiteralPath ${'$'}exe) { ${'$'}launch = ${'$'}exe }
+            elseif (Test-Path -LiteralPath ${'$'}altExe) { ${'$'}launch = ${'$'}altExe }
+            if (${'$'}null -eq ${'$'}launch) { Log 'exe missing after copy'; exit 1 }
+            Log ("starting ${'$'}launch")
             Start-Sleep -Milliseconds 300
-            # Fast in-place replace of launcher files (skip user data outside the app tree).
-            & robocopy ${'$'}src ${'$'}dir /E /IS /IT /R:2 /W:1 /NFL /NDL /NJH /NJS /NP | Out-Null
-            ${'$'}code = ${'$'}LASTEXITCODE
-            if (${'$'}code -ge 8) { exit ${'$'}code }
-            Start-Sleep -Milliseconds 200
-            if (Test-Path -LiteralPath ${'$'}exe) {
-              Start-Process -FilePath ${'$'}exe -WorkingDirectory ${'$'}dir
-            } elseif (Test-Path -LiteralPath ${'$'}altExe) {
-              Start-Process -FilePath ${'$'}altExe -WorkingDirectory ${'$'}dir
+            try {
+              Start-Process -FilePath ${'$'}launch -WorkingDirectory ${'$'}dir | Out-Null
+              Log 'Start-Process ok'
+            } catch {
+              Log ("Start-Process failed: " + ${'$'}_.Exception.Message)
+              Start-Process -FilePath 'cmd.exe' -ArgumentList @('/c','start','','/D',${'$'}dir,${'$'}launch) -WindowStyle Hidden | Out-Null
             }
+            Remove-Item -LiteralPath ${'$'}flag -Force -ErrorAction SilentlyContinue
             Remove-Item -LiteralPath ${'$'}zip -Force -ErrorAction SilentlyContinue
             Remove-Item -LiteralPath ${'$'}staging -Recurse -Force -ErrorAction SilentlyContinue
-            Remove-Item -LiteralPath (Join-Path (Split-Path ${'$'}flag) '$APPLY_VBS') -Force -ErrorAction SilentlyContinue
             Remove-Item -LiteralPath (Join-Path (Split-Path ${'$'}flag) '$APPLY_PS1') -Force -ErrorAction SilentlyContinue
+            Log 'done'
         """.trimIndent().replace("\n", "\r\n")
         ps1.writeText(script)
-
-        writeHiddenLauncher(vbs, ps1)
-        startHidden(vbs, installDir)
+        startDetachedPowerShell(ps1, installDir, log)
+        onProgress("Перезапуск…")
     }
 
     /** Legacy Setup.exe silent install path. */
@@ -203,8 +236,8 @@ object LauncherSelfUpdater {
         require(installer.exists()) { "Установщик не найден" }
         val updateDir = installDir.resolve("update").also { it.createDirectories() }
         val ps1 = updateDir.resolve(APPLY_PS1)
-        val vbs = updateDir.resolve(APPLY_VBS)
         val flag = updateDir.resolve(UPDATE_FLAG)
+        val log = updateDir.resolve(APPLY_LOG)
 
         fun psLit(path: String): String = "'" + path.replace("'", "''") + "'"
 
@@ -215,9 +248,16 @@ object LauncherSelfUpdater {
         val exe = relaunchExe.toAbsolutePath().normalize().pathString
         val altExe = installDir.resolve(EXE_NAME).toAbsolutePath().normalize().pathString
         val flagPath = flag.toAbsolutePath().normalize().pathString
+        val logPath = log.toAbsolutePath().normalize().pathString
 
         val script = """
-            ${'$'}ErrorActionPreference = 'SilentlyContinue'
+            ${'$'}ErrorActionPreference = 'Continue'
+            ${'$'}log = ${psLit(logPath)}
+            function Log(${'$'}msg) {
+              ${'$'}line = ('[{0}] {1}' -f (Get-Date -Format 'HH:mm:ss'), ${'$'}msg)
+              Add-Content -LiteralPath ${'$'}log -Value ${'$'}line -Encoding UTF8 -ErrorAction SilentlyContinue
+            }
+            Log 'setup-update started'
             ${'$'}pidToWait = $launcherPid
             ${'$'}setup = ${psLit(setup)}
             ${'$'}dir = ${psLit(dir)}
@@ -227,25 +267,25 @@ object LauncherSelfUpdater {
             ${'$'}deadline = (Get-Date).AddMinutes(10)
             while ((Get-Date) -lt ${'$'}deadline) {
               if (-not (Test-Path -LiteralPath ${'$'}flag)) { exit 0 }
-              if (-not (Get-Process -Id ${'$'}pidToWait -ErrorAction SilentlyContinue)) { break }
+              try { Get-Process -Id ${'$'}pidToWait -ErrorAction Stop | Out-Null } catch { break }
               Start-Sleep -Milliseconds 250
             }
             if (-not (Test-Path -LiteralPath ${'$'}flag)) { exit 0 }
-            Remove-Item -LiteralPath ${'$'}flag -Force -ErrorAction SilentlyContinue
-            if (-not (Test-Path -LiteralPath ${'$'}setup)) { exit 0 }
+            if (-not (Test-Path -LiteralPath ${'$'}setup)) { Log 'setup missing'; exit 0 }
+            Log 'running Inno Setup'
             Start-Sleep -Milliseconds 400
             ${'$'}args = @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/CLOSEAPPLICATIONS','/FORCECLOSEAPPLICATIONS',('/DIR=' + ${'$'}dir))
             Start-Process -FilePath ${'$'}setup -ArgumentList ${'$'}args -Wait -WindowStyle Hidden | Out-Null
             Start-Sleep -Milliseconds 400
-            if (Test-Path -LiteralPath ${'$'}exe) { Start-Process -FilePath ${'$'}exe }
-            elseif (Test-Path -LiteralPath ${'$'}altExe) { Start-Process -FilePath ${'$'}altExe }
+            if (Test-Path -LiteralPath ${'$'}exe) { Start-Process -FilePath ${'$'}exe -WorkingDirectory ${'$'}dir }
+            elseif (Test-Path -LiteralPath ${'$'}altExe) { Start-Process -FilePath ${'$'}altExe -WorkingDirectory ${'$'}dir }
+            Remove-Item -LiteralPath ${'$'}flag -Force -ErrorAction SilentlyContinue
             Remove-Item -LiteralPath ${'$'}setup -Force -ErrorAction SilentlyContinue
-            Remove-Item -LiteralPath (Join-Path (Split-Path ${'$'}flag) '$APPLY_VBS') -Force -ErrorAction SilentlyContinue
             Remove-Item -LiteralPath (Join-Path (Split-Path ${'$'}flag) '$APPLY_PS1') -Force -ErrorAction SilentlyContinue
+            Log 'done'
         """.trimIndent().replace("\n", "\r\n")
         ps1.writeText(script)
-        writeHiddenLauncher(vbs, ps1)
-        startHidden(vbs, installDir)
+        startDetachedPowerShell(ps1, installDir, log)
     }
 
     fun cancelPendingRestart() {
@@ -254,8 +294,8 @@ object LauncherSelfUpdater {
             val updateDir = paths.installDir.resolve("update")
             updateDir.resolve(UPDATE_FLAG).deleteIfExists()
             updateDir.resolve(APPLY_PS1).deleteIfExists()
-            updateDir.resolve(APPLY_VBS).deleteIfExists()
             // Legacy names from older builds
+            updateDir.resolve("apply-update.vbs").deleteIfExists()
             updateDir.resolve("run-update.ps1").deleteIfExists()
             updateDir.resolve("run-update.vbs").deleteIfExists()
             ProcessHandle.allProcesses().forEach { ph ->
@@ -275,7 +315,14 @@ object LauncherSelfUpdater {
             ?.let { Path.of(it).toAbsolutePath().normalize() }
 
         val exe = when {
-            command != null && command.fileName.toString().endsWith(".exe", ignoreCase = true) -> command
+            command != null &&
+                command.fileName.toString().equals(EXE_NAME, ignoreCase = true) -> command
+            command != null && command.fileName.toString().endsWith(".exe", ignoreCase = true) &&
+                !command.fileName.toString().equals("java.exe", ignoreCase = true) &&
+                !command.fileName.toString().equals("javaw.exe", ignoreCase = true) -> {
+                // Prefer sibling StarlitMoonLauncher.exe if we landed on a helper exe.
+                command.parent?.resolve(EXE_NAME)?.takeIf { it.exists() } ?: command
+            }
             else -> {
                 val javaHome = Path.of(System.getProperty("java.home")).toAbsolutePath().normalize()
                 val candidates = listOf(
@@ -295,29 +342,74 @@ object LauncherSelfUpdater {
         val relaunchExe: Path,
     )
 
-    private fun writeHiddenLauncher(vbs: Path, ps1: Path) {
+    /**
+     * Launch PowerShell outside the launcher process tree so [exitProcess] / job-object
+     * teardown cannot kill the updater mid-flight.
+     */
+    private fun startDetachedPowerShell(ps1: Path, cwd: Path, log: Path) {
         val psPath = ps1.toAbsolutePath().normalize().pathString
-        val body = buildString {
-            appendLine("Set sh = CreateObject(\"WScript.Shell\")")
-            append("sh.Run \"powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"\"")
-            append(psPath.replace("\"", "\"\""))
-            append("\"\"\", 0, False")
-            append("\r\n")
+        val logPath = log.toAbsolutePath().normalize().pathString
+        runCatching {
+            Files.writeString(
+                log,
+                "[${java.time.LocalTime.now()}] spawning detached updater\r\n",
+                StandardCharsets.UTF_8,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING,
+                StandardOpenOption.WRITE,
+            )
         }
-        Files.writeString(vbs, body, StandardCharsets.UTF_8)
-    }
-
-    private fun startHidden(vbs: Path, cwd: Path) {
-        ProcessBuilder(
-            "wscript.exe",
-            "//B",
-            "//Nologo",
-            vbs.toAbsolutePath().normalize().pathString,
-        ).apply {
-            directory(cwd.toFile())
-            redirectOutput(ProcessBuilder.Redirect.DISCARD)
-            redirectError(ProcessBuilder.Redirect.DISCARD)
-        }.start()
+        // cmd `start` breaks away from the parent console/job so the updater survives exitProcess.
+        val cmdLine = buildString {
+            append("start \"StarlitMoonUpdate\" /MIN ")
+            append("powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden ")
+            append("-File \"")
+            append(psPath.replace("\"", "\\\""))
+            append("\"")
+        }
+        val started = runCatching {
+            ProcessBuilder("cmd.exe", "/c", cmdLine)
+                .directory(cwd.toFile())
+                .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                .redirectError(ProcessBuilder.Redirect.DISCARD)
+                .start()
+                .waitFor()
+            true
+        }.getOrDefault(false)
+        if (!started) {
+            // Fallback: direct PowerShell (may die with parent on some setups).
+            ProcessBuilder(
+                "powershell.exe",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-WindowStyle",
+                "Hidden",
+                "-File",
+                psPath,
+            ).apply {
+                directory(cwd.toFile())
+                redirectOutput(ProcessBuilder.Redirect.appendTo(log.toFile()))
+                redirectError(ProcessBuilder.Redirect.appendTo(log.toFile()))
+            }.start()
+            Files.writeString(
+                log,
+                "fallback direct powershell used\r\n",
+                StandardCharsets.UTF_8,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.APPEND,
+            )
+        } else {
+            Files.writeString(
+                log,
+                "detached cmd start ok\r\n",
+                StandardCharsets.UTF_8,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.APPEND,
+            )
+        }
+        // Give the shell a moment to spawn before the JVM tears down.
+        Thread.sleep(400)
     }
 
     /** ZIP may contain files at root or a single top-level folder. */
@@ -329,6 +421,7 @@ object LauncherSelfUpdater {
             val nested = kids[0]
             if (nested.resolve(EXE_NAME).exists()) return nested
         }
+        // Compose ZIP sometimes nests under app/ without exe at that level — keep staging.
         return staging
     }
 

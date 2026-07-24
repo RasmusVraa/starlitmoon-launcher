@@ -125,6 +125,9 @@ class LauncherViewModel(
     /** true после scheduleInstallAndRestart — не отменять апдейтер при выходе. */
     private var selfUpdateScheduled = false
     var requestExit by mutableStateOf(false)
+
+    /** True after an update helper was spawned — Main must exit without hanging dispose. */
+    fun isSelfUpdatePending(): Boolean = selfUpdateScheduled
     var isGameRunning by mutableStateOf(false)
     private var gameProcess: Process? = null
     private var gameWatchJob: Job? = null
@@ -396,7 +399,7 @@ class LauncherViewModel(
                 updateProgress = "Перезапуск…"
                 updateProgressFraction = 1f
                 infoMessage = "Обновление готово — перезапуск…"
-                delay(250)
+                delay(400)
                 requestExit = true
             }.onFailure { err ->
                 isApplyingUpdate = false
@@ -1710,11 +1713,21 @@ class LauncherViewModel(
         if (!selfUpdateScheduled) {
             runCatching { LauncherSelfUpdater.cancelPendingRestart() }
         }
+        // Keep dispose light — Discord/Ktor close can hang and block self-update exit.
         runCatching { discordPresence.close() }
         runCatching { api.close() }
         runCatching { mc.close() }
         runCatching { skins.close() }
         runCatching { updateChecker.close() }
+    }
+
+    /** Minimal teardown before hard exit during self-update (avoid hung closes). */
+    fun disposeForSelfUpdate() {
+        statusJob?.cancel()
+        gameWatchJob?.cancel()
+        killProcessTree(gameProcess)
+        clearGameProcess()
+        runCatching { discordPresence.close() }
     }
 
     /** Kill Minecraft java and any child processes (NeoForge wrappers, etc.). */
