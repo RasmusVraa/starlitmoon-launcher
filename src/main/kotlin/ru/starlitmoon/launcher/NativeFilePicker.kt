@@ -11,7 +11,7 @@ import javax.swing.SwingUtilities
 import javax.swing.UIManager
 import javax.swing.filechooser.FileNameExtensionFilter
 
-/** Нативный выбор файла: Windows OpenFileDialog, иначе системный L&F. */
+/** Нативный выбор файла: Windows OpenFileDialog (без второго Swing-диалога при отмене). */
 object NativeFilePicker {
 
     fun pickOpenFile(
@@ -21,7 +21,8 @@ object NativeFilePicker {
     ): File? {
         val exts = extensions.map { it.trim().lowercase().removePrefix(".") }.filter { it.isNotEmpty() }
         if (WindowsShell.isWindows()) {
-            pickWindowsForms(title, filterLabel, exts)?.let { return it }
+            // Отмена или выбор — только этот диалог. Не открываем Swing/AWT поверх.
+            return pickWindowsForms(title, filterLabel, exts)
         }
         return pickAwtOrSwing(title, filterLabel, exts)
     }
@@ -71,8 +72,8 @@ object NativeFilePicker {
             pb.redirectErrorStream(true)
             val proc = pb.start()
             val out = proc.inputStream.readBytes().toString(StandardCharsets.UTF_8).trim()
-            val code = proc.waitFor()
-            if (code != 0 || out.isBlank()) null else File(out).takeIf { it.isFile }
+            proc.waitFor()
+            if (out.isBlank()) null else File(out).takeIf { it.isFile }
         }.getOrNull()
     }
 
@@ -83,30 +84,25 @@ object NativeFilePicker {
     ): File? {
         val result = AtomicReference<File?>(null)
         val show = Runnable {
-            // AWT FileDialog — нативный диалог ОС (на Windows не Swing-Metal).
             runCatching {
-                val owner = Frame()
-                try {
-                    val dialog = FileDialog(owner, title, FileDialog.LOAD)
-                    if (extensions.isNotEmpty()) {
-                        dialog.file = extensions.joinToString(";") { "*.$it" }
-                        dialog.setFilenameFilter { _, name ->
-                            extensions.any { name.endsWith(".$it", ignoreCase = true) }
-                        }
+                UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName())
+            }
+            val owner = Frame()
+            try {
+                val dialog = FileDialog(owner, title, FileDialog.LOAD)
+                if (extensions.isNotEmpty()) {
+                    dialog.file = extensions.joinToString(";") { "*.$it" }
+                    dialog.setFilenameFilter { _, name ->
+                        extensions.any { name.endsWith(".$it", ignoreCase = true) }
                     }
-                    dialog.isVisible = true
-                    val name = dialog.file
-                    val dir = dialog.directory
-                    if (!name.isNullOrBlank() && !dir.isNullOrBlank()) {
-                        result.set(File(dir, name).takeIf { it.isFile })
-                    }
-                } finally {
-                    owner.dispose()
                 }
-            }.onFailure {
-                runCatching {
-                    UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName())
+                dialog.isVisible = true
+                val name = dialog.file
+                val dir = dialog.directory
+                if (!name.isNullOrBlank() && !dir.isNullOrBlank()) {
+                    result.set(File(dir, name).takeIf { it.isFile })
                 }
+            } catch (_: Throwable) {
                 val chooser = JFileChooser().apply {
                     fileSelectionMode = JFileChooser.FILES_ONLY
                     dialogTitle = title
@@ -117,6 +113,8 @@ object NativeFilePicker {
                 if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
                     result.set(chooser.selectedFile?.takeIf { it.isFile })
                 }
+            } finally {
+                owner.dispose()
             }
         }
         if (SwingUtilities.isEventDispatchThread()) {
