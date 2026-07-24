@@ -223,7 +223,7 @@ fun BankScreen(vm: LauncherViewModel) {
             modifier = Modifier
                 .fillMaxWidth()
                 .height(IntrinsicSize.Min)
-                .heightIn(max = 210.dp),
+                .heightIn(max = 248.dp),
             horizontalArrangement = Arrangement.spacedBy(14.dp),
             verticalAlignment = Alignment.Top,
         ) {
@@ -234,7 +234,7 @@ fun BankScreen(vm: LauncherViewModel) {
                 themeId = themeId,
                 imageUrl = imageUrl,
                 modifier = Modifier
-                    .width(280.dp)
+                    .width(320.dp)
                     .fillMaxHeight(),
                 compact = true,
                 fillBounds = true,
@@ -376,8 +376,8 @@ fun BankScreen(vm: LauncherViewModel) {
                     )
                     BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
                         val gap = 12.dp
-                        val minTile = 148.dp
-                        val cols = ((maxWidth + gap) / (minTile + gap)).toInt().coerceAtLeast(2)
+                        val minTile = 168.dp
+                        val cols = ((maxWidth + gap) / (minTile + gap)).toInt().coerceIn(2, 5)
                         val tileW = (maxWidth - gap * (cols - 1)) / cols
                         Column(verticalArrangement = Arrangement.spacedBy(gap)) {
                             catalog.chunked(cols).forEach { rowItems ->
@@ -386,17 +386,18 @@ fun BankScreen(vm: LauncherViewModel) {
                                     horizontalArrangement = Arrangement.spacedBy(gap),
                                 ) {
                                     rowItems.forEach { design ->
+                                        val id = design.id
                                         DesignShopTile(
                                             design = design,
                                             apiBase = apiBase,
-                                            isActive = designs?.active != null && designs.active == design.id,
-                                            busy = vm.isLoadingBank,
-                                            onBuy = { design.id?.let { vm.purchaseBankDesign(it) } },
-                                            onEquip = { design.id?.let { vm.equipBankDesign(it) } },
+                                            isActive = designs?.active != null && designs.active == id,
+                                            busy = id != null && vm.bankBusyDesignId == id,
+                                            locked = vm.bankBusyDesignId != null,
+                                            onBuy = { id?.let { vm.purchaseBankDesign(it) } },
+                                            onEquip = { id?.let { vm.equipBankDesign(it) } },
                                             modifier = Modifier.width(tileW),
                                         )
                                     }
-                                    // Stretch leftover slots so the last row still fills width.
                                     repeat(cols - rowItems.size) {
                                         Spacer(Modifier.width(tileW))
                                     }
@@ -721,6 +722,7 @@ private fun DesignShopTile(
     apiBase: String,
     isActive: Boolean,
     busy: Boolean,
+    locked: Boolean,
     onBuy: () -> Unit,
     onEquip: () -> Unit,
     modifier: Modifier = Modifier,
@@ -732,6 +734,7 @@ private fun DesignShopTile(
     val imageUrl = resolveBankImageUrl(design.imageUrl, apiBase)
     val emoji = design.emoji?.takeIf { it.isNotBlank() } ?: "◆"
     val tileShape = RoundedCornerShape(12.dp)
+    val canAct = !locked || busy
 
     Column(
         modifier = modifier
@@ -790,7 +793,7 @@ private fun DesignShopTile(
                     text = "Применить",
                     onClick = onEquip,
                     loading = busy,
-                    enabled = !busy,
+                    enabled = canAct,
                     emphasized = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -800,7 +803,7 @@ private fun DesignShopTile(
                     text = if (design.free) "Бесплатно" else "Купить · ${formatAr(design.price)}",
                     onClick = onBuy,
                     loading = busy,
-                    enabled = !busy,
+                    enabled = canAct,
                     emphasized = true,
                     modifier = Modifier.fillMaxWidth(),
                 )

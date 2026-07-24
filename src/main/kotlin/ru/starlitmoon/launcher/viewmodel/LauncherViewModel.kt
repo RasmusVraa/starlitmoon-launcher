@@ -123,6 +123,8 @@ class LauncherViewModel(
     var notificationsMenuOpen by mutableStateOf(false)
     var playerBank by mutableStateOf<PlayerBankDto?>(null)
     var isLoadingBank by mutableStateOf(false)
+    /** Which design shop tile is purchasing/equipping — only that button shows loading. */
+    var bankBusyDesignId by mutableStateOf<String?>(null)
     var bankHistoryFilter by mutableStateOf("all")
     var launcherLogText by mutableStateOf("")
     var gameLogText by mutableStateOf("")
@@ -1843,30 +1845,36 @@ class LauncherViewModel(
     }
 
     fun purchaseBankDesign(designId: String) {
+        if (bankBusyDesignId != null) return
         scope.launch {
-            isLoadingBank = true
+            bankBusyDesignId = designId
             runCatching {
                 withContext(Dispatchers.IO) { api.purchaseBankDesign(designId) }
             }.onSuccess { res ->
                 playerBank = res.bank ?: playerBank
                 infoMessage = "Дизайн куплен"
-                refreshPlayerBank()
+                runCatching { withContext(Dispatchers.IO) { api.getPlayerBank() } }
+                    .onSuccess { playerBank = it.bank }
+                    .onFailure { handleError(it) }
             }.onFailure { handleError(it) }
-            isLoadingBank = false
+            bankBusyDesignId = null
         }
     }
 
     fun equipBankDesign(designId: String) {
+        if (bankBusyDesignId != null) return
         scope.launch {
-            isLoadingBank = true
+            bankBusyDesignId = designId
             runCatching {
                 withContext(Dispatchers.IO) { api.equipBankDesign(designId) }
             }.onSuccess { res ->
                 playerBank = res.bank ?: playerBank
                 infoMessage = "Дизайн применён"
-                refreshPlayerBank()
+                runCatching { withContext(Dispatchers.IO) { api.getPlayerBank() } }
+                    .onSuccess { playerBank = it.bank }
+                    .onFailure { handleError(it) }
             }.onFailure { handleError(it) }
-            isLoadingBank = false
+            bankBusyDesignId = null
         }
     }
 
