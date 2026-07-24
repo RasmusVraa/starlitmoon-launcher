@@ -1,5 +1,6 @@
 package ru.starlitmoon.launcher.ui.components
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -53,9 +54,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
@@ -67,6 +73,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.jetbrains.skia.Font
+import org.jetbrains.skia.FontMgr
+import org.jetbrains.skia.FontStyle
+import org.jetbrains.skia.Paint as SkiaPaint
 import ru.starlitmoon.launcher.ui.theme.PlayerRanks
 import ru.starlitmoon.launcher.ui.theme.StarlitColors
 import ru.starlitmoon.launcher.ui.theme.StarlitDimens
@@ -950,9 +960,14 @@ private fun ClientUpdateMiniChip(
     onClick: () -> Unit,
 ) {
     val accent = StarlitColors.Gold
+    val trackColor = StarlitColors.BorderStrong
+    val textColor = StarlitColors.Text
     val shape = RoundedCornerShape(10.dp)
-    // Same height as the notifications bell; longer block, thicker bar, % after.
-    Row(
+    val label = "$percent%"
+    val fraction = (percent.coerceIn(0, 100) / 100f)
+
+    // Draw bar + label in one Canvas so both share the exact same vertical center.
+    Box(
         modifier = Modifier
             .height(36.dp)
             .width(148.dp)
@@ -961,49 +976,45 @@ private fun ClientUpdateMiniChip(
             .border(1.dp, StarlitColors.Border, shape)
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        // Force track into the geometric vertical center of the chip.
-        Box(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxHeight(),
-            contentAlignment = Alignment.Center,
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(8.dp)
-                    .clip(RoundedCornerShape(50))
-                    .background(StarlitColors.BorderStrong),
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxHeight()
-                        .fillMaxWidth((percent.coerceIn(0, 100) / 100f))
-                        .clip(RoundedCornerShape(50))
-                        .background(accent),
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val barHeight = 8.dp.toPx()
+            val gap = 10.dp.toPx()
+            val fontSize = 12.sp.toPx()
+            val typeface = FontMgr.default.matchFamilyStyle("Segoe UI", FontStyle.BOLD)
+                ?: FontMgr.default.legacyMakeTypeface("sans-serif", FontStyle.BOLD)
+            val font = if (typeface != null) Font(typeface, fontSize) else Font().apply { size = fontSize }
+            val textWidth = font.measureTextWidth(label)
+            val metrics = font.metrics
+            val textBlockWidth = maxOf(textWidth, 28.dp.toPx())
+            val barWidth = (size.width - textBlockWidth - gap).coerceAtLeast(0f)
+            val barTop = (size.height - barHeight) / 2f
+            val radius = CornerRadius(barHeight / 2f)
+
+            drawRoundRect(
+                color = trackColor,
+                topLeft = Offset(0f, barTop),
+                size = Size(barWidth, barHeight),
+                cornerRadius = radius,
+            )
+            if (fraction > 0f && barWidth > 0f) {
+                drawRoundRect(
+                    color = accent,
+                    topLeft = Offset(0f, barTop),
+                    size = Size(barWidth * fraction, barHeight),
+                    cornerRadius = radius,
                 )
             }
-        }
-        // Same geometric center as the track; Skia glyphs sit high — nudge down.
-        Box(
-            modifier = Modifier
-                .width(34.dp)
-                .fillMaxHeight(),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = "$percent%",
-                color = StarlitColors.Text,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                lineHeight = 12.sp,
-                maxLines = 1,
-                softWrap = false,
-                modifier = Modifier.offset(y = 3.dp),
-            )
+
+            // Baseline so glyph box is centered on the bar's vertical mid-line.
+            val barCenterY = barTop + barHeight / 2f
+            val baseline = barCenterY - (metrics.ascent + metrics.descent) / 2f
+            val textX = barWidth + gap + (textBlockWidth - textWidth) / 2f
+            val paint = SkiaPaint().apply {
+                color = textColor.toArgb()
+                isAntiAlias = true
+            }
+            drawContext.canvas.nativeCanvas.drawString(label, textX, baseline, font, paint)
         }
     }
 }
