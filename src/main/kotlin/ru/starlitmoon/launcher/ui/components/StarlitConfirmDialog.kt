@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -22,13 +21,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Popup
-import androidx.compose.ui.window.PopupProperties
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import ru.starlitmoon.launcher.ui.theme.StarlitColors
-import ru.starlitmoon.launcher.ui.theme.StarlitDimens
 
 @Composable
 fun StarlitConfirmDialog(
@@ -40,13 +37,12 @@ fun StarlitConfirmDialog(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    Popup(
-        alignment = Alignment.Center,
+    Dialog(
         onDismissRequest = onDismiss,
-        properties = PopupProperties(
-            focusable = true,
+        properties = DialogProperties(
             dismissOnBackPress = true,
             dismissOnClickOutside = true,
+            usePlatformDefaultWidth = false,
         ),
     ) {
         Box(

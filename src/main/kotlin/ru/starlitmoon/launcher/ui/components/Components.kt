@@ -695,91 +695,100 @@ fun BrandWordmark(modifier: Modifier = Modifier) {
 
 @Composable
 fun SidebarNav(vm: LauncherViewModel) {
-    Column(
+    var confirmLogout by remember { mutableStateOf(false) }
+    Box(
         modifier = Modifier
             .width(StarlitDimens.SidebarWidth)
-            .fillMaxHeight()
-            .background(Color(0xFF0A0C12))
-            .border(width = 1.dp, color = StarlitColors.Border),
-        horizontalAlignment = Alignment.CenterHorizontally,
+            .fillMaxHeight(),
     ) {
-        Spacer(Modifier.height(18.dp))
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color(0xFF0A0C12))
+                .border(width = 1.dp, color = StarlitColors.Border),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Spacer(Modifier.height(18.dp))
 
-        SidebarIcon(
-            icon = Icons.Default.Home,
-            selected = vm.currentTab == LauncherTab.Home,
-            contentDescription = "Главная",
-            onClick = { vm.currentTab = LauncherTab.Home },
-        )
-        Spacer(Modifier.height(10.dp))
-        SidebarIcon(
-            icon = Icons.Default.Apps,
-            selected = vm.currentTab == LauncherTab.Builds,
-            contentDescription = "Сборки",
-            onClick = { vm.currentTab = LauncherTab.Builds },
-        )
-        Spacer(Modifier.height(10.dp))
-        SidebarIcon(
-            icon = Icons.Default.Person,
-            selected = vm.currentTab == LauncherTab.Cabinet,
-            contentDescription = "Кабинет",
-            onClick = { vm.currentTab = LauncherTab.Cabinet },
-        )
-        Spacer(Modifier.height(10.dp))
-        SidebarIcon(
-            icon = Icons.Default.AccountBalance,
-            selected = vm.currentTab == LauncherTab.Bank,
-            contentDescription = "Банк",
-            onClick = { vm.currentTab = LauncherTab.Bank },
-        )
-        Spacer(Modifier.height(10.dp))
-        SidebarIcon(
-            icon = Icons.Default.Checkroom,
-            selected = vm.currentTab == LauncherTab.Skins,
-            contentDescription = "Скины",
-            onClick = { vm.currentTab = LauncherTab.Skins },
-        )
-        Spacer(Modifier.height(10.dp))
-        SidebarIcon(
-            icon = Icons.AutoMirrored.Filled.Article,
-            selected = vm.currentTab == LauncherTab.Logs,
-            contentDescription = "Логи",
-            onClick = { vm.currentTab = LauncherTab.Logs },
-        )
-        if (vm.isAdmin) {
+            SidebarIcon(
+                icon = Icons.Default.Home,
+                selected = vm.currentTab == LauncherTab.Home,
+                contentDescription = "Главная",
+                onClick = { vm.currentTab = LauncherTab.Home },
+            )
             Spacer(Modifier.height(10.dp))
             SidebarIcon(
-                icon = Icons.Default.Security,
-                selected = vm.currentTab == LauncherTab.Admin,
-                contentDescription = "Админ",
-                onClick = { vm.currentTab = LauncherTab.Admin },
+                icon = Icons.Default.Apps,
+                selected = vm.currentTab == LauncherTab.Builds,
+                contentDescription = "Сборки",
+                onClick = { vm.currentTab = LauncherTab.Builds },
+            )
+            Spacer(Modifier.height(10.dp))
+            SidebarIcon(
+                icon = Icons.Default.Person,
+                selected = vm.currentTab == LauncherTab.Cabinet,
+                contentDescription = "Кабинет",
+                onClick = { vm.currentTab = LauncherTab.Cabinet },
+            )
+            Spacer(Modifier.height(10.dp))
+            SidebarIcon(
+                icon = Icons.Default.AccountBalance,
+                selected = vm.currentTab == LauncherTab.Bank,
+                contentDescription = "Банк",
+                onClick = { vm.currentTab = LauncherTab.Bank },
+            )
+            Spacer(Modifier.height(10.dp))
+            SidebarIcon(
+                icon = Icons.Default.Checkroom,
+                selected = vm.currentTab == LauncherTab.Skins,
+                contentDescription = "Скины",
+                onClick = { vm.currentTab = LauncherTab.Skins },
+            )
+            Spacer(Modifier.height(10.dp))
+            SidebarIcon(
+                icon = Icons.AutoMirrored.Filled.Article,
+                selected = vm.currentTab == LauncherTab.Logs,
+                contentDescription = "Логи",
+                onClick = { vm.currentTab = LauncherTab.Logs },
+            )
+            if (vm.isAdmin) {
+                Spacer(Modifier.height(10.dp))
+                SidebarIcon(
+                    icon = Icons.Default.Security,
+                    selected = vm.currentTab == LauncherTab.Admin,
+                    contentDescription = "Админ",
+                    onClick = { vm.currentTab = LauncherTab.Admin },
+                )
+            }
+
+            Spacer(Modifier.weight(1f))
+            SidebarIcon(
+                icon = Icons.Default.Settings,
+                selected = vm.currentTab == LauncherTab.Settings,
+                contentDescription = "Настройки",
+                onClick = { vm.currentTab = LauncherTab.Settings },
+            )
+            Spacer(Modifier.height(10.dp))
+            SidebarIcon(
+                icon = Icons.AutoMirrored.Filled.Logout,
+                selected = false,
+                contentDescription = "Выйти",
+                onClick = { confirmLogout = true },
+                tintOverride = StarlitColors.TextMuted,
+            )
+            Spacer(Modifier.height(18.dp))
+        }
+        if (confirmLogout) {
+            StarlitConfirmDialog(
+                title = "Выход",
+                message = "Выйти из аккаунта?",
+                confirmText = "Выйти",
+                cancelText = "Отмена",
+                danger = true,
+                onConfirm = { vm.logout() },
+                onDismiss = { confirmLogout = false },
             )
         }
-
-        Spacer(Modifier.weight(1f))
-        SidebarIcon(
-            icon = Icons.Default.Settings,
-            selected = vm.currentTab == LauncherTab.Settings,
-            contentDescription = "Настройки",
-            onClick = { vm.currentTab = LauncherTab.Settings },
-        )
-        Spacer(Modifier.height(10.dp))
-        SidebarIcon(
-            icon = Icons.AutoMirrored.Filled.Logout,
-            selected = false,
-            contentDescription = "Выйти",
-            onClick = {
-                val ok = javax.swing.JOptionPane.showConfirmDialog(
-                    null,
-                    "Выйти из аккаунта?",
-                    "Выход",
-                    javax.swing.JOptionPane.YES_NO_OPTION,
-                ) == javax.swing.JOptionPane.YES_OPTION
-                if (ok) vm.logout()
-            },
-            tintOverride = StarlitColors.TextMuted,
-        )
-        Spacer(Modifier.height(18.dp))
     }
 }
 

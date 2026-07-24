@@ -8,12 +8,15 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -217,7 +220,10 @@ fun BankScreen(vm: LauncherViewModel) {
         )
 
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(IntrinsicSize.Min)
+                .heightIn(max = 210.dp),
             horizontalArrangement = Arrangement.spacedBy(14.dp),
             verticalAlignment = Alignment.Top,
         ) {
@@ -227,8 +233,11 @@ fun BankScreen(vm: LauncherViewModel) {
                 owner = card?.ownerName ?: vm.userName.ifBlank { "—" },
                 themeId = themeId,
                 imageUrl = imageUrl,
-                modifier = Modifier.width(260.dp),
+                modifier = Modifier
+                    .width(280.dp)
+                    .fillMaxHeight(),
                 compact = true,
+                fillBounds = true,
                 onCopyCode = {
                     val code = card?.cardCode.orEmpty()
                     if (code.isBlank()) return@BankPlasticCard
@@ -240,27 +249,31 @@ fun BankScreen(vm: LauncherViewModel) {
                 copiedHint = copiedHint,
             )
 
-            StarlitCard(modifier = Modifier.weight(1f)) {
+            StarlitCard(modifier = Modifier.weight(1f).fillMaxHeight()) {
                 Column(
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.SpaceBetween,
                 ) {
-                    Text("Перевод", color = StarlitColors.Text, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
-                    StarlitTextField(
-                        value = toCode,
-                        onValueChange = { toCode = it },
-                        label = "Код карты получателя",
-                    )
-                    StarlitTextField(
-                        value = amountText,
-                        onValueChange = { amountText = it.filter { ch -> ch.isDigit() } },
-                        label = "Сумма (АР)",
-                    )
-                    StarlitTextField(
-                        value = comment,
-                        onValueChange = { comment = it },
-                        label = "Комментарий",
-                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                        Text("Перевод", color = StarlitColors.Text, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                        StarlitTextField(
+                            value = toCode,
+                            onValueChange = { toCode = it },
+                            label = "Код карты получателя",
+                        )
+                        StarlitTextField(
+                            value = amountText,
+                            onValueChange = { amountText = it.filter { ch -> ch.isDigit() } },
+                            label = "Сумма (АР)",
+                        )
+                        StarlitTextField(
+                            value = comment,
+                            onValueChange = { comment = it },
+                            label = "Комментарий",
+                        )
+                    }
                     val treasuryCode = bank.treasuryDonationCode
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -460,6 +473,7 @@ private fun BankPlasticCard(
     imageUrl: String?,
     modifier: Modifier = Modifier,
     compact: Boolean = false,
+    fillBounds: Boolean = false,
     onCopyCode: (() -> Unit)? = null,
     copiedHint: Boolean = false,
 ) {
@@ -468,23 +482,24 @@ private fun BankPlasticCard(
     val hasArt = !imageUrl.isNullOrBlank()
     Box(
         modifier = modifier
-            .aspectRatio(1.586f)
+            .then(if (fillBounds) Modifier else Modifier.aspectRatio(1.586f))
             .clip(shape)
             .background(Color(0xFF0E0C16))
             .border(1.dp, Color.White.copy(alpha = 0.08f), shape),
     ) {
         if (hasArt) {
             CachedBankImage(url = imageUrl!!, modifier = Modifier.fillMaxSize())
+            // Strong scrim so design art text doesn't clash with balance/code.
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(
                         Brush.verticalGradient(
                             listOf(
-                                Color.Black.copy(alpha = 0.78f),
-                                Color.Black.copy(alpha = 0.12f),
-                                Color.Black.copy(alpha = 0.28f),
                                 Color.Black.copy(alpha = 0.82f),
+                                Color.Black.copy(alpha = 0.45f),
+                                Color.Black.copy(alpha = 0.55f),
+                                Color.Black.copy(alpha = 0.88f),
                             ),
                         ),
                     ),
@@ -494,7 +509,7 @@ private fun BankPlasticCard(
                     .fillMaxSize()
                     .background(
                         Brush.horizontalGradient(
-                            listOf(Color.Black.copy(alpha = 0.5f), Color.Transparent),
+                            listOf(Color.Black.copy(alpha = 0.55f), Color.Transparent),
                         ),
                     ),
             )
