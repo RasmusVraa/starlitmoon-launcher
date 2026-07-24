@@ -34,6 +34,7 @@ import ru.starlitmoon.launcher.ui.screens.AdminScreen
 import ru.starlitmoon.launcher.ui.screens.BankScreen
 import ru.starlitmoon.launcher.ui.screens.BuildsScreen
 import ru.starlitmoon.launcher.ui.screens.CabinetScreen
+import ru.starlitmoon.launcher.ui.screens.ClientUpdateScreen
 import ru.starlitmoon.launcher.ui.screens.HomeScreen
 import ru.starlitmoon.launcher.ui.screens.LoginScreen
 import ru.starlitmoon.launcher.ui.screens.LogsScreen
@@ -121,31 +122,36 @@ fun FrameWindowScope.LauncherApp(
                                         )
                                     }
                                     Box(modifier = Modifier.fillMaxSize()) {
-                                        AnimatedContent(
-                                            targetState = vm.currentTab,
-                                            transitionSpec = {
-                                                val forward = targetState.ordinal >= initialState.ordinal
-                                                starlitTabTransition(motion, this, forward)
-                                            },
-                                            label = "tab",
-                                            modifier = Modifier.fillMaxSize(),
-                                        ) { tab ->
-                                            val contentPad = if (tab == LauncherTab.Home) 0.dp else 28.dp
-                                            val contentVPad = if (tab == LauncherTab.Home) 0.dp else 12.dp
-                                            Column(
-                                                modifier = Modifier
-                                                    .fillMaxSize()
-                                                    .padding(horizontal = contentPad, vertical = contentVPad),
-                                            ) {
-                                                when (tab) {
-                                                    LauncherTab.Home -> HomeScreen(vm)
-                                                    LauncherTab.Builds -> BuildsScreen(vm)
-                                                    LauncherTab.Cabinet -> CabinetScreen(vm)
-                                                    LauncherTab.Bank -> BankScreen(vm)
-                                                    LauncherTab.Skins -> SkinsScreen(vm)
-                                                    LauncherTab.Logs -> LogsScreen(vm)
-                                                    LauncherTab.Admin -> AdminScreen(vm)
-                                                    LauncherTab.Settings -> SettingsScreen(vm)
+                                        val update = vm.clientUpdate
+                                        if (update != null) {
+                                            ClientUpdateScreen(progress = update)
+                                        } else {
+                                            AnimatedContent(
+                                                targetState = vm.currentTab,
+                                                transitionSpec = {
+                                                    val forward = targetState.ordinal >= initialState.ordinal
+                                                    starlitTabTransition(motion, this, forward)
+                                                },
+                                                label = "tab",
+                                                modifier = Modifier.fillMaxSize(),
+                                            ) { tab ->
+                                                val contentPad = if (tab == LauncherTab.Home) 0.dp else 28.dp
+                                                val contentVPad = if (tab == LauncherTab.Home) 0.dp else 12.dp
+                                                Column(
+                                                    modifier = Modifier
+                                                        .fillMaxSize()
+                                                        .padding(horizontal = contentPad, vertical = contentVPad),
+                                                ) {
+                                                    when (tab) {
+                                                        LauncherTab.Home -> HomeScreen(vm)
+                                                        LauncherTab.Builds -> BuildsScreen(vm)
+                                                        LauncherTab.Cabinet -> CabinetScreen(vm)
+                                                        LauncherTab.Bank -> BankScreen(vm)
+                                                        LauncherTab.Skins -> SkinsScreen(vm)
+                                                        LauncherTab.Logs -> LogsScreen(vm)
+                                                        LauncherTab.Admin -> AdminScreen(vm)
+                                                        LauncherTab.Settings -> SettingsScreen(vm)
+                                                    }
                                                 }
                                             }
                                         }

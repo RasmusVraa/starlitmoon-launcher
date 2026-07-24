@@ -73,7 +73,6 @@ import ru.starlitmoon.launcher.ui.components.SettingsRow
 import ru.starlitmoon.launcher.ui.components.StarlitCard
 import ru.starlitmoon.launcher.ui.components.StarlitConfirmDialog
 import ru.starlitmoon.launcher.ui.components.StarlitPrimaryButton
-import ru.starlitmoon.launcher.ui.components.StarlitProgressBar
 import ru.starlitmoon.launcher.ui.components.StarlitSecondaryButton
 import ru.starlitmoon.launcher.ui.components.StarlitTextField
 import ru.starlitmoon.launcher.ui.components.StarlitToggle
@@ -157,14 +156,6 @@ fun HomeScreen(vm: LauncherViewModel) {
                         text = "СКИНЫ",
                         onClick = { vm.currentTab = LauncherTab.Skins },
                         modifier = Modifier.width(140.dp),
-                    )
-                }
-                if (showProgress) {
-                    Spacer(Modifier.height(22.dp))
-                    StarlitProgressBar(
-                        progress = vm.launchProgressFraction,
-                        label = vm.launchProgress ?: "Запуск…",
-                        modifier = Modifier.widthIn(max = 480.dp).fillMaxWidth(0.85f),
                     )
                 }
                 Spacer(Modifier.height(36.dp))

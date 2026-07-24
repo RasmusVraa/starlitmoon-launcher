@@ -50,6 +50,7 @@ import ru.starlitmoon.launcher.minecraft.BorderlessMinecraft
 import ru.starlitmoon.launcher.minecraft.MinecraftLauncher
 import ru.starlitmoon.launcher.minecraft.ModpackSync
 import ru.starlitmoon.launcher.minecraft.OfflineSkinBridge
+import ru.starlitmoon.launcher.minecraft.ProgressEvent
 import ru.starlitmoon.launcher.minecraft.SkinLibrary
 import ru.starlitmoon.launcher.minecraft.SkinManager
 import ru.starlitmoon.launcher.update.LauncherSelfUpdater
@@ -132,6 +133,11 @@ class LauncherViewModel(
     var logsSubTab by mutableStateOf(0)
     var launchProgress by mutableStateOf<String?>(null)
     var launchProgressFraction by mutableStateOf<Float?>(null)
+    var clientUpdate by mutableStateOf<ClientUpdateProgress?>(null)
+    private var updatePhase: ClientUpdatePhase = ClientUpdatePhase.Prep
+    private var speedSampleBytes = 0L
+    private var speedSampleAtMs = 0L
+    private var speedEmaBps = 0.0
     /** Id сборки, ZIP которой сейчас заливается в админке (для оверлея прогресса). */
     var uploadingModpackId by mutableStateOf<String?>(null)
     var uploadingModpackName by mutableStateOf<String?>(null)
@@ -709,16 +715,20 @@ class LauncherViewModel(
         }
         scope.launch {
             isLoading = true
-            launchProgress = "Обновление сборки…"
-            launchProgressFraction = 0f
+            beginClientUpdate(ClientUpdatePhase.Files, "Обновление сборки…", 0.12f)
             errorMessage = null
             val detail = withContext(Dispatchers.IO) {
                 runCatching { api.getModpack(pack.id ?: pack.slug.orEmpty()) }.getOrNull()
             } ?: pack
             val result = runCatching {
                 withContext(Dispatchers.IO) {
-                    ModpackSync.syncArchive(configState.dataDir, detail, force = true) { msg, frac ->
-                        reportLaunchProgress(msg, frac)
+                    ModpackSync.syncArchive(configState.dataDir, detail, force = true) { event ->
+                        reportLaunchProgress(
+                            event.message,
+                            event.fraction,
+                            event = event,
+                            phaseOverride = ClientUpdatePhase.Files,
+                        )
                     }
                 }
             }
@@ -729,8 +739,7 @@ class LauncherViewModel(
             } else {
                 errorMessage = result.exceptionOrNull()?.message ?: "Не удалось обновить сборку"
             }
-            launchProgress = null
-            launchProgressFraction = null
+            clearLaunchProgress()
             isLoading = false
         }
     }
@@ -738,8 +747,7 @@ class LauncherViewModel(
     fun deleteLocalModpack(pack: ModpackDto) {
         scope.launch {
             isLoading = true
-            launchProgress = "Удаление сборки…"
-            launchProgressFraction = null
+            beginClientUpdate(ClientUpdatePhase.Prep, "Удаление сборки…", 0.05f)
             errorMessage = null
             val ok = withContext(Dispatchers.IO) {
                 ModpackSync.deleteLocalPack(configState.dataDir, pack)
@@ -759,7 +767,7 @@ class LauncherViewModel(
             } else {
                 errorMessage = "Сборка не найдена локально или не удалось удалить"
             }
-            launchProgress = null
+            clearLaunchProgress()
             isLoading = false
         }
     }
@@ -784,13 +792,12 @@ class LauncherViewModel(
             isLoading = true
             uploadingModpackId = id
             uploadingModpackName = packName
-            launchProgress = "Подготовка загрузки «$packName»…"
-            launchProgressFraction = 0f
+            beginClientUpdate(ClientUpdatePhase.Files, "Подготовка загрузки «$packName»…", 0.05f)
             errorMessage = null
             runCatching {
                 withContext(Dispatchers.IO) {
                     api.uploadModpackArchive(id, path) { frac, msg ->
-                        reportLaunchProgress(msg, frac)
+                        reportLaunchProgress(msg, frac, phaseOverride = ClientUpdatePhase.Files)
                     }
                 }
             }.onSuccess { updated ->
@@ -802,18 +809,107 @@ class LauncherViewModel(
                 fetchModpacks(force = true)
                 refreshAdmin()
             }.onFailure { handleError(it) }
-            launchProgress = null
-            launchProgressFraction = null
+            clearLaunchProgress()
             uploadingModpackId = null
             uploadingModpackName = null
             isLoading = false
         }
     }
 
-    private fun reportLaunchProgress(msg: String, frac: Float? = null) {
+    private fun clearLaunchProgress() {
+        launchProgress = null
+        launchProgressFraction = null
+        clientUpdate = null
+        speedSampleBytes = 0L
+        speedSampleAtMs = 0L
+        speedEmaBps = 0.0
+    }
+
+    private fun beginClientUpdate(phase: ClientUpdatePhase, message: String, overall: Float = 0f) {
+        updatePhase = phase
+        speedSampleBytes = 0L
+        speedSampleAtMs = 0L
+        speedEmaBps = 0.0
+        reportLaunchProgress(message, overall)
+    }
+
+    private fun reportLaunchProgress(
+        msg: String,
+        frac: Float? = null,
+        event: ProgressEvent? = null,
+        phaseOverride: ClientUpdatePhase? = null,
+    ) {
+        val phase = phaseOverride ?: updatePhase
+        updatePhase = phase
         val apply = {
             launchProgress = msg
             if (frac != null) launchProgressFraction = frac
+
+            val stageFrac = (event?.fraction ?: frac ?: clientUpdate?.stageProgress ?: 0f).coerceIn(0f, 1f)
+            val overall = when (phase) {
+                ClientUpdatePhase.Prep -> (0.02f + stageFrac * 0.10f).coerceIn(0f, 0.12f)
+                ClientUpdatePhase.Files -> (0.12f + stageFrac * 0.48f).coerceIn(0.12f, 0.60f)
+                ClientUpdatePhase.Client -> (0.60f + stageFrac * 0.40f).coerceIn(0.60f, 1f)
+            }
+
+            val bytesDone = event?.bytesDone ?: clientUpdate?.downloadedBytes ?: 0L
+            val bytesTotal = event?.bytesTotal ?: clientUpdate?.totalBytes
+            val now = System.currentTimeMillis()
+            var speed: Long? = clientUpdate?.speedBps
+            if (event?.bytesDone != null && event.bytesDone > speedSampleBytes && speedSampleAtMs > 0L) {
+                val dt = (now - speedSampleAtMs) / 1000.0
+                if (dt > 0.08) {
+                    val inst = (event.bytesDone - speedSampleBytes) / dt
+                    speedEmaBps = if (speedEmaBps <= 0) inst else speedEmaBps * 0.65 + inst * 0.35
+                    speed = speedEmaBps.toLong().takeIf { it > 0 }
+                }
+            }
+            if (event?.bytesDone != null) {
+                speedSampleBytes = event.bytesDone
+                speedSampleAtMs = now
+            }
+
+            val remaining = when {
+                bytesTotal != null && bytesTotal > bytesDone && speed != null && speed > 0 ->
+                    ClientUpdateLabels.formatEta(bytesTotal - bytesDone, speed)
+                phase == ClientUpdatePhase.Prep -> "Расчёт..."
+                stageFrac >= 0.99f -> "Почти готово"
+                else -> clientUpdate?.remainingLabel ?: "Расчёт..."
+            }
+
+            val filesDone = event?.filesDone ?: clientUpdate?.filesDone ?: 0
+            val filesTotal = event?.filesTotal ?: clientUpdate?.filesTotal
+            val current = event?.currentFile?.takeIf { it.isNotBlank() }
+                ?: msg.takeIf { it.length < 80 }
+                ?: clientUpdate?.currentFile
+                ?: "ожидание…"
+
+            clientUpdate = ClientUpdateProgress(
+                title = ClientUpdateLabels.titleFor(phase),
+                status = ClientUpdateLabels.statusFor(phase, msg),
+                stageIndex = when (phase) {
+                    ClientUpdatePhase.Prep -> 1
+                    ClientUpdatePhase.Files -> 2
+                    ClientUpdatePhase.Client -> 3
+                },
+                stageCount = 3,
+                detail = ClientUpdateLabels.detailFor(phase, msg),
+                overall = overall,
+                stageProgress = stageFrac,
+                downloadedBytes = bytesDone,
+                totalBytes = bytesTotal,
+                speedBps = speed,
+                remainingLabel = remaining,
+                filesDone = filesDone,
+                filesTotal = filesTotal,
+                currentFile = current,
+                activeThreads = event?.threads
+                    ?: when (phase) {
+                        ClientUpdatePhase.Client -> 4
+                        ClientUpdatePhase.Files -> 1
+                        else -> 0
+                    },
+            )
         }
         if (SwingUtilities.isEventDispatchThread()) apply()
         else SwingUtilities.invokeLater(apply)
@@ -826,13 +922,12 @@ class LauncherViewModel(
         }
         scope.launch {
             isLoading = true
-            launchProgress = "Подготовка…"
-            launchProgressFraction = 0f
+            beginClientUpdate(ClientUpdatePhase.Prep, "Подготовка…", 0f)
             errorMessage = null
             yield()
             val pack = selectedModpack
                 ?: modpacks.firstOrNull { it.id == configState.selectedModpackId || it.slug == configState.selectedModpackId }
-            launchProgress = "Получение данных сборки…"
+            reportLaunchProgress("Получение данных сборки…", 0.3f, phaseOverride = ClientUpdatePhase.Prep)
             yield()
             val detail = if (pack != null) {
                 withTimeoutOrNull(20_000) {
@@ -851,25 +946,28 @@ class LauncherViewModel(
             if (detail != null) {
                 instanceDir = ModpackSync.packDir(configState.dataDir, detail).also { it.createDirectories() }
                 if (detail.hasArchive && !detail.archive?.url.isNullOrBlank()) {
-                    launchProgress = "Загрузка архива сборки…"
-                    launchProgressFraction = 0.01f
+                    beginClientUpdate(ClientUpdatePhase.Files, "Загрузка архива сборки…", 0.12f)
                     yield()
                     val synced = runCatching {
                         withContext(Dispatchers.IO) {
-                            ModpackSync.syncArchive(configState.dataDir, detail) { msg, frac ->
-                                reportLaunchProgress(msg, frac)
+                            ModpackSync.syncArchive(configState.dataDir, detail) { event ->
+                                reportLaunchProgress(
+                                    event.message,
+                                    event.fraction,
+                                    event = event,
+                                    phaseOverride = ClientUpdatePhase.Files,
+                                )
                             }
                         }
                     }
                     if (synced.isFailure) {
                         errorMessage = synced.exceptionOrNull()?.message ?: "Не удалось скачать сборку"
-                        launchProgress = null
-                        launchProgressFraction = null
+                        clearLaunchProgress()
                         isLoading = false
                         return@launch
                     }
                 } else if (loader != "vanilla") {
-                    launchProgress = "Загрузка модов сборки…"
+                    reportLaunchProgress("Загрузка модов сборки…", 0.2f, phaseOverride = ClientUpdatePhase.Files)
                     yield()
                     val synced = withContext(Dispatchers.IO) { syncLegacyModJars(detail, instanceDir!!) }
                     if (!synced) {
@@ -884,8 +982,7 @@ class LauncherViewModel(
                     }
                 }
             }
-            launchProgress = "Подготовка клиента…"
-            launchProgressFraction = launchProgressFraction ?: 0.05f
+            beginClientUpdate(ClientUpdatePhase.Client, "Подготовка клиента…", 0.60f)
             yield()
             val result = withContext(Dispatchers.IO) {
                 mc = MinecraftLauncher(configState)
@@ -901,7 +998,7 @@ class LauncherViewModel(
                     loaderVersion = loaderVersion,
                     skinFile = skinPath,
                 ) { msg, frac ->
-                    reportLaunchProgress(msg, frac)
+                    reportLaunchProgress(msg, frac, phaseOverride = ClientUpdatePhase.Client)
                 }
             }
             if (result.success) {
@@ -915,8 +1012,7 @@ class LauncherViewModel(
                 result.skinBridge?.close()
                 errorMessage = result.message
             }
-            launchProgress = null
-            launchProgressFraction = null
+            clearLaunchProgress()
             isLoading = false
         }
     }

@@ -112,7 +112,7 @@ object ModpackSync {
         dataDir: Path,
         pack: ModpackDto,
         force: Boolean = false,
-        onProgress: (String, Float?) -> Unit = { _, _ -> },
+        onProgress: (ProgressEvent) -> Unit = {},
     ): Boolean {
         val archive = pack.archive
         val url = archive?.url?.trim().orEmpty()
@@ -134,16 +134,16 @@ object ModpackSync {
         if (!force && expectedSha.isNotBlank() && marker.exists() &&
             readTextLenient(marker).trim().lowercase() == expectedSha
         ) {
-            onProgress("Сборка уже актуальна", 1f)
+            onProgress(ProgressEvent("Сборка уже актуальна", 1f))
             return true
         }
 
         val expectedSize = archive?.size?.takeIf { it > 0 }
-        onProgress("Подключение к архиву…", 0.01f)
+        onProgress(ProgressEvent("Подключение к архиву…", 0.01f, bytesTotal = expectedSize))
         downloadTo(url, zipPath, expectedSize, onProgress)
 
         if (expectedSha.isNotBlank()) {
-            onProgress("Проверка архива…", 0.88f)
+            onProgress(ProgressEvent("Проверка архива…", 0.88f, currentFile = zipPath.name))
             val actual = sha256Hex(zipPath)
             if (actual != expectedSha) {
                 Files.deleteIfExists(zipPath)
@@ -151,14 +151,23 @@ object ModpackSync {
             }
         }
 
-        onProgress("Очистка сборки…", 0.89f)
+        onProgress(ProgressEvent("Очистка сборки…", 0.89f))
         wipeExceptWorlds(dir)
 
-        onProgress("Распаковка сборки…", 0.90f)
+        onProgress(ProgressEvent("Распаковка сборки…", 0.90f, currentFile = zipPath.name))
         val zipMods = listZipModFileNames(zipPath)
-        extractZip(zipPath, dir) { done, total ->
+        extractZip(zipPath, dir) { done, total, name ->
             val frac = if (total > 0) 0.90f + 0.09f * done.toFloat() / total else 0.95f
-            onProgress("Распаковка $done/$total…", frac)
+            onProgress(
+                ProgressEvent(
+                    message = "Распаковка $done/$total…",
+                    fraction = frac,
+                    filesDone = done,
+                    filesTotal = total,
+                    currentFile = name,
+                    threads = 1,
+                ),
+            )
         }
         writeManagedMods(dir, zipMods)
 
@@ -167,7 +176,7 @@ object ModpackSync {
         } else {
             marker.writeText(sha256Hex(zipPath))
         }
-        onProgress("Сборка готова", 1f)
+        onProgress(ProgressEvent("Сборка готова", 1f))
         return true
     }
 
@@ -230,7 +239,7 @@ object ModpackSync {
         url: String,
         target: Path,
         expectedSize: Long?,
-        onProgress: (String, Float?) -> Unit,
+        onProgress: (ProgressEvent) -> Unit,
     ) {
         target.parent?.createDirectories()
         val tmp = target.resolveSibling("${target.name}.part")
@@ -255,7 +264,13 @@ object ModpackSync {
                 break
             } catch (e: Exception) {
                 if (attempt >= 3) throw e
-                onProgress("Повтор загрузки (${e.message?.take(80) ?: "ошибка"})…", 0.01f)
+                onProgress(
+                    ProgressEvent(
+                        "Повтор загрузки (${e.message?.take(80) ?: "ошибка"})…",
+                        0.01f,
+                        bytesTotal = expectedSize,
+                    ),
+                )
                 // On failed resume, restart clean once.
                 if (existing > 0 && attempt == 2) {
                     Files.deleteIfExists(tmp)
@@ -268,7 +283,15 @@ object ModpackSync {
 
         Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING)
         val finalSize = if (target.exists()) target.fileSize() else 0L
-        onProgress("Архив скачан (${formatBytes(finalSize)})", 0.87f)
+        onProgress(
+            ProgressEvent(
+                message = "Архив скачан (${formatBytes(finalSize)})",
+                fraction = 0.87f,
+                bytesDone = finalSize,
+                bytesTotal = finalSize,
+                currentFile = target.name,
+            ),
+        )
     }
 
     private fun downloadOnce(
@@ -276,7 +299,7 @@ object ModpackSync {
         tmp: Path,
         existing: Long,
         expectedSize: Long?,
-        onProgress: (String, Float?) -> Unit,
+        onProgress: (ProgressEvent) -> Unit,
     ) {
         val conn = (URI(url).toURL().openConnection() as HttpURLConnection).apply {
             instanceFollowRedirects = true
@@ -346,7 +369,16 @@ object ModpackSync {
                             } else {
                                 "Скачивание ${formatBytes(downloaded)}"
                             }
-                            onProgress(label, frac)
+                            onProgress(
+                                ProgressEvent(
+                                    message = label,
+                                    fraction = frac,
+                                    bytesDone = downloaded,
+                                    bytesTotal = total.takeIf { it > 0 },
+                                    currentFile = tmp.name.removeSuffix(".part"),
+                                    threads = 1,
+                                ),
+                            )
                         }
                     }
                 }
@@ -369,7 +401,7 @@ object ModpackSync {
     private fun extractZip(
         zipPath: Path,
         dest: Path,
-        onEntry: (Int, Int) -> Unit = { _, _ -> },
+        onEntry: (Int, Int, String) -> Unit = { _, _, _ -> },
     ) {
         dest.createDirectories()
         val prefix = detectStripPrefix(zipPath)
@@ -403,11 +435,11 @@ object ModpackSync {
                 zis.closeEntry()
                 done++
                 if (done % 25 == 0 || (totalEntries > 0 && done == totalEntries)) {
-                    onEntry(done, totalEntries.coerceAtLeast(done))
+                    onEntry(done, totalEntries.coerceAtLeast(done), name.substringAfterLast('/'))
                 }
             }
         }
-        onEntry(done, totalEntries.coerceAtLeast(done))
+        onEntry(done, totalEntries.coerceAtLeast(done), "")
     }
 
     /** If the ZIP has a single top-level folder, strip it so mods/ land at pack root. */
