@@ -52,6 +52,7 @@ import ru.starlitmoon.launcher.minecraft.SkinManager
 import ru.starlitmoon.launcher.update.LauncherSelfUpdater
 import ru.starlitmoon.launcher.update.UpdateChecker
 import ru.starlitmoon.launcher.update.UpdateInfo
+import ru.starlitmoon.launcher.update.UpdatePackageKind
 import java.awt.Desktop
 import java.awt.Toolkit
 import java.awt.datatransfer.StringSelection
@@ -323,7 +324,7 @@ class LauncherViewModel(
 
     fun downloadUpdate() {
         val update = updateInfo ?: return
-        val url = update.installerUrl
+        val url = update.packageUrl
         if (url.isNullOrBlank()) {
             runCatching { java.awt.Desktop.getDesktop().browse(java.net.URI(update.releasePageUrl)) }
                 .onFailure { errorMessage = "Не удалось открыть страницу релиза" }
@@ -338,33 +339,64 @@ class LauncherViewModel(
             errorMessage = null
             runCatching {
                 val paths = withContext(Dispatchers.IO) { LauncherSelfUpdater.resolveInstallPaths() }
-                val name = update.installerName?.takeIf { it.endsWith(".exe", true) }
-                    ?: "StarlitMoonLauncher-Setup-${update.latestVersion}.exe"
+                val kind = update.packageKind
+                val name = update.packageName?.takeIf { it.isNotBlank() }
+                    ?: if (kind == UpdatePackageKind.ZIP) {
+                        "StarlitMoonLauncher-${update.latestVersion}-windows.zip"
+                    } else {
+                        "StarlitMoonLauncher-Setup-${update.latestVersion}.exe"
+                    }
                 val target = withContext(Dispatchers.IO) {
                     val dir = configState.dataDir.resolve("updates").also { it.createDirectories() }
                     dir.resolve(name)
                 }
                 withContext(Dispatchers.IO) {
-                    LauncherSelfUpdater.downloadInstaller(url, target) { frac, label ->
+                    LauncherSelfUpdater.downloadPackage(url, target) { frac, label ->
                         SwingUtilities.invokeLater {
-                            updateProgressFraction = frac
+                            updateProgressFraction = frac * 0.9f
                             updateProgress = label
                         }
                     }
                 }
-                updateProgress = "Установка и перезапуск…"
-                updateProgressFraction = 1f
+                updateProgress = if (kind == UpdatePackageKind.ZIP) {
+                    "Подготовка файлов…"
+                } else {
+                    "Установка и перезапуск…"
+                }
+                updateProgressFraction = 0.92f
                 withContext(Dispatchers.IO) {
-                    LauncherSelfUpdater.scheduleInstallAndRestart(
-                        installer = target,
-                        installDir = paths.installDir,
-                        relaunchExe = paths.relaunchExe,
-                        launcherPid = ProcessHandle.current().pid(),
-                    )
+                    when (kind) {
+                        UpdatePackageKind.ZIP -> {
+                            val staging = configState.dataDir.resolve("updates")
+                                .resolve("staging-${update.latestVersion}")
+                            LauncherSelfUpdater.prepareZipUpdateAndRestart(
+                                zipPath = target,
+                                stagingDir = staging,
+                                installDir = paths.installDir,
+                                relaunchExe = paths.relaunchExe,
+                                launcherPid = ProcessHandle.current().pid(),
+                            ) { msg ->
+                                SwingUtilities.invokeLater {
+                                    updateProgress = msg
+                                    updateProgressFraction = 0.96f
+                                }
+                            }
+                        }
+                        UpdatePackageKind.SETUP -> {
+                            LauncherSelfUpdater.scheduleInstallAndRestart(
+                                installer = target,
+                                installDir = paths.installDir,
+                                relaunchExe = paths.relaunchExe,
+                                launcherPid = ProcessHandle.current().pid(),
+                            )
+                        }
+                    }
                 }
                 selfUpdateScheduled = true
-                infoMessage = "Обновление скачано — перезапуск…"
-                delay(400)
+                updateProgress = "Перезапуск…"
+                updateProgressFraction = 1f
+                infoMessage = "Обновление готово — перезапуск…"
+                delay(250)
                 requestExit = true
             }.onFailure { err ->
                 isApplyingUpdate = false

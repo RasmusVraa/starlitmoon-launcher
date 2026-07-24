@@ -48,21 +48,25 @@ class UpdateChecker(
         val current = normalizeVersion(currentVersion)
         if (!isNewer(latest, current)) return@runCatching null
 
-        val installer = release.assets.firstOrNull { asset ->
-            asset.name.endsWith(".exe", ignoreCase = true) &&
-                asset.name.contains("Setup", ignoreCase = true)
-        } ?: release.assets.firstOrNull { asset ->
-            asset.name.endsWith(".exe", ignoreCase = true) &&
-                (asset.name.contains("launcher", ignoreCase = true) || asset.name.contains("StarlitMoon", ignoreCase = true))
-        } ?: release.assets.firstOrNull { it.name.endsWith(".exe", ignoreCase = true) }
+        val pkg = pickPackage(release.assets)
+            ?: return@runCatching UpdateInfo(
+                currentVersion = current,
+                latestVersion = latest,
+                releaseNotes = release.body?.trim().orEmpty().ifBlank { release.name.orEmpty() },
+                releasePageUrl = release.htmlUrl,
+                packageUrl = null,
+                packageName = null,
+                packageKind = UpdatePackageKind.SETUP,
+            )
 
         UpdateInfo(
             currentVersion = current,
             latestVersion = latest,
             releaseNotes = release.body?.trim().orEmpty().ifBlank { release.name.orEmpty() },
             releasePageUrl = release.htmlUrl,
-            installerUrl = installer?.downloadUrl,
-            installerName = installer?.name,
+            packageUrl = pkg.downloadUrl,
+            packageName = pkg.name,
+            packageKind = pkg.kind,
         )
     }
 
@@ -88,5 +92,27 @@ class UpdateChecker(
             version.split('.', '-', '_')
                 .mapNotNull { part -> part.filter(Char::isDigit).toIntOrNull() }
                 .ifEmpty { listOf(0) }
+
+        private data class Picked(val name: String, val downloadUrl: String, val kind: UpdatePackageKind)
+
+        private fun pickPackage(assets: List<GitHubAsset>): Picked? {
+            val zip = assets.firstOrNull { a ->
+                a.name.endsWith(".zip", ignoreCase = true) &&
+                    (a.name.contains("windows", ignoreCase = true) ||
+                        a.name.contains("StarlitMoon", ignoreCase = true) ||
+                        a.name.contains("launcher", ignoreCase = true))
+            }
+            if (zip != null) {
+                return Picked(zip.name, zip.downloadUrl, UpdatePackageKind.ZIP)
+            }
+            val setup = assets.firstOrNull { a ->
+                a.name.endsWith(".exe", ignoreCase = true) && a.name.contains("Setup", ignoreCase = true)
+            }
+            if (setup != null) {
+                return Picked(setup.name, setup.downloadUrl, UpdatePackageKind.SETUP)
+            }
+            val anyExe = assets.firstOrNull { it.name.endsWith(".exe", ignoreCase = true) } ?: return null
+            return Picked(anyExe.name, anyExe.downloadUrl, UpdatePackageKind.SETUP)
+        }
     }
 }

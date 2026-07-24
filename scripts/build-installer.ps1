@@ -1,6 +1,6 @@
 #Requires -Version 5
 param(
-  [string]$Version = "1.3.2",
+  [string]$Version = "1.3.3",
   [switch]$Sign
 )
 $ErrorActionPreference = "Stop"
@@ -14,13 +14,22 @@ if (Test-Path $gradle) {
   & .\gradlew.bat createReleaseDistributable --no-daemon
 }
 
+$appDir = "build\compose\binaries\main-release\app\StarlitMoonLauncher"
+if (-not (Test-Path $appDir)) { throw "App dir missing: $appDir" }
+
+New-Item -ItemType Directory -Force -Path "dist\v$Version" | Out-Null
+$zipPath = "dist\v$Version\StarlitMoonLauncher-$Version-windows.zip"
+if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
+# Compress contents of app folder to ZIP root (needed for in-launcher updates).
+Compress-Archive -Path (Join-Path $appDir "*") -DestinationPath $zipPath -CompressionLevel Optimal
+Write-Host "OK: $zipPath"
+
 $iscc = Join-Path $env:LOCALAPPDATA "Programs\Inno Setup 6\ISCC.exe"
 if (-not (Test-Path $iscc)) {
   $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
 }
 if (-not (Test-Path $iscc)) { throw "ISCC.exe not found" }
 
-New-Item -ItemType Directory -Force -Path "dist\v$Version" | Out-Null
 & $iscc "installer\starlitmoon.iss"
 Write-Host "OK: dist\v$Version\StarlitMoonLauncher-Setup-$Version.exe"
 
