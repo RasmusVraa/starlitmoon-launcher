@@ -929,7 +929,8 @@ fun TopStatusBar(
 
 @Composable
 private fun NotificationsBell(vm: LauncherViewModel) {
-    Box {
+    // Outer box is unclipped so the unread badge can sit on the corner without being cut off.
+    Box(modifier = Modifier.size(40.dp), contentAlignment = Alignment.Center) {
         Box(
             modifier = Modifier
                 .size(36.dp)
@@ -948,26 +949,26 @@ private fun NotificationsBell(vm: LauncherViewModel) {
                 tint = if (vm.notificationUnreadCount > 0) StarlitColors.Gold else StarlitColors.TextMuted,
                 modifier = Modifier.size(18.dp),
             )
-            if (vm.notificationUnreadCount > 0) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .offset(x = 2.dp, y = (-2).dp)
-                        .height(16.dp)
-                        .defaultMinSize(minWidth = 16.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(StarlitColors.Offline)
-                        .padding(horizontal = 4.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        if (vm.notificationUnreadCount > 99) "99+" else vm.notificationUnreadCount.toString(),
-                        color = StarlitColors.OnGold,
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                    )
-                }
+        }
+        if (vm.notificationUnreadCount > 0) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .offset(x = 1.dp, y = (-1).dp)
+                    .height(16.dp)
+                    .defaultMinSize(minWidth = 16.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(StarlitColors.Offline)
+                    .padding(horizontal = 4.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    if (vm.notificationUnreadCount > 99) "99+" else vm.notificationUnreadCount.toString(),
+                    color = StarlitColors.OnGold,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                )
             }
         }
         if (vm.notificationsMenuOpen) {
