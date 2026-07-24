@@ -8,18 +8,15 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -219,88 +216,102 @@ fun BankScreen(vm: LauncherViewModel) {
             apiBase,
         )
 
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(IntrinsicSize.Min),
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-            verticalAlignment = Alignment.Top,
-        ) {
-            BankPlasticCard(
-                balance = card?.balance ?: 0,
-                code = card?.cardCode ?: "—",
-                owner = card?.ownerName ?: vm.userName.ifBlank { "—" },
-                themeId = themeId,
-                imageUrl = imageUrl,
-                modifier = Modifier
-                    .weight(1.25f)
-                    .fillMaxHeight(),
-                compact = true,
-                fillBounds = true,
-                onCopyCode = {
-                    val code = card?.cardCode.orEmpty()
-                    if (code.isBlank()) return@BankPlasticCard
-                    runCatching {
-                        Toolkit.getDefaultToolkit().systemClipboard
-                            .setContents(StringSelection(code), null)
-                    }.onSuccess { copiedHint = true }
-                },
-                copiedHint = copiedHint,
-            )
+        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+            val gap = 14.dp
+            // Card keeps real plastic proportions; transfer matches that height exactly.
+            val cardW = (maxWidth * 0.52f).coerceIn(340.dp, 440.dp)
+            val cardH = cardW / 1.586f
+            val transferW = (maxWidth - cardW - gap).coerceAtMost(360.dp)
 
-            StarlitCard(
-                modifier = Modifier
-                    .widthIn(max = 380.dp)
-                    .weight(1f, fill = false)
-                    .fillMaxHeight(),
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(gap),
+                verticalAlignment = Alignment.Top,
             ) {
-                Column(
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                BankPlasticCard(
+                    balance = card?.balance ?: 0,
+                    code = card?.cardCode ?: "—",
+                    owner = card?.ownerName ?: vm.userName.ifBlank { "—" },
+                    themeId = themeId,
+                    imageUrl = imageUrl,
+                    modifier = Modifier.width(cardW).height(cardH),
+                    compact = true,
+                    fillBounds = true,
+                    onCopyCode = {
+                        val code = card?.cardCode.orEmpty()
+                        if (code.isBlank()) return@BankPlasticCard
+                        runCatching {
+                            Toolkit.getDefaultToolkit().systemClipboard
+                                .setContents(StringSelection(code), null)
+                        }.onSuccess { copiedHint = true }
+                    },
+                    copiedHint = copiedHint,
+                )
+
+                StarlitCard(
+                    modifier = Modifier
+                        .width(transferW)
+                        .height(cardH),
                 ) {
-                    Text("Перевод", color = StarlitColors.Text, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
-                    StarlitTextField(
-                        value = toCode,
-                        onValueChange = { toCode = it },
-                        label = "Код карты получателя",
-                    )
-                    StarlitTextField(
-                        value = amountText,
-                        onValueChange = { amountText = it.filter { ch -> ch.isDigit() } },
-                        label = "Сумма (АР)",
-                    )
-                    StarlitTextField(
-                        value = comment,
-                        onValueChange = { comment = it },
-                        label = "Комментарий",
-                    )
-                    val treasuryCode = bank.treasuryDonationCode
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.SpaceBetween,
                     ) {
-                        if (!treasuryCode.isNullOrBlank()) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                "Перевод",
+                                color = StarlitColors.Text,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 15.sp,
+                            )
+                            StarlitTextField(
+                                value = toCode,
+                                onValueChange = { toCode = it },
+                                label = "Код карты получателя",
+                            )
+                            StarlitTextField(
+                                value = amountText,
+                                onValueChange = { amountText = it.filter { ch -> ch.isDigit() } },
+                                label = "Сумма (АР)",
+                            )
+                            StarlitTextField(
+                                value = comment,
+                                onValueChange = { comment = it },
+                                label = "Комментарий",
+                            )
+                        }
+                        val treasuryCode = bank.treasuryDonationCode
+                        val canTransfer = !vm.isLoadingBank &&
+                            toCode.isNotBlank() &&
+                            (amountText.toLongOrNull() ?: 0L) > 0L
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            if (!treasuryCode.isNullOrBlank()) {
+                                BankActionButton(
+                                    text = "В казну",
+                                    onClick = { toCode = treasuryCode },
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
                             BankActionButton(
-                                text = "В казну",
-                                onClick = { toCode = treasuryCode },
+                                text = "Перевести",
+                                onClick = {
+                                    if (!canTransfer) return@BankActionButton
+                                    val amount = amountText.toLongOrNull() ?: return@BankActionButton
+                                    vm.transferBank(toCode.trim(), amount, comment.trim().ifBlank { null })
+                                    amountText = ""
+                                    comment = ""
+                                },
+                                loading = vm.isLoadingBank,
+                                enabled = true,
+                                emphasized = true,
                                 modifier = Modifier.weight(1f),
                             )
                         }
-                        BankActionButton(
-                            text = "Перевести",
-                            onClick = {
-                                val amount = amountText.toLongOrNull() ?: 0L
-                                if (toCode.isBlank() || amount <= 0L) return@BankActionButton
-                                vm.transferBank(toCode.trim(), amount, comment.trim().ifBlank { null })
-                                amountText = ""
-                                comment = ""
-                            },
-                            loading = vm.isLoadingBank,
-                            enabled = !vm.isLoadingBank && toCode.isNotBlank() &&
-                                (amountText.toLongOrNull() ?: 0L) > 0L,
-                            emphasized = true,
-                            modifier = Modifier.weight(1f),
-                        )
                     }
                 }
             }
