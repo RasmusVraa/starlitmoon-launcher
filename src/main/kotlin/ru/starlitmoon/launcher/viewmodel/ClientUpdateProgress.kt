@@ -8,7 +8,7 @@ data class ClientUpdateProgress(
     val title: String = "ПОДГОТОВКА",
     val status: String = "Подготовка",
     val stageIndex: Int = 1,
-    val stageCount: Int = 3,
+    val stageCount: Int = 4,
     val detail: String = "",
     val overall: Float = 0f,
     val stageProgress: Float = 0f,
@@ -33,14 +33,16 @@ data class ClientUpdateProgress(
 
 enum class ClientUpdatePhase {
     Prep,
-    Files,
+    Download,
+    Verify,
     Client,
 }
 
 object ClientUpdateLabels {
     fun titleFor(phase: ClientUpdatePhase): String = when (phase) {
         ClientUpdatePhase.Prep -> "ПОДГОТОВКА"
-        ClientUpdatePhase.Files -> "ПРОВЕРКА ФАЙЛОВ"
+        ClientUpdatePhase.Download -> "СКАЧИВАНИЕ ФАЙЛОВ"
+        ClientUpdatePhase.Verify -> "ПРОВЕРКА ФАЙЛОВ"
         ClientUpdatePhase.Client -> "ПОДГОТОВКА КЛИЕНТА"
     }
 
@@ -53,13 +55,15 @@ object ClientUpdateLabels {
         message.contains("Библиотек", ignoreCase = true) -> "Библиотеки"
         message.contains("Запуск", ignoreCase = true) -> "Запуск"
         phase == ClientUpdatePhase.Prep -> "Подготовка"
-        phase == ClientUpdatePhase.Files -> "Файлы сборки"
+        phase == ClientUpdatePhase.Download -> "Скачивание"
+        phase == ClientUpdatePhase.Verify -> "Проверка"
         else -> "Клиент"
     }
 
     fun detailFor(phase: ClientUpdatePhase, message: String): String = when (phase) {
         ClientUpdatePhase.Prep -> message.ifBlank { "Готовим запуск…" }
-        ClientUpdatePhase.Files -> message.ifBlank { "Собираем список файлов и рассчитываем объём обновления" }
+        ClientUpdatePhase.Download -> message.ifBlank { "Скачиваем файлы сборки" }
+        ClientUpdatePhase.Verify -> message.ifBlank { "Сверяем контрольные суммы файлов" }
         ClientUpdatePhase.Client -> message.ifBlank { "Скачиваем и проверяем файлы клиента" }
     }
 

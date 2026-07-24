@@ -149,12 +149,12 @@ fun HomeScreen(vm: LauncherViewModel) {
                     }
                     StarlitSecondaryButton(
                         text = "СБОРКИ",
-                        onClick = { vm.currentTab = LauncherTab.Builds },
+                        onClick = { vm.selectTab(LauncherTab.Builds) },
                         modifier = Modifier.width(160.dp),
                     )
                     StarlitSecondaryButton(
                         text = "СКИНЫ",
-                        onClick = { vm.currentTab = LauncherTab.Skins },
+                        onClick = { vm.selectTab(LauncherTab.Skins) },
                         modifier = Modifier.width(140.dp),
                     )
                 }
@@ -167,7 +167,7 @@ fun HomeScreen(vm: LauncherViewModel) {
                         openUrl("https://starlit-moon.ru")
                     }
                     FooterLink("Настройки") {
-                        vm.currentTab = LauncherTab.Settings
+                        vm.selectTab(LauncherTab.Settings)
                     }
                 }
             }
@@ -193,7 +193,7 @@ fun HomeScreen(vm: LauncherViewModel) {
                     title = packName,
                     subtitle = "$packLoader · Minecraft $mcVer",
                     actionLabel = "Выбрать другую",
-                    onAction = { vm.currentTab = LauncherTab.Builds },
+                    onAction = { vm.selectTab(LauncherTab.Builds) },
                 )
                 HomeInfoCard(
                     eyebrow = "ПРОФИЛЬ",
@@ -204,7 +204,7 @@ fun HomeScreen(vm: LauncherViewModel) {
                         "Добавь скин в библиотеку — он появится в игре"
                     },
                     actionLabel = "Открыть скины",
-                    onAction = { vm.currentTab = LauncherTab.Skins },
+                    onAction = { vm.selectTab(LauncherTab.Skins) },
                 )
             }
         }

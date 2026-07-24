@@ -697,6 +697,7 @@ fun BrandWordmark(modifier: Modifier = Modifier) {
 @Composable
 fun SidebarNav(vm: LauncherViewModel) {
     var confirmLogout by remember { mutableStateOf(false) }
+    val locked = vm.isClientUpdateBusy
     Box(
         modifier = Modifier
             .width(StarlitDimens.SidebarWidth)
@@ -711,71 +712,88 @@ fun SidebarNav(vm: LauncherViewModel) {
         ) {
             Spacer(Modifier.height(18.dp))
 
+            fun go(tab: LauncherTab) {
+                if (locked) vm.openClientUpdatePage() else vm.selectTab(tab)
+            }
+
             SidebarIcon(
                 icon = Icons.Default.Home,
-                selected = vm.currentTab == LauncherTab.Home,
+                selected = !vm.clientUpdateVisible && vm.currentTab == LauncherTab.Home,
                 contentDescription = "Главная",
-                onClick = { vm.currentTab = LauncherTab.Home },
+                onClick = { go(LauncherTab.Home) },
+                enabled = true,
+                dimmed = locked,
             )
             Spacer(Modifier.height(10.dp))
             SidebarIcon(
                 icon = Icons.Default.Apps,
-                selected = vm.currentTab == LauncherTab.Builds,
+                selected = !vm.clientUpdateVisible && vm.currentTab == LauncherTab.Builds,
                 contentDescription = "Сборки",
-                onClick = { vm.currentTab = LauncherTab.Builds },
+                onClick = { go(LauncherTab.Builds) },
+                dimmed = locked,
             )
             Spacer(Modifier.height(10.dp))
             SidebarIcon(
                 icon = Icons.Default.Person,
-                selected = vm.currentTab == LauncherTab.Cabinet,
+                selected = !vm.clientUpdateVisible && vm.currentTab == LauncherTab.Cabinet,
                 contentDescription = "Кабинет",
-                onClick = { vm.currentTab = LauncherTab.Cabinet },
+                onClick = { go(LauncherTab.Cabinet) },
+                dimmed = locked,
             )
             Spacer(Modifier.height(10.dp))
             SidebarIcon(
                 icon = Icons.Default.AccountBalance,
-                selected = vm.currentTab == LauncherTab.Bank,
+                selected = !vm.clientUpdateVisible && vm.currentTab == LauncherTab.Bank,
                 contentDescription = "Банк",
-                onClick = { vm.currentTab = LauncherTab.Bank },
+                onClick = { go(LauncherTab.Bank) },
+                dimmed = locked,
             )
             Spacer(Modifier.height(10.dp))
             SidebarIcon(
                 icon = Icons.Default.Checkroom,
-                selected = vm.currentTab == LauncherTab.Skins,
+                selected = !vm.clientUpdateVisible && vm.currentTab == LauncherTab.Skins,
                 contentDescription = "Скины",
-                onClick = { vm.currentTab = LauncherTab.Skins },
+                onClick = { go(LauncherTab.Skins) },
+                dimmed = locked,
             )
             Spacer(Modifier.height(10.dp))
             SidebarIcon(
                 icon = Icons.AutoMirrored.Filled.Article,
-                selected = vm.currentTab == LauncherTab.Logs,
+                selected = !vm.clientUpdateVisible && vm.currentTab == LauncherTab.Logs,
                 contentDescription = "Логи",
-                onClick = { vm.currentTab = LauncherTab.Logs },
+                onClick = { go(LauncherTab.Logs) },
+                dimmed = locked,
             )
             if (vm.isAdmin) {
                 Spacer(Modifier.height(10.dp))
                 SidebarIcon(
                     icon = Icons.Default.Security,
-                    selected = vm.currentTab == LauncherTab.Admin,
+                    selected = !vm.clientUpdateVisible && vm.currentTab == LauncherTab.Admin,
                     contentDescription = "Админ",
-                    onClick = { vm.currentTab = LauncherTab.Admin },
+                    onClick = { go(LauncherTab.Admin) },
+                    dimmed = locked,
                 )
             }
 
             Spacer(Modifier.weight(1f))
             SidebarIcon(
                 icon = Icons.Default.Settings,
-                selected = vm.currentTab == LauncherTab.Settings,
+                selected = !vm.clientUpdateVisible && vm.currentTab == LauncherTab.Settings,
                 contentDescription = "Настройки",
-                onClick = { vm.currentTab = LauncherTab.Settings },
+                onClick = { go(LauncherTab.Settings) },
+                dimmed = locked,
             )
             Spacer(Modifier.height(10.dp))
             SidebarIcon(
                 icon = Icons.AutoMirrored.Filled.Logout,
                 selected = false,
                 contentDescription = "Выйти",
-                onClick = { confirmLogout = true },
+                onClick = {
+                    if (locked) vm.openClientUpdatePage()
+                    else confirmLogout = true
+                },
                 tintOverride = StarlitColors.TextMuted,
+                dimmed = locked,
             )
             Spacer(Modifier.height(18.dp))
         }
@@ -800,19 +818,22 @@ private fun SidebarIcon(
     contentDescription: String,
     onClick: () -> Unit,
     tintOverride: Color? = null,
+    enabled: Boolean = true,
+    dimmed: Boolean = false,
 ) {
     val shape = RoundedCornerShape(14.dp)
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
     val selectedAlpha = starlitAnimateFloat(if (selected) 1f else 0f, durationMs = 200, label = "sidebarSel")
     val hoverAlpha = starlitAnimateFloat(
-        if (!selected && hovered) 1f else 0f,
+        if (!selected && hovered && !dimmed) 1f else 0f,
         durationMs = 140,
         label = "sidebarHover",
     )
     val iconTint = starlitAnimateColor(
         tintOverride
             ?: when {
+                dimmed -> StarlitColors.TextDim
                 selected -> StarlitColors.Gold
                 hovered -> StarlitColors.Text
                 else -> StarlitColors.TextMuted
@@ -822,7 +843,7 @@ private fun SidebarIcon(
     val scale = starlitAnimateFloat(
         when {
             selected -> 1.04f
-            hovered -> 1.06f
+            hovered && !dimmed -> 1.06f
             else -> 1f
         },
         durationMs = 160,
@@ -844,6 +865,7 @@ private fun SidebarIcon(
             .background(StarlitColors.SurfaceHover.copy(alpha = 0.55f * hoverAlpha))
             .border(1.dp, StarlitColors.Gold.copy(alpha = 0.55f * selectedAlpha), shape)
             .clickable(
+                enabled = enabled,
                 interactionSource = interaction,
                 indication = null,
                 onClick = onClick,
@@ -883,6 +905,13 @@ fun TopStatusBar(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             modifier = Modifier.padding(end = if (windowControls != null) 0.dp else 20.dp),
         ) {
+            val update = vm.clientUpdate
+            if (update != null) {
+                ClientUpdateMiniChip(
+                    percent = update.overallPercent,
+                    onClick = { vm.openClientUpdatePage() },
+                )
+            }
             if (vm.launcherNotificationsEnabled()) {
                 NotificationsBell(vm)
             }
@@ -924,6 +953,47 @@ fun TopStatusBar(
                 )
             }
             windowControls?.invoke()
+        }
+    }
+}
+
+@Composable
+private fun ClientUpdateMiniChip(
+    percent: Int,
+    onClick: () -> Unit,
+) {
+    val accent = Color(0xFFFF2D7B)
+    val shape = RoundedCornerShape(10.dp)
+    Column(
+        modifier = Modifier
+            .width(88.dp)
+            .clip(shape)
+            .background(StarlitColors.SurfaceHover)
+            .border(1.dp, StarlitColors.Border, shape)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 7.dp),
+        verticalArrangement = Arrangement.spacedBy(5.dp),
+    ) {
+        Text(
+            "$percent%",
+            color = StarlitColors.Text,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(4.dp)
+                .clip(RoundedCornerShape(50))
+                .background(Color(0xFF2A2D35)),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .fillMaxWidth((percent.coerceIn(0, 100) / 100f))
+                    .clip(RoundedCornerShape(50))
+                    .background(accent),
+            )
         }
     }
 }

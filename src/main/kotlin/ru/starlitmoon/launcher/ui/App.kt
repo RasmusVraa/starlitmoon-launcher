@@ -123,8 +123,11 @@ fun FrameWindowScope.LauncherApp(
                                     }
                                     Box(modifier = Modifier.fillMaxSize()) {
                                         val update = vm.clientUpdate
-                                        if (update != null) {
-                                            ClientUpdateScreen(progress = update)
+                                        if (update != null && vm.clientUpdateVisible) {
+                                            ClientUpdateScreen(
+                                                progress = update,
+                                                onMinimize = { vm.dismissClientUpdatePage() },
+                                            )
                                         } else {
                                             AnimatedContent(
                                                 targetState = vm.currentTab,

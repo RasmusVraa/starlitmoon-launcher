@@ -139,11 +139,18 @@ object ModpackSync {
         }
 
         val expectedSize = archive?.size?.takeIf { it > 0 }
-        onProgress(ProgressEvent("Подключение к архиву…", 0.01f, bytesTotal = expectedSize))
+        onProgress(ProgressEvent("Подключение к архиву…", 0.01f, bytesTotal = expectedSize, kind = ProgressEvent.Kind.Download))
         downloadTo(url, zipPath, expectedSize, onProgress)
 
         if (expectedSha.isNotBlank()) {
-            onProgress(ProgressEvent("Проверка архива…", 0.88f, currentFile = zipPath.name))
+            onProgress(
+                ProgressEvent(
+                    "Проверка архива…",
+                    0.88f,
+                    currentFile = zipPath.name,
+                    kind = ProgressEvent.Kind.Verify,
+                ),
+            )
             val actual = sha256Hex(zipPath)
             if (actual != expectedSha) {
                 Files.deleteIfExists(zipPath)
@@ -151,32 +158,49 @@ object ModpackSync {
             }
         }
 
-        onProgress(ProgressEvent("Очистка сборки…", 0.89f))
+        onProgress(ProgressEvent("Очистка сборки…", 0.89f, kind = ProgressEvent.Kind.Extract))
         wipeExceptWorlds(dir)
 
-        onProgress(ProgressEvent("Распаковка сборки…", 0.90f, currentFile = zipPath.name))
+        onProgress(ProgressEvent("Распаковка файлов…", 0.90f, currentFile = zipPath.name, kind = ProgressEvent.Kind.Extract))
         val zipMods = listZipModFileNames(zipPath)
         extractZip(zipPath, dir) { done, total, name ->
-            val frac = if (total > 0) 0.90f + 0.09f * done.toFloat() / total else 0.95f
+            val frac = if (total > 0) 0.90f + 0.05f * done.toFloat() / total else 0.93f
             onProgress(
                 ProgressEvent(
-                    message = "Распаковка $done/$total…",
+                    message = "Файл $done/$total",
                     fraction = frac,
                     filesDone = done,
                     filesTotal = total,
                     currentFile = name,
                     threads = 1,
+                    kind = ProgressEvent.Kind.Extract,
                 ),
             )
         }
         writeManagedMods(dir, zipMods)
+
+        onProgress(ProgressEvent("Проверка файлов…", 0.96f, kind = ProgressEvent.Kind.Verify))
+        verifyExtracted(zipPath, dir) { done, total, name ->
+            val frac = if (total > 0) 0.96f + 0.03f * done.toFloat() / total else 0.98f
+            onProgress(
+                ProgressEvent(
+                    message = "Проверка $done/$total",
+                    fraction = frac,
+                    filesDone = done,
+                    filesTotal = total,
+                    currentFile = name,
+                    threads = 1,
+                    kind = ProgressEvent.Kind.Verify,
+                ),
+            )
+        }
 
         if (expectedSha.isNotBlank()) {
             marker.writeText(expectedSha)
         } else {
             marker.writeText(sha256Hex(zipPath))
         }
-        onProgress(ProgressEvent("Сборка готова", 1f))
+        onProgress(ProgressEvent("Сборка готова", 1f, kind = ProgressEvent.Kind.Verify))
         return true
     }
 
@@ -290,6 +314,7 @@ object ModpackSync {
                 bytesDone = finalSize,
                 bytesTotal = finalSize,
                 currentFile = target.name,
+                kind = ProgressEvent.Kind.Download,
             ),
         )
     }
@@ -377,6 +402,7 @@ object ModpackSync {
                                     bytesTotal = total.takeIf { it > 0 },
                                     currentFile = tmp.name.removeSuffix(".part"),
                                     threads = 1,
+                                    kind = ProgressEvent.Kind.Download,
                                 ),
                             )
                         }
@@ -434,12 +460,65 @@ object ModpackSync {
                 }
                 zis.closeEntry()
                 done++
-                if (done % 25 == 0 || (totalEntries > 0 && done == totalEntries)) {
-                    onEntry(done, totalEntries.coerceAtLeast(done), name.substringAfterLast('/'))
-                }
+                onEntry(done, totalEntries.coerceAtLeast(done), name.substringAfterLast('/').ifBlank { name })
             }
         }
-        onEntry(done, totalEntries.coerceAtLeast(done), "")
+        if (done > 0) {
+            onEntry(done, totalEntries.coerceAtLeast(done), "")
+        }
+    }
+
+    /** Verify extracted files against ZIP CRC32. */
+    private fun verifyExtracted(
+        zipPath: Path,
+        dest: Path,
+        onEntry: (Int, Int, String) -> Unit = { _, _, _ -> },
+    ) {
+        val prefix = detectStripPrefix(zipPath)
+        val entries = mutableListOf<Pair<String, Long>>()
+        openZip(zipPath).use { zip ->
+            val en = zip.entries()
+            while (en.hasMoreElements()) {
+                val e = en.nextElement()
+                if (e.isDirectory) continue
+                var name = e.name.replace('\\', '/').trimStart('/')
+                if (prefix.isNotEmpty() && name.startsWith(prefix)) name = name.removePrefix(prefix)
+                if (name.isBlank() || name.contains("..") || shouldSkipExtract(name)) continue
+                entries += name to e.crc
+            }
+        }
+        val total = entries.size
+        var done = 0
+        for ((rel, expectedCrc) in entries) {
+            val file = dest.resolve(rel)
+            if (!file.exists()) {
+                error("После распаковки отсутствует файл: $rel")
+            }
+            if (expectedCrc >= 0L) {
+                val actual = crc32Of(file)
+                if (actual != expectedCrc) {
+                    error("Повреждён файл $rel (CRC не совпал)")
+                }
+            }
+            done++
+            if (done % 10 == 0 || done == total) {
+                onEntry(done, total, rel.substringAfterLast('/'))
+            }
+        }
+        onEntry(done, total.coerceAtLeast(done), "")
+    }
+
+    private fun crc32Of(path: Path): Long {
+        val crc = java.util.zip.CRC32()
+        Files.newInputStream(path).use { input ->
+            val buf = ByteArray(64 * 1024)
+            while (true) {
+                val n = input.read(buf)
+                if (n <= 0) break
+                crc.update(buf, 0, n)
+            }
+        }
+        return crc.value
     }
 
     /** If the ZIP has a single top-level folder, strip it so mods/ land at pack root. */

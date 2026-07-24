@@ -12,4 +12,7 @@ data class ProgressEvent(
     val filesTotal: Int? = null,
     val currentFile: String? = null,
     val threads: Int? = null,
-)
+    val kind: Kind = Kind.Generic,
+) {
+    enum class Kind { Generic, Download, Extract, Verify }
+}
