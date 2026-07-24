@@ -10,12 +10,15 @@ import io.ktor.http.isSuccess
 import io.ktor.utils.io.ByteReadChannel
 import io.ktor.utils.io.readAvailable
 import kotlinx.coroutines.yield
+import ru.starlitmoon.launcher.LauncherLog
 import ru.starlitmoon.launcher.LauncherVersion
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.nio.file.StandardOpenOption
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.zip.ZipInputStream
 import kotlin.io.path.createDirectories
 import kotlin.io.path.deleteIfExists
@@ -24,6 +27,7 @@ import kotlin.io.path.isDirectory
 import kotlin.io.path.listDirectoryEntries
 import kotlin.io.path.pathString
 import kotlin.io.path.writeText
+import kotlin.system.exitProcess
 
 /**
  * Downloads an update package and applies it after the launcher process exits.
@@ -34,8 +38,12 @@ import kotlin.io.path.writeText
 object LauncherSelfUpdater {
     private const val EXE_NAME = "StarlitMoonLauncher.exe"
     private const val UPDATE_FLAG = "pending.flag"
+    private const val APPLY_CMD = "apply-update.cmd"
     private const val APPLY_PS1 = "apply-update.ps1"
     private const val APPLY_LOG = "apply-update.log"
+
+    /** Set when an apply helper was spawned — Main/boot must not cancel it. */
+    val pendingApply: AtomicBoolean = AtomicBoolean(false)
 
     suspend fun downloadPackage(
         url: String,
@@ -99,6 +107,9 @@ object LauncherSelfUpdater {
                         onProgress(frac, label)
                     }
                 }
+                if (written < 1_000_000L) {
+                    error("Файл обновления слишком маленький ($written байт) — возможно, ошибка GitHub")
+                }
                 Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING)
                 onProgress(1f, "Загрузка завершена")
             }
@@ -115,7 +126,7 @@ object LauncherSelfUpdater {
     ) = downloadPackage(url, target, onProgress)
 
     /**
-     * Extract ZIP into [stagingDir], then schedule file replace + restart after this process exits.
+     * Extract ZIP into [stagingDir], schedule file replace + restart, then hard-exit the JVM.
      */
     fun prepareZipUpdateAndRestart(
         zipPath: Path,
@@ -123,24 +134,25 @@ object LauncherSelfUpdater {
         installDir: Path,
         relaunchExe: Path,
         launcherPid: Long,
-        onProgress: (String) -> Unit = {},
+        onProgress: (String, Float) -> Unit = { _, _ -> },
     ) {
         require(zipPath.exists()) { "Архив обновления не найден" }
-        onProgress("Распаковка обновления…")
+        LauncherLog.info("Self-update: extract ${zipPath.fileName} → $stagingDir")
+        onProgress("Распаковка обновления…", 0.93f)
         deleteRecursively(stagingDir)
         stagingDir.createDirectories()
         extractZipFlat(zipPath, stagingDir)
+        onProgress("Проверка файлов…", 0.96f)
         val payload = resolveAppRoot(stagingDir)
-        require(payload.resolve(EXE_NAME).exists() || payload.listDirectoryEntries().isNotEmpty()) {
-            "В архиве обновления нет файлов лаунчера"
+        val stagedExe = payload.resolve(EXE_NAME)
+        require(stagedExe.exists()) {
+            "В архиве нет $EXE_NAME (корень=${payload.fileName}, файлов=${payload.listDirectoryEntries().size})"
         }
 
         val updateDir = installDir.resolve("update").also { it.createDirectories() }
         val flag = updateDir.resolve(UPDATE_FLAG)
-        val ps1 = updateDir.resolve(APPLY_PS1)
+        val cmd = updateDir.resolve(APPLY_CMD)
         val log = updateDir.resolve(APPLY_LOG)
-
-        fun psLit(path: String): String = "'" + path.replace("'", "''") + "'"
 
         Files.writeString(flag, "1", StandardCharsets.UTF_8)
 
@@ -153,77 +165,81 @@ object LauncherSelfUpdater {
         val zipAbs = zipPath.toAbsolutePath().normalize().pathString
         val logPath = log.toAbsolutePath().normalize().pathString
 
-        val script = """
-            ${'$'}ErrorActionPreference = 'Continue'
-            ${'$'}log = ${psLit(logPath)}
-            function Log(${'$'}msg) {
-              ${'$'}line = ('[{0}] {1}' -f (Get-Date -Format 'HH:mm:ss'), ${'$'}msg)
-              Add-Content -LiteralPath ${'$'}log -Value ${'$'}line -Encoding UTF8 -ErrorAction SilentlyContinue
-            }
-            Log 'apply-update started'
-            ${'$'}pidToWait = $launcherPid
-            ${'$'}src = ${psLit(src)}
-            ${'$'}dir = ${psLit(dir)}
-            ${'$'}exe = ${psLit(exe)}
-            ${'$'}altExe = ${psLit(altExe)}
-            ${'$'}flag = ${psLit(flagPath)}
-            ${'$'}staging = ${psLit(stagingPath)}
-            ${'$'}zip = ${psLit(zipAbs)}
-            ${'$'}deadline = (Get-Date).AddMinutes(3)
-            while ((Get-Date) -lt ${'$'}deadline) {
-              if (-not (Test-Path -LiteralPath ${'$'}flag)) { Log 'flag removed — abort'; exit 0 }
-              ${'$'}alive = ${'$'}false
-              try {
-                if (Get-Process -Id ${'$'}pidToWait -ErrorAction Stop) { ${'$'}alive = ${'$'}true }
-              } catch { ${'$'}alive = ${'$'}false }
-              if (-not ${'$'}alive) {
-                # Also wait until install-dir launcher EXE releases file locks.
-                ${'$'}lockers = @(Get-Process -Name 'StarlitMoonLauncher','java','javaw' -ErrorAction SilentlyContinue |
-                  Where-Object {
-                    ${'$'}p = ${'$'}_.Path
-                    if ([string]::IsNullOrWhiteSpace(${'$'}p)) { ${'$'}false }
-                    else { ${'$'}p.StartsWith(${'$'}dir, [System.StringComparison]::OrdinalIgnoreCase) }
-                  })
-                if (${'$'}lockers.Count -eq 0) { break }
-                Log ("waiting for lockers: " + ((${'$'}lockers | ForEach-Object { ${'$'}_.Id }) -join ','))
-              }
-              Start-Sleep -Milliseconds 250
-            }
-            if (-not (Test-Path -LiteralPath ${'$'}flag)) { Log 'flag gone after wait'; exit 0 }
-            if (-not (Test-Path -LiteralPath ${'$'}src)) { Log 'staging missing'; exit 1 }
-            Log 'copying files via robocopy'
-            Start-Sleep -Milliseconds 500
-            ${'$'}copied = ${'$'}false
-            for (${'$'}i = 1; ${'$'}i -le 8; ${'$'}i++) {
-              & robocopy ${'$'}src ${'$'}dir /E /IS /IT /R:1 /W:1 /NFL /NDL /NJH /NJS /NP | Out-Null
-              ${'$'}code = ${'$'}LASTEXITCODE
-              Log ("robocopy attempt ${'$'}i exit=${'$'}code")
-              if (${'$'}code -lt 8) { ${'$'}copied = ${'$'}true; break }
-              Start-Sleep -Milliseconds 700
-            }
-            if (-not ${'$'}copied) { Log 'robocopy failed'; exit 8 }
-            ${'$'}launch = ${'$'}null
-            if (Test-Path -LiteralPath ${'$'}exe) { ${'$'}launch = ${'$'}exe }
-            elseif (Test-Path -LiteralPath ${'$'}altExe) { ${'$'}launch = ${'$'}altExe }
-            if (${'$'}null -eq ${'$'}launch) { Log 'exe missing after copy'; exit 1 }
-            Log ("starting ${'$'}launch")
-            Start-Sleep -Milliseconds 300
-            try {
-              Start-Process -FilePath ${'$'}launch -WorkingDirectory ${'$'}dir | Out-Null
-              Log 'Start-Process ok'
-            } catch {
-              Log ("Start-Process failed: " + ${'$'}_.Exception.Message)
-              Start-Process -FilePath 'cmd.exe' -ArgumentList @('/c','start','','/D',${'$'}dir,${'$'}launch) -WindowStyle Hidden | Out-Null
-            }
-            Remove-Item -LiteralPath ${'$'}flag -Force -ErrorAction SilentlyContinue
-            Remove-Item -LiteralPath ${'$'}zip -Force -ErrorAction SilentlyContinue
-            Remove-Item -LiteralPath ${'$'}staging -Recurse -Force -ErrorAction SilentlyContinue
-            Remove-Item -LiteralPath (Join-Path (Split-Path ${'$'}flag) '$APPLY_PS1') -Force -ErrorAction SilentlyContinue
-            Log 'done'
-        """.trimIndent().replace("\n", "\r\n")
-        ps1.writeText(script)
-        startDetachedPowerShell(ps1, installDir, log)
-        onProgress("Перезапуск…")
+        // Pure CMD — survives JVM exit better than PowerShell child trees on some setups.
+        val batch = buildString {
+            appendLine("@echo off")
+            appendLine("setlocal EnableExtensions EnableDelayedExpansion")
+            appendLine("set \"LOG=$logPath\"")
+            appendLine("echo [%TIME%] apply-update started pid=$launcherPid>>\"%LOG%\"")
+            appendLine("set \"FLAG=$flagPath\"")
+            appendLine("set \"SRC=$src\"")
+            appendLine("set \"DIR=$dir\"")
+            appendLine("set \"EXE=$exe\"")
+            appendLine("set \"ALTEXE=$altExe\"")
+            appendLine("set \"STAGING=$stagingPath\"")
+            appendLine("set \"ZIP=$zipAbs\"")
+            appendLine("set /a TRIES=0")
+            appendLine(":waitpid")
+            appendLine("if not exist \"%FLAG%\" (")
+            appendLine("  echo [%TIME%] flag gone — abort>>\"%LOG%\"")
+            appendLine("  exit /b 0")
+            appendLine(")")
+            appendLine("tasklist /FI \"PID eq $launcherPid\" 2>NUL | findstr /I \"$launcherPid\" >NUL")
+            appendLine("if not errorlevel 1 (")
+            appendLine("  set /a TRIES+=1")
+            appendLine("  if !TRIES! GEQ 180 (")
+            appendLine("    echo [%TIME%] timeout waiting for pid>>\"%LOG%\"")
+            appendLine("    goto docopy")
+            appendLine("  )")
+            appendLine("  ping -n 2 127.0.0.1 >NUL")
+            appendLine("  goto waitpid")
+            appendLine(")")
+            appendLine("echo [%TIME%] launcher pid exited>>\"%LOG%\"")
+            appendLine("ping -n 2 127.0.0.1 >NUL")
+            appendLine(":docopy")
+            appendLine("if not exist \"%SRC%\\$EXE_NAME\" (")
+            appendLine("  echo [%TIME%] staging exe missing>>\"%LOG%\"")
+            appendLine("  exit /b 1")
+            appendLine(")")
+            appendLine("set /a COPYTRY=0")
+            appendLine(":copyloop")
+            appendLine("set /a COPYTRY+=1")
+            appendLine("echo [%TIME%] robocopy attempt !COPYTRY!>>\"%LOG%\"")
+            appendLine("robocopy \"%SRC%\" \"%DIR%\" /E /IS /IT /R:2 /W:1 /NFL /NDL /NJH /NJS /NP >>\"%LOG%\" 2>&1")
+            appendLine("set \"RC=!ERRORLEVEL!\"")
+            appendLine("echo [%TIME%] robocopy exit=!RC!>>\"%LOG%\"")
+            appendLine("if !RC! LSS 8 goto launch")
+            appendLine("if !COPYTRY! LSS 12 (")
+            appendLine("  ping -n 2 127.0.0.1 >NUL")
+            appendLine("  goto copyloop")
+            appendLine(")")
+            appendLine("echo [%TIME%] robocopy failed>>\"%LOG%\"")
+            appendLine("exit /b 8")
+            appendLine(":launch")
+            appendLine("if exist \"%EXE%\" (")
+            appendLine("  echo [%TIME%] starting %EXE%>>\"%LOG%\"")
+            appendLine("  start \"\" /D \"%DIR%\" \"%EXE%\"")
+            appendLine(") else if exist \"%ALTEXE%\" (")
+            appendLine("  echo [%TIME%] starting %ALTEXE%>>\"%LOG%\"")
+            appendLine("  start \"\" /D \"%DIR%\" \"%ALTEXE%\"")
+            appendLine(") else (")
+            appendLine("  echo [%TIME%] exe missing after copy>>\"%LOG%\"")
+            appendLine("  exit /b 1")
+            appendLine(")")
+            appendLine("del /f /q \"%FLAG%\" >NUL 2>&1")
+            appendLine("del /f /q \"%ZIP%\" >NUL 2>&1")
+            appendLine("rmdir /s /q \"%STAGING%\" >NUL 2>&1")
+            appendLine("echo [%TIME%] done>>\"%LOG%\"")
+            appendLine("ping -n 2 127.0.0.1 >NUL")
+            appendLine("del /f /q \"%~f0\" >NUL 2>&1")
+        }.replace("\n", "\r\n")
+        cmd.writeText(batch, Charsets.UTF_8)
+
+        onProgress("Запуск установщика обновления…", 0.98f)
+        startDetachedCmd(cmd, installDir, log)
+        pendingApply.set(true)
+        LauncherLog.info("Self-update: apply helper started, exiting JVM")
+        onProgress("Перезапуск…", 1f)
     }
 
     /** Legacy Setup.exe silent install path. */
@@ -235,11 +251,9 @@ object LauncherSelfUpdater {
     ) {
         require(installer.exists()) { "Установщик не найден" }
         val updateDir = installDir.resolve("update").also { it.createDirectories() }
-        val ps1 = updateDir.resolve(APPLY_PS1)
+        val cmd = updateDir.resolve(APPLY_CMD)
         val flag = updateDir.resolve(UPDATE_FLAG)
         val log = updateDir.resolve(APPLY_LOG)
-
-        fun psLit(path: String): String = "'" + path.replace("'", "''") + "'"
 
         Files.writeString(flag, "1", StandardCharsets.UTF_8)
 
@@ -250,58 +264,75 @@ object LauncherSelfUpdater {
         val flagPath = flag.toAbsolutePath().normalize().pathString
         val logPath = log.toAbsolutePath().normalize().pathString
 
-        val script = """
-            ${'$'}ErrorActionPreference = 'Continue'
-            ${'$'}log = ${psLit(logPath)}
-            function Log(${'$'}msg) {
-              ${'$'}line = ('[{0}] {1}' -f (Get-Date -Format 'HH:mm:ss'), ${'$'}msg)
-              Add-Content -LiteralPath ${'$'}log -Value ${'$'}line -Encoding UTF8 -ErrorAction SilentlyContinue
-            }
-            Log 'setup-update started'
-            ${'$'}pidToWait = $launcherPid
-            ${'$'}setup = ${psLit(setup)}
-            ${'$'}dir = ${psLit(dir)}
-            ${'$'}exe = ${psLit(exe)}
-            ${'$'}altExe = ${psLit(altExe)}
-            ${'$'}flag = ${psLit(flagPath)}
-            ${'$'}deadline = (Get-Date).AddMinutes(10)
-            while ((Get-Date) -lt ${'$'}deadline) {
-              if (-not (Test-Path -LiteralPath ${'$'}flag)) { exit 0 }
-              try { Get-Process -Id ${'$'}pidToWait -ErrorAction Stop | Out-Null } catch { break }
-              Start-Sleep -Milliseconds 250
-            }
-            if (-not (Test-Path -LiteralPath ${'$'}flag)) { exit 0 }
-            if (-not (Test-Path -LiteralPath ${'$'}setup)) { Log 'setup missing'; exit 0 }
-            Log 'running Inno Setup'
-            Start-Sleep -Milliseconds 400
-            ${'$'}args = @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/CLOSEAPPLICATIONS','/FORCECLOSEAPPLICATIONS',('/DIR=' + ${'$'}dir))
-            Start-Process -FilePath ${'$'}setup -ArgumentList ${'$'}args -Wait -WindowStyle Hidden | Out-Null
-            Start-Sleep -Milliseconds 400
-            if (Test-Path -LiteralPath ${'$'}exe) { Start-Process -FilePath ${'$'}exe -WorkingDirectory ${'$'}dir }
-            elseif (Test-Path -LiteralPath ${'$'}altExe) { Start-Process -FilePath ${'$'}altExe -WorkingDirectory ${'$'}dir }
-            Remove-Item -LiteralPath ${'$'}flag -Force -ErrorAction SilentlyContinue
-            Remove-Item -LiteralPath ${'$'}setup -Force -ErrorAction SilentlyContinue
-            Remove-Item -LiteralPath (Join-Path (Split-Path ${'$'}flag) '$APPLY_PS1') -Force -ErrorAction SilentlyContinue
-            Log 'done'
-        """.trimIndent().replace("\n", "\r\n")
-        ps1.writeText(script)
-        startDetachedPowerShell(ps1, installDir, log)
+        val batch = buildString {
+            appendLine("@echo off")
+            appendLine("setlocal EnableExtensions")
+            appendLine("set \"LOG=$logPath\"")
+            appendLine("echo [%TIME%] setup-update started>>\"%LOG%\"")
+            appendLine("set \"FLAG=$flagPath\"")
+            appendLine("set \"SETUP=$setup\"")
+            appendLine("set \"DIR=$dir\"")
+            appendLine("set \"EXE=$exe\"")
+            appendLine("set \"ALTEXE=$altExe\"")
+            appendLine("set /a TRIES=0")
+            appendLine(":waitpid")
+            appendLine("if not exist \"%FLAG%\" exit /b 0")
+            appendLine("tasklist /FI \"PID eq $launcherPid\" 2>NUL | findstr /I \"$launcherPid\" >NUL")
+            appendLine("if not errorlevel 1 (")
+            appendLine("  set /a TRIES+=1")
+            appendLine("  if %TRIES% GEQ 300 goto runsetup")
+            appendLine("  ping -n 2 127.0.0.1 >NUL")
+            appendLine("  goto waitpid")
+            appendLine(")")
+            appendLine(":runsetup")
+            appendLine("if not exist \"%SETUP%\" exit /b 0")
+            appendLine("\"%SETUP%\" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS /FORCECLOSEAPPLICATIONS /DIR=\"%DIR%\"")
+            appendLine("ping -n 2 127.0.0.1 >NUL")
+            appendLine("if exist \"%EXE%\" (start \"\" \"%EXE%\") else if exist \"%ALTEXE%\" (start \"\" \"%ALTEXE%\")")
+            appendLine("del /f /q \"%FLAG%\" >NUL 2>&1")
+            appendLine("del /f /q \"%SETUP%\" >NUL 2>&1")
+            appendLine("del /f /q \"%~f0\" >NUL 2>&1")
+        }.replace("\n", "\r\n")
+        cmd.writeText(batch, Charsets.UTF_8)
+        startDetachedCmd(cmd, installDir, log)
+        pendingApply.set(true)
     }
 
     fun cancelPendingRestart() {
+        if (pendingApply.get()) {
+            LauncherLog.info("Self-update: skip cancel — apply pending")
+            return
+        }
         runCatching {
             val paths = resolveInstallPaths()
             val updateDir = paths.installDir.resolve("update")
-            updateDir.resolve(UPDATE_FLAG).deleteIfExists()
+            val flag = updateDir.resolve(UPDATE_FLAG)
+            // If a fresh apply is mid-flight, leave it alone.
+            if (flag.exists()) {
+                val ageMs = runCatching {
+                    System.currentTimeMillis() - Files.getLastModifiedTime(flag).toMillis()
+                }.getOrDefault(Long.MAX_VALUE)
+                val applyRunning = ProcessHandle.allProcesses().anyMatch { ph ->
+                    val c = ph.info().commandLine().orElse("")
+                    c.contains(APPLY_CMD, ignoreCase = true) ||
+                        c.contains(APPLY_PS1, ignoreCase = true)
+                }
+                if (applyRunning || ageMs < 120_000L) {
+                    LauncherLog.info("Self-update: leave in-flight apply alone (age=${ageMs}ms)")
+                    return
+                }
+            }
+            flag.deleteIfExists()
+            updateDir.resolve(APPLY_CMD).deleteIfExists()
             updateDir.resolve(APPLY_PS1).deleteIfExists()
-            // Legacy names from older builds
             updateDir.resolve("apply-update.vbs").deleteIfExists()
             updateDir.resolve("run-update.ps1").deleteIfExists()
             updateDir.resolve("run-update.vbs").deleteIfExists()
             ProcessHandle.allProcesses().forEach { ph ->
-                val cmd = ph.info().commandLine().orElse("")
-                if (cmd.contains(APPLY_PS1, ignoreCase = true) ||
-                    cmd.contains("run-update.ps1", ignoreCase = true)
+                val cmdLine = ph.info().commandLine().orElse("")
+                if (cmdLine.contains(APPLY_CMD, ignoreCase = true) ||
+                    cmdLine.contains(APPLY_PS1, ignoreCase = true) ||
+                    cmdLine.contains("run-update.ps1", ignoreCase = true)
                 ) {
                     ph.destroy()
                 }
@@ -320,7 +351,6 @@ object LauncherSelfUpdater {
             command != null && command.fileName.toString().endsWith(".exe", ignoreCase = true) &&
                 !command.fileName.toString().equals("java.exe", ignoreCase = true) &&
                 !command.fileName.toString().equals("javaw.exe", ignoreCase = true) -> {
-                // Prefer sibling StarlitMoonLauncher.exe if we landed on a helper exe.
                 command.parent?.resolve(EXE_NAME)?.takeIf { it.exists() } ?: command
             }
             else -> {
@@ -343,73 +373,48 @@ object LauncherSelfUpdater {
     )
 
     /**
-     * Launch PowerShell outside the launcher process tree so [exitProcess] / job-object
-     * teardown cannot kill the updater mid-flight.
+     * Detach via `cmd /c start` so the helper survives [exitProcess] / job-object teardown.
      */
-    private fun startDetachedPowerShell(ps1: Path, cwd: Path, log: Path) {
-        val psPath = ps1.toAbsolutePath().normalize().pathString
-        val logPath = log.toAbsolutePath().normalize().pathString
+    private fun startDetachedCmd(cmdFile: Path, cwd: Path, log: Path) {
+        val cmdPath = cmdFile.toAbsolutePath().normalize().pathString
         runCatching {
             Files.writeString(
                 log,
-                "[${java.time.LocalTime.now()}] spawning detached updater\r\n",
+                "[${java.time.LocalTime.now()}] spawning detached cmd\r\ncmd=$cmdPath\r\n",
                 StandardCharsets.UTF_8,
                 StandardOpenOption.CREATE,
                 StandardOpenOption.TRUNCATE_EXISTING,
                 StandardOpenOption.WRITE,
             )
         }
-        // cmd `start` breaks away from the parent console/job so the updater survives exitProcess.
-        val cmdLine = buildString {
-            append("start \"StarlitMoonUpdate\" /MIN ")
-            append("powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden ")
-            append("-File \"")
-            append(psPath.replace("\"", "\\\""))
-            append("\"")
-        }
-        val started = runCatching {
-            ProcessBuilder("cmd.exe", "/c", cmdLine)
-                .directory(cwd.toFile())
-                .redirectOutput(ProcessBuilder.Redirect.DISCARD)
-                .redirectError(ProcessBuilder.Redirect.DISCARD)
-                .start()
-                .waitFor()
-            true
-        }.getOrDefault(false)
-        if (!started) {
-            // Fallback: direct PowerShell (may die with parent on some setups).
-            ProcessBuilder(
-                "powershell.exe",
-                "-NoProfile",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-WindowStyle",
-                "Hidden",
-                "-File",
-                psPath,
-            ).apply {
-                directory(cwd.toFile())
-                redirectOutput(ProcessBuilder.Redirect.appendTo(log.toFile()))
-                redirectError(ProcessBuilder.Redirect.appendTo(log.toFile()))
-            }.start()
-            Files.writeString(
-                log,
-                "fallback direct powershell used\r\n",
-                StandardCharsets.UTF_8,
-                StandardOpenOption.CREATE,
-                StandardOpenOption.APPEND,
-            )
+        // start "" → empty title; /MIN minimized; path must be quoted separately.
+        val pb = ProcessBuilder(
+            "cmd.exe",
+            "/c",
+            "start",
+            "",
+            "/MIN",
+            cmdPath,
+        )
+        pb.directory(cwd.toFile())
+        pb.redirectOutput(ProcessBuilder.Redirect.DISCARD)
+        pb.redirectError(ProcessBuilder.Redirect.DISCARD)
+        val proc = pb.start()
+        val finished = proc.waitFor(5, TimeUnit.SECONDS)
+        if (!finished) {
+            LauncherLog.warn("Self-update: start cmd still running (ok)")
         } else {
-            Files.writeString(
-                log,
-                "detached cmd start ok\r\n",
-                StandardCharsets.UTF_8,
-                StandardOpenOption.CREATE,
-                StandardOpenOption.APPEND,
-            )
+            LauncherLog.info("Self-update: start cmd exit=${proc.exitValue()}")
         }
-        // Give the shell a moment to spawn before the JVM tears down.
-        Thread.sleep(400)
+        // Let Windows spawn the child before we tear down the JVM.
+        Thread.sleep(800)
+        Files.writeString(
+            log,
+            "detached start issued\r\n",
+            StandardCharsets.UTF_8,
+            StandardOpenOption.CREATE,
+            StandardOpenOption.APPEND,
+        )
     }
 
     /** ZIP may contain files at root or a single top-level folder. */
@@ -421,12 +426,14 @@ object LauncherSelfUpdater {
             val nested = kids[0]
             if (nested.resolve(EXE_NAME).exists()) return nested
         }
-        // Compose ZIP sometimes nests under app/ without exe at that level — keep staging.
+        // Sometimes jars live under app/ while exe is at staging root — already handled.
+        kids.firstOrNull { it.isDirectory() && it.resolve(EXE_NAME).exists() }?.let { return it }
         return staging
     }
 
     private fun extractZipFlat(zipPath: Path, dest: Path) {
         dest.createDirectories()
+        var files = 0
         ZipInputStream(Files.newInputStream(zipPath), StandardCharsets.ISO_8859_1).use { zis ->
             while (true) {
                 val entry = zis.nextEntry ?: break
@@ -441,10 +448,13 @@ object LauncherSelfUpdater {
                 } else {
                     out.parent?.createDirectories()
                     Files.copy(zis, out, StandardCopyOption.REPLACE_EXISTING)
+                    files++
                 }
                 zis.closeEntry()
             }
         }
+        if (files == 0) error("Архив обновления пуст")
+        LauncherLog.info("Self-update: extracted $files files")
     }
 
     private fun deleteRecursively(path: Path) {
@@ -454,5 +464,15 @@ object LauncherSelfUpdater {
                 stream.sorted(Comparator.reverseOrder()).forEach { Files.deleteIfExists(it) }
             }
         }
+    }
+
+    /** Exit immediately after scheduling — do not rely on Compose requestExit. */
+    fun exitForApply() {
+        pendingApply.set(true)
+        try {
+            Thread.sleep(300)
+        } catch (_: InterruptedException) {
+        }
+        exitProcess(0)
     }
 }

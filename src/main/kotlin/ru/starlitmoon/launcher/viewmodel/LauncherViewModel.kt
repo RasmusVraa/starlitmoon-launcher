@@ -213,7 +213,10 @@ class LauncherViewModel(
         booted = true
         LauncherLog.info("Launcher ${LauncherVersion.CURRENT} started")
         // Старые скрипты автообновления могли перезапускать лаунчер после обычного закрытия.
-        runCatching { LauncherSelfUpdater.cancelPendingRestart() }
+        // Не трогаем свежий apply-update — иначе обновление обрывается на 96%.
+        if (!LauncherSelfUpdater.pendingApply.get()) {
+            runCatching { LauncherSelfUpdater.cancelPendingRestart() }
+        }
         scope.launch {
             val sessionJob = async(Dispatchers.IO) { runCatching { api.restoreSession() }.getOrNull() }
             val publicJob = async(Dispatchers.IO) { refreshPublicData() }
@@ -355,6 +358,7 @@ class LauncherViewModel(
             errorMessage = null
             runCatching {
                 val paths = withContext(Dispatchers.IO) { LauncherSelfUpdater.resolveInstallPaths() }
+                LauncherLog.info("Self-update → ${paths.installDir}")
                 val kind = update.packageKind
                 val name = update.packageName?.takeIf { it.isNotBlank() }
                     ?: if (kind == UpdatePackageKind.ZIP) {
@@ -391,10 +395,10 @@ class LauncherViewModel(
                                 installDir = paths.installDir,
                                 relaunchExe = paths.relaunchExe,
                                 launcherPid = ProcessHandle.current().pid(),
-                            ) { msg ->
+                            ) { msg, frac ->
                                 SwingUtilities.invokeLater {
                                     updateProgress = msg
-                                    updateProgressFraction = 0.96f
+                                    updateProgressFraction = frac
                                 }
                             }
                         }
@@ -412,9 +416,13 @@ class LauncherViewModel(
                 updateProgress = "Перезапуск…"
                 updateProgressFraction = 1f
                 infoMessage = "Обновление готово — перезапуск…"
-                delay(400)
-                requestExit = true
+                // Hard exit: Compose requestExit often never tears down before the apply helper
+                // is cancelled or the UI resets the update overlay.
+                delay(200)
+                runCatching { disposeForSelfUpdate() }
+                LauncherSelfUpdater.exitForApply()
             }.onFailure { err ->
+                LauncherLog.error("Self-update failed: ${err.message}")
                 isApplyingUpdate = false
                 updateProgress = null
                 updateProgressFraction = null

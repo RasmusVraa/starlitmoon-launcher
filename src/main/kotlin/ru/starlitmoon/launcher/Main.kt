@@ -41,7 +41,7 @@ fun main() {
         val windowState = rememberWindowState(width = 1360.dp, height = 860.dp)
         fun shutdown() {
             if (!shuttingDown.compareAndSet(false, true)) return
-            if (vm.isSelfUpdatePending()) {
+            if (vm.isSelfUpdatePending() || ru.starlitmoon.launcher.update.LauncherSelfUpdater.pendingApply.get()) {
                 // Skip heavy client closes — they can hang and leave the updater waiting forever.
                 runCatching { vm.disposeForSelfUpdate() }
                 runCatching { scope.cancel() }
