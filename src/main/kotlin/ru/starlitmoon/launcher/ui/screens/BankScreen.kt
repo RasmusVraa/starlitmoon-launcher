@@ -1,4 +1,4 @@
-package ru.starlitmoon.launcher.ui.screens
+﻿package ru.starlitmoon.launcher.ui.screens
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -6,19 +6,19 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -39,6 +39,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -48,7 +49,6 @@ import ru.starlitmoon.launcher.api.BankDesignDto
 import ru.starlitmoon.launcher.api.BankHistoryItemDto
 import ru.starlitmoon.launcher.api.BankPenaltyDto
 import ru.starlitmoon.launcher.ui.components.StarlitCard
-import ru.starlitmoon.launcher.ui.components.StarlitPrimaryButton
 import ru.starlitmoon.launcher.ui.components.StarlitSecondaryButton
 import ru.starlitmoon.launcher.ui.components.StarlitTextField
 import ru.starlitmoon.launcher.ui.theme.StarlitColors
@@ -93,7 +93,6 @@ private object BankImageLoader {
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun BankScreen(vm: LauncherViewModel) {
     LaunchedEffect(Unit) { vm.refreshPlayerBank() }
@@ -193,11 +192,12 @@ fun BankScreen(vm: LauncherViewModel) {
                             color = StarlitColors.TextDim,
                             fontSize = 12.sp,
                         )
-                        StarlitPrimaryButton(
+                        BankActionButton(
                             text = "Получить карту",
                             onClick = { vm.issueBankCard() },
                             loading = vm.isLoadingBank,
                             enabled = !vm.isLoadingBank,
+                            emphasized = true,
                             modifier = Modifier.width(180.dp),
                         )
                     }
@@ -219,7 +219,9 @@ fun BankScreen(vm: LauncherViewModel) {
         )
 
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(IntrinsicSize.Min),
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             verticalAlignment = Alignment.Top,
         ) {
@@ -229,7 +231,8 @@ fun BankScreen(vm: LauncherViewModel) {
                 owner = card?.ownerName ?: vm.userName.ifBlank { "—" },
                 themeId = themeId,
                 imageUrl = imageUrl,
-                modifier = Modifier.width(300.dp),
+                modifier = Modifier.weight(1f).fillMaxHeight(),
+                fillBounds = true,
                 onCopyCode = {
                     val code = card?.cardCode.orEmpty()
                     if (code.isBlank()) return@BankPlasticCard
@@ -241,46 +244,48 @@ fun BankScreen(vm: LauncherViewModel) {
                 copiedHint = copiedHint,
             )
 
-            StarlitCard(modifier = Modifier.weight(1f)) {
+            StarlitCard(modifier = Modifier.weight(1f).fillMaxHeight()) {
                 Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.SpaceBetween,
                 ) {
-                    Text("Перевод", color = StarlitColors.Text, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
-                    StarlitTextField(
-                        value = toCode,
-                        onValueChange = { toCode = it },
-                        label = "Код карты получателя",
-                    )
-                    StarlitTextField(
-                        value = amountText,
-                        onValueChange = { amountText = it.filter { ch -> ch.isDigit() } },
-                        label = "Сумма (АР)",
-                    )
-                    StarlitTextField(
-                        value = comment,
-                        onValueChange = { comment = it },
-                        label = "Комментарий",
-                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("Перевод", color = StarlitColors.Text, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                        StarlitTextField(
+                            value = toCode,
+                            onValueChange = { toCode = it },
+                            label = "Код карты получателя",
+                        )
+                        StarlitTextField(
+                            value = amountText,
+                            onValueChange = { amountText = it.filter { ch -> ch.isDigit() } },
+                            label = "Сумма (АР)",
+                        )
+                        StarlitTextField(
+                            value = comment,
+                            onValueChange = { comment = it },
+                            label = "Комментарий",
+                        )
+                    }
                     val treasuryCode = bank.treasuryDonationCode
-                    val treasuryName = bank.treasuryDonationName
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         if (!treasuryCode.isNullOrBlank()) {
-                            StarlitSecondaryButton(
-                                text = treasuryName?.let { "🏛 В казну" } ?: "🏛 В казну",
+                            BankActionButton(
+                                text = "В казну",
                                 onClick = { toCode = treasuryCode },
-                                compact = true,
                                 modifier = Modifier.weight(1f),
                             )
                         }
-                        StarlitPrimaryButton(
-                            text = "→ Перевести",
+                        BankActionButton(
+                            text = "Перевести",
                             onClick = {
                                 val amount = amountText.toLongOrNull() ?: 0L
-                                if (toCode.isBlank() || amount <= 0L) return@StarlitPrimaryButton
+                                if (toCode.isBlank() || amount <= 0L) return@BankActionButton
                                 vm.transferBank(toCode.trim(), amount, comment.trim().ifBlank { null })
                                 amountText = ""
                                 comment = ""
@@ -288,7 +293,7 @@ fun BankScreen(vm: LauncherViewModel) {
                             loading = vm.isLoadingBank,
                             enabled = !vm.isLoadingBank && toCode.isNotBlank() &&
                                 (amountText.toLongOrNull() ?: 0L) > 0L,
-                            compact = true,
+                            emphasized = true,
                             modifier = Modifier.weight(1f),
                         )
                     }
@@ -303,7 +308,7 @@ fun BankScreen(vm: LauncherViewModel) {
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    Text("⚠ Штрафы", color = StarlitColors.Text, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                    Text("Штрафы", color = StarlitColors.Text, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
                     penalties.forEach { penalty ->
                         PenaltyRow(penalty = penalty, busy = vm.isLoadingBank) {
                             val id = penalty.id ?: return@PenaltyRow
@@ -323,9 +328,9 @@ fun BankScreen(vm: LauncherViewModel) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     listOf(
                         "all" to "Все",
-                        "deposit" to "↓ Пополнение",
-                        "withdraw" to "↑ Списание",
-                        "transfer" to "↔ Переводы",
+                        "deposit" to "Пополнение",
+                        "withdraw" to "Списание",
+                        "transfer" to "Переводы",
                     ).forEach { (id, label) ->
                         BankFilterChip(
                             text = label,
@@ -351,29 +356,98 @@ fun BankScreen(vm: LauncherViewModel) {
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    Text("🎨 Дизайны карты", color = StarlitColors.Text, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                    Text("Дизайны карты", color = StarlitColors.Text, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
                     Text(
-                        "Оформление как на сайте — применяется к карте выше",
+                        "Оформление применяется к карте выше",
                         color = StarlitColors.TextMuted,
                         fontSize = 12.sp,
                     )
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        catalog.forEach { design ->
-                            DesignShopTile(
-                                design = design,
-                                apiBase = apiBase,
-                                isActive = designs?.active != null && designs.active == design.id,
-                                busy = vm.isLoadingBank,
-                                onBuy = { design.id?.let { vm.purchaseBankDesign(it) } },
-                                onEquip = { design.id?.let { vm.equipBankDesign(it) } },
-                            )
+                    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                        val gap = 12.dp
+                        val minTile = 148.dp
+                        val cols = ((maxWidth + gap) / (minTile + gap)).toInt().coerceAtLeast(2)
+                        val tileW = (maxWidth - gap * (cols - 1)) / cols
+                        Column(verticalArrangement = Arrangement.spacedBy(gap)) {
+                            catalog.chunked(cols).forEach { rowItems ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(gap),
+                                ) {
+                                    rowItems.forEach { design ->
+                                        DesignShopTile(
+                                            design = design,
+                                            apiBase = apiBase,
+                                            isActive = designs?.active != null && designs.active == design.id,
+                                            busy = vm.isLoadingBank,
+                                            onBuy = { design.id?.let { vm.purchaseBankDesign(it) } },
+                                            onEquip = { design.id?.let { vm.equipBankDesign(it) } },
+                                            modifier = Modifier.width(tileW),
+                                        )
+                                    }
+                                    // Stretch leftover slots so the last row still fills width.
+                                    repeat(cols - rowItems.size) {
+                                        Spacer(Modifier.width(tileW))
+                                    }
+                                }
+                            }
                         }
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun BankActionButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    loading: Boolean = false,
+    emphasized: Boolean = false,
+    danger: Boolean = false,
+) {
+    val shape = RoundedCornerShape(10.dp)
+    val active = enabled && !loading
+    val borderColor = when {
+        danger -> StarlitColors.Offline.copy(alpha = if (active) 0.65f else 0.3f)
+        emphasized -> StarlitColors.Gold.copy(alpha = if (active) 0.55f else 0.25f)
+        else -> StarlitColors.BorderStrong
+    }
+    val bg = when {
+        danger -> StarlitColors.Offline.copy(alpha = if (active) 0.16f else 0.08f)
+        emphasized -> StarlitColors.Gold.copy(alpha = if (active) 0.14f else 0.06f)
+        else -> StarlitColors.SurfaceElevated
+    }
+    val fg = when {
+        !active -> StarlitColors.TextDim
+        danger -> StarlitColors.Offline
+        emphasized -> StarlitColors.Gold
+        else -> StarlitColors.Text
+    }
+    Box(
+        modifier = modifier
+            .height(38.dp)
+            .clip(shape)
+            .background(bg)
+            .border(1.dp, borderColor, shape)
+            .clickable(enabled = active, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (loading) {
+            CircularProgressIndicator(modifier = Modifier.size(16.dp), color = fg, strokeWidth = 2.dp)
+        } else {
+            Text(
+                text,
+                color = fg,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 13.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(horizontal = 10.dp),
+            )
         }
     }
 }
@@ -387,6 +461,7 @@ private fun BankPlasticCard(
     imageUrl: String?,
     modifier: Modifier = Modifier,
     compact: Boolean = false,
+    fillBounds: Boolean = false,
     onCopyCode: (() -> Unit)? = null,
     copiedHint: Boolean = false,
 ) {
@@ -395,7 +470,7 @@ private fun BankPlasticCard(
     val hasArt = !imageUrl.isNullOrBlank()
     Box(
         modifier = modifier
-            .aspectRatio(1.586f)
+            .then(if (fillBounds) Modifier else Modifier.aspectRatio(1.586f))
             .clip(shape)
             .background(Color(0xFF0E0C16))
             .border(1.dp, Color.White.copy(alpha = 0.08f), shape),
@@ -437,22 +512,12 @@ private fun BankPlasticCard(
                         ),
                     ),
             )
-            // Pixel grid like site
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(Color.Black.copy(alpha = 0.08f), Color.Transparent, Color.Black.copy(alpha = 0.12f)),
-                        ),
-                    ),
-            )
         }
 
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(if (compact) 12.dp else 14.dp),
+                .padding(if (compact) 12.dp else 16.dp),
             verticalArrangement = Arrangement.SpaceBetween,
         ) {
             Row(
@@ -464,12 +529,12 @@ private fun BankPlasticCard(
                     "Starlit Bank",
                     color = Color.White.copy(alpha = 0.95f),
                     fontWeight = FontWeight.Bold,
-                    fontSize = if (compact) 12.sp else 13.sp,
+                    fontSize = if (compact) 12.sp else 14.sp,
                     letterSpacing = 0.5.sp,
                 )
                 Box(
                     modifier = Modifier
-                        .size(if (compact) 20.dp else 24.dp, if (compact) 14.dp else 16.dp)
+                        .size(if (compact) 20.dp else 26.dp, if (compact) 14.dp else 18.dp)
                         .clip(RoundedCornerShape(3.dp))
                         .background(
                             Brush.linearGradient(
@@ -479,11 +544,11 @@ private fun BankPlasticCard(
                 )
             }
 
-            Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
                     "Баланс",
                     color = Color.White.copy(alpha = 0.72f),
-                    fontSize = 10.sp,
+                    fontSize = 11.sp,
                     fontWeight = FontWeight.Medium,
                 )
                 Row(verticalAlignment = Alignment.Bottom) {
@@ -491,15 +556,15 @@ private fun BankPlasticCard(
                         RuInteger.format(balance),
                         color = Color.White,
                         fontWeight = FontWeight.ExtraBold,
-                        fontSize = if (compact) 24.sp else 28.sp,
+                        fontSize = if (compact) 24.sp else 32.sp,
                     )
                     Spacer(Modifier.width(6.dp))
                     Text(
                         "АР",
                         color = Color(0xFFFDE68A),
                         fontWeight = FontWeight.Bold,
-                        fontSize = if (compact) 13.sp else 14.sp,
-                        modifier = Modifier.padding(bottom = 3.dp),
+                        fontSize = if (compact) 13.sp else 15.sp,
+                        modifier = Modifier.padding(bottom = 4.dp),
                     )
                 }
             }
@@ -509,44 +574,48 @@ private fun BankPlasticCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.Bottom,
             ) {
-                Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                    Text("Код", color = Color.White.copy(alpha = 0.65f), fontSize = 9.sp)
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Код", color = Color.White.copy(alpha = 0.65f), fontSize = 10.sp)
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         Text(
                             code,
                             color = Color(0xFFFDE68A),
                             fontWeight = FontWeight.SemiBold,
-                            fontSize = if (compact) 12.sp else 13.sp,
+                            fontSize = if (compact) 12.sp else 14.sp,
                             letterSpacing = 0.6.sp,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
                         if (onCopyCode != null) {
-                            Text(
-                                if (copiedHint) "Скопировано" else "Копировать",
-                                color = Color.White.copy(alpha = 0.9f),
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.SemiBold,
+                            Box(
                                 modifier = Modifier
-                                    .clip(RoundedCornerShape(5.dp))
-                                    .background(Color.Black.copy(alpha = 0.42f))
-                                    .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(5.dp))
+                                    .clip(RoundedCornerShape(999.dp))
+                                    .background(Color.White.copy(alpha = 0.14f))
+                                    .border(1.dp, Color(0xFFFDE68A).copy(alpha = 0.35f), RoundedCornerShape(999.dp))
                                     .clickable(onClick = onCopyCode)
-                                    .padding(horizontal = 7.dp, vertical = 3.dp),
-                            )
+                                    .padding(horizontal = 10.dp, vertical = 5.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    if (copiedHint) "Скопировано" else "Копировать",
+                                    color = Color(0xFFFDE68A),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                            }
                         }
                     }
                 }
-                Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                    Text("Владелец", color = Color.White.copy(alpha = 0.65f), fontSize = 9.sp)
+                Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text("Владелец", color = Color.White.copy(alpha = 0.65f), fontSize = 10.sp)
                     Text(
                         owner,
                         color = Color.White,
                         fontWeight = FontWeight.SemiBold,
-                        fontSize = if (compact) 11.sp else 12.sp,
+                        fontSize = if (compact) 11.sp else 13.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -641,6 +710,7 @@ private fun DesignShopTile(
     busy: Boolean,
     onBuy: () -> Unit,
     onEquip: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val rarityColor = remember(design.rarityColor) {
         parseHexColor(design.rarityColor) ?: StarlitColors.Gold
@@ -651,8 +721,7 @@ private fun DesignShopTile(
     val tileShape = RoundedCornerShape(12.dp)
 
     Column(
-        modifier = Modifier
-            .width(168.dp)
+        modifier = modifier
             .clip(tileShape)
             .background(StarlitColors.Surface.copy(alpha = 0.55f))
             .border(
@@ -691,31 +760,35 @@ private fun DesignShopTile(
         }
         when {
             isActive -> {
-                Text(
-                    "Выбрано",
-                    color = StarlitColors.Gold,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(vertical = 4.dp),
-                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(34.dp)
+                        .clip(RoundedCornerShape(9.dp))
+                        .background(StarlitColors.Gold.copy(alpha = 0.12f))
+                        .border(1.dp, StarlitColors.Gold.copy(alpha = 0.4f), RoundedCornerShape(9.dp)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text("Выбрано", color = StarlitColors.Gold, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
             }
             design.isOwned -> {
-                StarlitPrimaryButton(
+                BankActionButton(
                     text = "Применить",
                     onClick = onEquip,
-                    compact = true,
                     loading = busy,
                     enabled = !busy,
+                    emphasized = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
             design.canBuy -> {
-                StarlitPrimaryButton(
+                BankActionButton(
                     text = if (design.free) "Бесплатно" else "Купить · ${formatAr(design.price)}",
                     onClick = onBuy,
-                    compact = true,
                     loading = busy,
                     enabled = !busy,
+                    emphasized = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
@@ -784,10 +857,9 @@ private fun PenaltyRow(penalty: BankPenaltyDto, busy: Boolean, onPay: () -> Unit
             fontWeight = FontWeight.Bold,
             fontSize = 14.sp,
         )
-        StarlitPrimaryButton(
+        BankActionButton(
             text = "Оплатить",
             onClick = onPay,
-            compact = true,
             loading = busy,
             enabled = !busy,
             danger = true,
