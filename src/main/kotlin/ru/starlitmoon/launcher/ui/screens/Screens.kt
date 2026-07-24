@@ -854,7 +854,7 @@ fun SettingsScreen(vm: LauncherViewModel) {
 
                 SettingsRow(
                     title = "Безрамочный режим",
-                    subtitle = "Окно на весь экран без рамки (как BorderlessMinecraft)",
+                    subtitle = "Окно на весь экран без рамки",
                     icon = { Icon(Icons.Default.CropFree, null, tint = StarlitColors.Gold) },
                 ) {
                     StarlitToggle(
