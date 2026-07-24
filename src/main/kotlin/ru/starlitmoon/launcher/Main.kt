@@ -12,11 +12,14 @@ import androidx.compose.ui.window.rememberWindowState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.swing.Swing
 import org.jetbrains.skia.Image
 import ru.starlitmoon.launcher.api.StarlitApiClient
 import ru.starlitmoon.launcher.ui.LauncherApp
 import ru.starlitmoon.launcher.viewmodel.LauncherViewModel
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.system.exitProcess
 
 private fun loadWindowIcon(): Painter? {
     val bytes = object {}.javaClass.getResourceAsStream("/icon.png")?.readBytes() ?: return null
@@ -31,14 +34,19 @@ fun main() {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Swing)
     val api = StarlitApiClient()
     val vm = LauncherViewModel(scope, api)
+    val shuttingDown = AtomicBoolean(false)
 
     application {
         val windowIcon = remember { loadWindowIcon() }
         val windowState = rememberWindowState(width = 1360.dp, height = 860.dp)
         fun shutdown() {
-            vm.dispose()
-            api.close()
-            exitApplication()
+            if (!shuttingDown.compareAndSet(false, true)) return
+            runCatching { vm.dispose() }
+            runCatching { api.close() }
+            runCatching { scope.cancel() }
+            // Hard exit: Compose exitApplication() leaves non-daemon Ktor/Discord/Skiko
+            // threads and a multi-GB zombie Java process.
+            exitProcess(0)
         }
         Window(
             onCloseRequest = { shutdown() },

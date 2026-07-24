@@ -1629,15 +1629,28 @@ class LauncherViewModel(
     fun dispose() {
         statusJob?.cancel()
         gameWatchJob?.cancel()
-        runCatching { gameProcess?.destroyForcibly() }
+        killProcessTree(gameProcess)
         clearGameProcess()
         if (!selfUpdateScheduled) {
             runCatching { LauncherSelfUpdater.cancelPendingRestart() }
         }
         runCatching { discordPresence.close() }
-        api.close()
-        mc.close()
-        skins.close()
-        updateChecker.close()
+        runCatching { api.close() }
+        runCatching { mc.close() }
+        runCatching { skins.close() }
+        runCatching { updateChecker.close() }
+    }
+
+    /** Kill Minecraft java and any child processes (NeoForge wrappers, etc.). */
+    private fun killProcessTree(process: Process?) {
+        if (process == null) return
+        runCatching {
+            val root = process.toHandle()
+            root.descendants().forEach { child ->
+                runCatching { child.destroyForcibly() }
+            }
+            runCatching { root.destroyForcibly() }
+        }
+        runCatching { process.destroyForcibly() }
     }
 }
