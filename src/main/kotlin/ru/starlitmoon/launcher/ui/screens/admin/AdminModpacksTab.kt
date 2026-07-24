@@ -2,6 +2,8 @@ package ru.starlitmoon.launcher.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,7 +34,9 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import ru.starlitmoon.launcher.NativeFilePicker
 import ru.starlitmoon.launcher.api.ModpackDto
+import ru.starlitmoon.launcher.ui.components.StarlitCard
 import ru.starlitmoon.launcher.ui.components.StarlitPrimaryButton
+import ru.starlitmoon.launcher.ui.components.StarlitProgressBar
 import ru.starlitmoon.launcher.ui.components.StarlitSecondaryButton
 import ru.starlitmoon.launcher.ui.components.StarlitTextField
 import ru.starlitmoon.launcher.ui.components.StarlitConfirmDialog
@@ -49,53 +53,143 @@ fun AdminModpacksSection(vm: LauncherViewModel) {
     var deleteArchivePack by remember { mutableStateOf<ModpackDto?>(null) }
 
     val packs = if (vm.adminModpacks.isNotEmpty()) vm.adminModpacks else vm.modpacks
+    val uploading = vm.uploadingModpackId != null
 
-    AdminSectionCard(
-        "Сборки лаунчера",
-        "Официальные сборки. Загрузка ZIP включает у игроков «Требуется обновление».",
-        trailing = { StarlitPrimaryButton(text = "Создать", onClick = { creating = true }, compact = true, modifier = Modifier.width(110.dp)) },
-    ) {
-        if (packs.isEmpty()) AdminEmpty("Сборок нет")
-        packs.forEach { pack ->
-            Column(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(pack.name ?: pack.slug ?: "—", color = StarlitColors.Text, fontWeight = FontWeight.SemiBold)
-                        Text(
-                            listOfNotNull(
-                                pack.loader,
-                                pack.mcVersion?.let { "MC $it" },
-                                if (pack.hasArchive) "ZIP есть" else "без ZIP",
-                                if (!pack.enabled) "выключена" else null,
-                            ).joinToString(" · "),
-                            color = StarlitColors.TextMuted,
-                            fontSize = 11.sp,
+    Box(modifier = Modifier.fillMaxWidth()) {
+        AdminSectionCard(
+            "Сборки лаунчера",
+            "Официальные сборки. Загрузка ZIP включает у игроков «Требуется обновление».",
+            trailing = {
+                StarlitPrimaryButton(
+                    text = "Создать",
+                    onClick = { creating = true },
+                    compact = true,
+                    modifier = Modifier.width(110.dp),
+                    enabled = !uploading,
+                )
+            },
+        ) {
+            if (packs.isEmpty()) AdminEmpty("Сборок нет")
+            packs.forEach { pack ->
+                val thisUploading = uploading && pack.id == vm.uploadingModpackId
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                pack.name ?: pack.slug ?: "—",
+                                color = StarlitColors.Text,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            Text(
+                                listOfNotNull(
+                                    pack.loader,
+                                    pack.mcVersion?.let { "MC $it" },
+                                    if (pack.hasArchive) "ZIP есть" else "без ZIP",
+                                    if (!pack.enabled) "выключена" else null,
+                                    if (thisUploading) "загрузка…" else null,
+                                ).joinToString(" · "),
+                                color = if (thisUploading) StarlitColors.Gold else StarlitColors.TextMuted,
+                                fontSize = 11.sp,
+                            )
+                        }
+                        AdminCheckbox(pack.enabled, "вкл", { on ->
+                            if (!uploading) pack.id?.let { vm.updateModpackMeta(it, enabled = on) }
+                        })
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        StarlitPrimaryButton(
+                            text = when {
+                                thisUploading -> "Загрузка…"
+                                pack.hasArchive -> "Обновить ZIP"
+                                else -> "Загрузить ZIP"
+                            },
+                            onClick = {
+                                NativeFilePicker.pickOpenFile("ZIP сборки", "ZIP", "zip")?.let {
+                                    vm.uploadModpackUpdate(pack, it.absolutePath)
+                                }
+                            },
+                            compact = true,
+                            enabled = !uploading && !pack.id.isNullOrBlank(),
+                            loading = thisUploading,
+                            modifier = Modifier.width(150.dp),
+                        )
+                        StarlitSecondaryButton(
+                            text = "Изменить",
+                            onClick = { editing = pack },
+                            compact = true,
+                            modifier = Modifier.width(110.dp),
+                            enabled = !uploading,
+                        )
+                        if (pack.hasArchive) {
+                            StarlitSecondaryButton(
+                                text = "Убрать ZIP",
+                                onClick = { deleteArchivePack = pack },
+                                compact = true,
+                                modifier = Modifier.width(120.dp),
+                                enabled = !uploading,
+                            )
+                        }
+                        StarlitPrimaryButton(
+                            text = "Удалить",
+                            onClick = { deletePack = pack },
+                            compact = true,
+                            danger = true,
+                            modifier = Modifier.width(100.dp),
+                            enabled = !uploading,
                         )
                     }
-                    AdminCheckbox(pack.enabled, "вкл", { on -> pack.id?.let { vm.updateModpackMeta(it, enabled = on) } })
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    StarlitPrimaryButton(
-                        text = if (pack.hasArchive) "Обновить ZIP" else "Загрузить ZIP",
-                        onClick = {
-                            NativeFilePicker.pickOpenFile("ZIP сборки", "ZIP", "zip")?.let {
-                                vm.uploadModpackUpdate(pack, it.absolutePath)
-                            }
-                        },
-                        compact = true,
-                        enabled = vm.launchProgress == null && !pack.id.isNullOrBlank(),
-                        loading = vm.launchProgress != null && vm.selectedModpack?.id == pack.id,
-                        modifier = Modifier.width(150.dp),
-                    )
-                    StarlitSecondaryButton(text = "Изменить", onClick = { editing = pack }, compact = true, modifier = Modifier.width(110.dp))
-                    if (pack.hasArchive) {
-                        StarlitSecondaryButton(text = "Убрать ZIP", onClick = { deleteArchivePack = pack }, compact = true, modifier = Modifier.width(120.dp))
-                    }
-                    StarlitPrimaryButton(text = "Удалить", onClick = { deletePack = pack }, compact = true, danger = true, modifier = Modifier.width(100.dp))
                 }
             }
         }
-        if (vm.launchProgress != null) Text(vm.launchProgress!!, color = StarlitColors.Gold, fontSize = 12.sp)
+
+        if (uploading) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .background(StarlitColors.OverlayScrim)
+                    .clickable(
+                        indication = null,
+                        interactionSource = remember { MutableInteractionSource() },
+                        onClick = {},
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                StarlitCard(modifier = Modifier.widthIn(min = 360.dp, max = 480.dp).fillMaxWidth(0.92f)) {
+                    Column(
+                        modifier = Modifier.padding(24.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Text(
+                            "Загрузка ZIP на сайт",
+                            color = StarlitColors.Gold,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 18.sp,
+                        )
+                        Text(
+                            vm.uploadingModpackName ?: "Сборка",
+                            color = StarlitColors.Text,
+                            fontSize = 14.sp,
+                        )
+                        StarlitProgressBar(
+                            progress = vm.launchProgressFraction,
+                            label = vm.launchProgress ?: "Загрузка…",
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Text(
+                            "Не закрывайте лаунчер до завершения.",
+                            color = StarlitColors.TextMuted,
+                            fontSize = 12.sp,
+                        )
+                    }
+                }
+            }
+        }
     }
 
     if (creating) ModpackEditorDialog(vm, null) { creating = false }

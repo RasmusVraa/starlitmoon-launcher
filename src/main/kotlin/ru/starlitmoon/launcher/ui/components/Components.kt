@@ -261,20 +261,22 @@ fun StarlitSecondaryButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    loading: Boolean = false,
     compact: Boolean = false,
 ) {
     val shape = RoundedCornerShape(if (compact) StarlitDimens.RadiusSm else StarlitDimens.Radius)
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
     val pressed by interaction.collectIsPressedAsState()
+    val active = enabled && !loading
     val targetBorder = when {
-        !enabled -> StarlitColors.Border
+        !active -> StarlitColors.Border
         pressed -> StarlitColors.Gold
         hovered -> StarlitColors.Gold.copy(alpha = 0.85f)
         else -> StarlitColors.BorderStrong
     }
     val targetBg = when {
-        !enabled -> StarlitColors.Surface.copy(alpha = 0.55f)
+        !active -> StarlitColors.Surface.copy(alpha = 0.55f)
         pressed -> StarlitColors.GoldMuted
         hovered -> StarlitColors.SurfaceElevated
         else -> StarlitColors.SurfaceHover
@@ -283,7 +285,7 @@ fun StarlitSecondaryButton(
     val bg = starlitAnimateColor(targetBg, label = "secondaryBg")
     val scale = starlitAnimateFloat(
         target = when {
-            !enabled -> 1f
+            !active -> 1f
             pressed -> 0.97f
             hovered -> 1.015f
             else -> 1f
@@ -301,26 +303,34 @@ fun StarlitSecondaryButton(
             .background(bg)
             .border(1.dp, borderColor, shape)
             .clickable(
-                enabled = enabled,
+                enabled = active,
                 interactionSource = interaction,
                 indication = null,
                 onClick = onClick,
             ),
         contentAlignment = Alignment.Center,
     ) {
-        val size = if (compact) 13.sp else 15.sp
-        Text(
-            text = text,
-            fontWeight = FontWeight.SemiBold,
-            fontSize = size,
-            lineHeight = size,
-            letterSpacing = 0.sp,
-            maxLines = 1,
-            softWrap = false,
-            textAlign = TextAlign.Center,
-            color = if (enabled) StarlitColors.Text else StarlitColors.TextMuted,
-            modifier = Modifier.padding(horizontal = if (compact) 12.dp else 16.dp),
-        )
+        if (loading) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(if (compact) 16.dp else 20.dp),
+                color = StarlitColors.Gold,
+                strokeWidth = 2.dp,
+            )
+        } else {
+            val size = if (compact) 13.sp else 15.sp
+            Text(
+                text = text,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = size,
+                lineHeight = size,
+                letterSpacing = 0.sp,
+                maxLines = 1,
+                softWrap = false,
+                textAlign = TextAlign.Center,
+                color = if (active) StarlitColors.Text else StarlitColors.TextMuted,
+                modifier = Modifier.padding(horizontal = if (compact) 12.dp else 16.dp),
+            )
+        }
     }
 }
 

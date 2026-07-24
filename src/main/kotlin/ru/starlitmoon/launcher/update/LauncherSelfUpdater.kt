@@ -25,6 +25,7 @@ import kotlin.io.path.pathString
  */
 object LauncherSelfUpdater {
     private const val EXE_NAME = "StarlitMoonLauncher.exe"
+    private const val UPDATE_FLAG = "pending.flag"
 
     suspend fun downloadInstaller(
         url: String,
@@ -98,8 +99,7 @@ object LauncherSelfUpdater {
 
     /**
      * Spawns a fully hidden updater via wscript → PowerShell (no console window).
-     *
-     * Old cmd helpers showed «Не удается найти пакетный файл» after self-deleting the .cmd.
+     * Relaunches only when [UPDATE_FLAG] is present (cancelled on normal exit).
      */
     fun scheduleInstallAndRestart(
         installer: Path,
@@ -111,13 +111,18 @@ object LauncherSelfUpdater {
         val updateDir = installDir.resolve("update").also { it.createDirectories() }
         val ps1 = updateDir.resolve("run-update.ps1")
         val vbs = updateDir.resolve("run-update.vbs")
+        val flag = updateDir.resolve(UPDATE_FLAG)
 
         val setup = installer.toAbsolutePath().normalize().pathString
         val dir = installDir.toAbsolutePath().normalize().pathString
         val exe = relaunchExe.toAbsolutePath().normalize().pathString
         val altExe = installDir.resolve(EXE_NAME).toAbsolutePath().normalize().pathString
+        val flagPath = flag.toAbsolutePath().normalize().pathString
+        val updateDirPath = updateDir.toAbsolutePath().normalize().pathString
 
         fun psLiteral(path: String): String = "'" + path.replace("'", "''") + "'"
+
+        Files.writeString(flag, "1")
 
         val script = """
             ${'$'}ErrorActionPreference = 'SilentlyContinue'
@@ -126,10 +131,19 @@ object LauncherSelfUpdater {
             ${'$'}dir = ${psLiteral(dir)}
             ${'$'}exe = ${psLiteral(exe)}
             ${'$'}altExe = ${psLiteral(altExe)}
-            while (Get-Process -Id ${'$'}pidToWait -ErrorAction SilentlyContinue) {
+            ${'$'}flag = ${psLiteral(flagPath)}
+            ${'$'}updateDir = ${psLiteral(updateDirPath)}
+            ${'$'}deadline = (Get-Date).AddMinutes(30)
+            while ((Get-Date) -lt ${'$'}deadline) {
+              if (-not (Test-Path -LiteralPath ${'$'}flag)) { exit 0 }
+              ${'$'}proc = Get-Process -Id ${'$'}pidToWait -ErrorAction SilentlyContinue
+              if (-not ${'$'}proc) { break }
               Start-Sleep -Seconds 1
             }
-            Start-Sleep -Seconds 2
+            if (-not (Test-Path -LiteralPath ${'$'}flag)) { exit 0 }
+            Remove-Item -LiteralPath ${'$'}flag -Force -ErrorAction SilentlyContinue
+            if (-not (Test-Path -LiteralPath ${'$'}setup)) { exit 0 }
+            Start-Sleep -Seconds 1
             ${'$'}args = @(
               '/VERYSILENT',
               '/SUPPRESSMSGBOXES',
@@ -138,15 +152,17 @@ object LauncherSelfUpdater {
               '/FORCECLOSEAPPLICATIONS',
               ('/DIR=' + ${'$'}dir)
             )
-            ${'$'}p = Start-Process -FilePath ${'$'}setup -ArgumentList ${'$'}args -Wait -PassThru -WindowStyle Hidden
-            Start-Sleep -Seconds 2
+            Start-Process -FilePath ${'$'}setup -ArgumentList ${'$'}args -Wait -WindowStyle Hidden | Out-Null
+            Start-Sleep -Seconds 1
             if (Test-Path -LiteralPath ${'$'}exe) {
               Start-Process -FilePath ${'$'}exe -WindowStyle Normal
             } elseif (Test-Path -LiteralPath ${'$'}altExe) {
               Start-Process -FilePath ${'$'}altExe -WindowStyle Normal
             }
             Remove-Item -LiteralPath ${'$'}setup -Force -ErrorAction SilentlyContinue
-            # Do not self-delete this script while PowerShell is reading it.
+            Remove-Item -LiteralPath (Join-Path ${'$'}updateDir 'run-update.vbs') -Force -ErrorAction SilentlyContinue
+            # ps1 removed last
+            Remove-Item -LiteralPath (Join-Path ${'$'}updateDir 'run-update.ps1') -Force -ErrorAction SilentlyContinue
         """.trimIndent().replace("\n", "\r\n")
         Files.writeString(ps1, script)
 
@@ -170,6 +186,26 @@ object LauncherSelfUpdater {
             redirectOutput(ProcessBuilder.Redirect.DISCARD)
             redirectError(ProcessBuilder.Redirect.DISCARD)
         }.start()
+    }
+
+    /**
+     * Cancels a waiting self-updater so closing the launcher does not reinstall/relaunch.
+     * Safe to call when no update is pending.
+     */
+    fun cancelPendingRestart() {
+        runCatching {
+            val paths = resolveInstallPaths()
+            val updateDir = paths.installDir.resolve("update")
+            updateDir.resolve(UPDATE_FLAG).deleteIfExists()
+            updateDir.resolve("run-update.ps1").deleteIfExists()
+            updateDir.resolve("run-update.vbs").deleteIfExists()
+            ProcessHandle.allProcesses().forEach { ph ->
+                val cmd = ph.info().commandLine().orElse("")
+                if (cmd.contains("run-update.ps1", ignoreCase = true)) {
+                    ph.destroy()
+                }
+            }
+        }
     }
 
     fun resolveInstallPaths(): InstallPaths {

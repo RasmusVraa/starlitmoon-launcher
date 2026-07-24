@@ -118,6 +118,11 @@ class LauncherViewModel(
     var notifications by mutableStateOf<List<NotificationDto>>(emptyList())
     var launchProgress by mutableStateOf<String?>(null)
     var launchProgressFraction by mutableStateOf<Float?>(null)
+    /** Id сборки, ZIP которой сейчас заливается в админке (для оверлея прогресса). */
+    var uploadingModpackId by mutableStateOf<String?>(null)
+    var uploadingModpackName by mutableStateOf<String?>(null)
+    /** true после scheduleInstallAndRestart — не отменять апдейтер при выходе. */
+    private var selfUpdateScheduled = false
     var requestExit by mutableStateOf(false)
     var isGameRunning by mutableStateOf(false)
     private var gameProcess: Process? = null
@@ -191,6 +196,8 @@ class LauncherViewModel(
     fun boot() {
         if (booted) return
         booted = true
+        // Старые скрипты автообновления могли перезапускать лаунчер после обычного закрытия.
+        runCatching { LauncherSelfUpdater.cancelPendingRestart() }
         scope.launch {
             val sessionJob = async(Dispatchers.IO) { runCatching { api.restoreSession() }.getOrNull() }
             val publicJob = async(Dispatchers.IO) { refreshPublicData() }
@@ -225,34 +232,50 @@ class LauncherViewModel(
             if (!force && modpacks.isNotEmpty()) {
                 // Already cached — refresh quietly in background without clearing UI.
                 runCatching { withContext(Dispatchers.IO) { api.listModpacks() } }
-                    .onSuccess { packs ->
-                        if (packs.isNotEmpty()) {
-                            modpacks = packs
-                            val selectedId = configState.selectedModpackId
-                            selectedModpack = packs.firstOrNull { it.id == selectedId || it.slug == selectedId }
-                                ?: selectedModpack
-                                ?: packs.firstOrNull()
-                        }
-                    }
+                    .onSuccess { packs -> applyModpacksList(packs, quiet = true) }
                 return@launch
             }
+            if (isLoadingModpacks) return@launch
             isLoadingModpacks = true
+            errorMessage = null
             runCatching { withContext(Dispatchers.IO) { api.listModpacks() } }
                 .onSuccess { packs ->
-                    modpacks = packs
-                    val selectedId = configState.selectedModpackId
-                    selectedModpack = packs.firstOrNull { it.id == selectedId || it.slug == selectedId }
-                        ?: packs.firstOrNull()
-                    selectedModpack?.let { pack ->
-                        if (configState.selectedModpackId.isBlank() ||
-                            packs.none { it.id == selectedId || it.slug == selectedId }
-                        ) {
-                            selectModpack(pack, persistOnly = true)
-                        }
+                    applyModpacksList(packs, quiet = false, notify = force)
+                }
+                .onFailure { err ->
+                    if (force || modpacks.isEmpty()) {
+                        handleError(err)
                     }
                 }
-                .onFailure { /* keep previous cache */ }
             isLoadingModpacks = false
+        }
+    }
+
+    private fun applyModpacksList(packs: List<ModpackDto>, quiet: Boolean, notify: Boolean = false) {
+        if (packs.isEmpty()) {
+            if (modpacks.isNotEmpty()) {
+                if (notify) errorMessage = "Сервер вернул пустой список — оставлен текущий"
+                return
+            }
+            modpacks = emptyList()
+            if (notify) errorMessage = "Сборки не найдены"
+            return
+        }
+        modpacks = packs
+        val selectedId = configState.selectedModpackId
+        selectedModpack = packs.firstOrNull { it.id == selectedId || it.slug == selectedId }
+            ?: selectedModpack?.let { prev -> packs.firstOrNull { it.id == prev.id || it.slug == prev.slug } }
+            ?: packs.firstOrNull()
+        selectedModpack?.let { pack ->
+            if (configState.selectedModpackId.isBlank() ||
+                packs.none { it.id == selectedId || it.slug == selectedId }
+            ) {
+                selectModpack(pack, persistOnly = true)
+            }
+        }
+        packUiRevision++
+        if (notify && !quiet) {
+            infoMessage = "Список сборок обновлён (${packs.size})"
         }
     }
 
@@ -339,6 +362,7 @@ class LauncherViewModel(
                         launcherPid = ProcessHandle.current().pid(),
                     )
                 }
+                selfUpdateScheduled = true
                 infoMessage = "Обновление скачано — перезапуск…"
                 delay(400)
                 requestExit = true
@@ -654,10 +678,17 @@ class LauncherViewModel(
             errorMessage = "У сборки нет id"
             return
         }
+        if (uploadingModpackId != null) {
+            errorMessage = "Уже идёт загрузка другой сборки"
+            return
+        }
         val path = Path.of(zipPath)
+        val packName = pack.name ?: pack.slug ?: id
         scope.launch {
             isLoading = true
-            launchProgress = "Публикация обновления…"
+            uploadingModpackId = id
+            uploadingModpackName = packName
+            launchProgress = "Подготовка загрузки «$packName»…"
             launchProgressFraction = 0f
             errorMessage = null
             runCatching {
@@ -668,13 +699,17 @@ class LauncherViewModel(
                 }
             }.onSuccess { updated ->
                 modpacks = modpacks.map { if (it.id == updated.id) updated else it }
+                adminModpacks = adminModpacks.map { if (it.id == updated.id) updated else it }
                 if (selectedModpack?.id == updated.id) selectedModpack = updated
-                infoMessage = "Обновление «${updated.name ?: updated.slug}» опубликовано"
+                infoMessage = "ZIP «${updated.name ?: updated.slug}» загружен"
                 packUiRevision++
                 fetchModpacks(force = true)
+                refreshAdmin()
             }.onFailure { handleError(it) }
             launchProgress = null
             launchProgressFraction = null
+            uploadingModpackId = null
+            uploadingModpackName = null
             isLoading = false
         }
     }
@@ -1596,6 +1631,9 @@ class LauncherViewModel(
         gameWatchJob?.cancel()
         runCatching { gameProcess?.destroyForcibly() }
         clearGameProcess()
+        if (!selfUpdateScheduled) {
+            runCatching { LauncherSelfUpdater.cancelPendingRestart() }
+        }
         runCatching { discordPresence.close() }
         api.close()
         mc.close()

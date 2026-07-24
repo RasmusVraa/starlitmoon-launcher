@@ -311,7 +311,10 @@ fun BuildsScreen(vm: LauncherViewModel) {
             StarlitSecondaryButton(
                 text = "Обновить список",
                 onClick = { vm.fetchModpacks(force = true) },
-                modifier = Modifier.width(160.dp),
+                modifier = Modifier.width(180.dp),
+                compact = true,
+                loading = vm.isLoadingModpacks,
+                enabled = !vm.isLoadingModpacks,
             )
             Spacer(Modifier.height(20.dp))
 
@@ -326,7 +329,7 @@ fun BuildsScreen(vm: LauncherViewModel) {
                         Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text("Сборки пока недоступны", color = StarlitColors.Text, fontWeight = FontWeight.SemiBold)
                             Text(
-                                "API /api/modpacks не ответил. Попробуйте обновить позже.",
+                                "Не удалось загрузить список. Нажмите «Обновить».",
                                 color = StarlitColors.TextMuted,
                                 fontSize = 13.sp,
                             )
@@ -334,6 +337,9 @@ fun BuildsScreen(vm: LauncherViewModel) {
                                 text = "Обновить",
                                 onClick = { vm.fetchModpacks(force = true) },
                                 modifier = Modifier.width(140.dp),
+                                compact = true,
+                                loading = vm.isLoadingModpacks,
+                                enabled = !vm.isLoadingModpacks,
                             )
                         }
                     }
@@ -406,7 +412,7 @@ private fun ModpackCard(
         selected = selected,
         modifier = Modifier
             .fillMaxWidth()
-            .height(320.dp)
+            .height(340.dp)
             .clickable(onClick = onSelect),
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -446,21 +452,8 @@ private fun ModpackCard(
                             .background(StarlitColors.Offline)
                             .padding(horizontal = 8.dp, vertical = 4.dp),
                     )
-                } else if (selected) {
-                    Text(
-                        "Выбрана",
-                        color = StarlitColors.OnGold,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier
-                            .align(Alignment.TopStart)
-                            .padding(8.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(StarlitColors.Gold)
-                            .padding(horizontal = 8.dp, vertical = 4.dp),
-                    )
                 }
-                if (selected && needsUpdate) {
+                if (selected) {
                     Text(
                         "Выбрана",
                         color = StarlitColors.OnGold,
@@ -512,6 +505,29 @@ private fun ModpackCard(
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
+                val tags = pack.tags.map { it.trim() }.filter { it.isNotEmpty() }.distinct().take(8)
+                if (tags.isNotEmpty()) {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        tags.forEach { tag ->
+                            Text(
+                                tag,
+                                color = StarlitColors.Gold,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(StarlitColors.GoldMuted)
+                                    .border(1.dp, StarlitColors.Gold.copy(alpha = 0.35f), RoundedCornerShape(6.dp))
+                                    .padding(horizontal = 7.dp, vertical = 3.dp),
+                            )
+                        }
+                    }
+                }
                 Text(
                     listOfNotNull(
                         pack.loader?.replaceFirstChar { it.uppercase() },

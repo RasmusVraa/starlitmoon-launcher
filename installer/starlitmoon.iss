@@ -2,7 +2,7 @@
 ; Default install: %AppData%\Roaming\StarlitMoonLauncher (user-selectable)
 
 #define AppName "StarlitMoon Launcher"
-#define AppVersion "1.2.7"
+#define AppVersion "1.2.8"
 #define AppPublisher "StarlitMoon"
 #define AppURL "https://starlit-moon.ru"
 #define AppExeName "StarlitMoonLauncher.exe"
@@ -24,8 +24,8 @@ DisableDirPage=no
 AlwaysShowDirOnReadyPage=yes
 UsePreviousAppDir=yes
 AllowNoIcons=yes
-OutputDir=..\dist\v1.2.7
-OutputBaseFilename=StarlitMoonLauncher-Setup-1.2.7
+OutputDir=..\dist\v1.2.8
+OutputBaseFilename=StarlitMoonLauncher-Setup-1.2.8
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=dark
@@ -96,7 +96,7 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; IconFilename:
 
 [Run]
 Filename: "{sys}\ie4uinit.exe"; Parameters: "-show"; StatusMsg: "Обновление иконок Windows…"; Flags: runhidden skipifdoesntexist; Check: ShouldInstallFiles
-Filename: "{app}\{#AppExeName}"; Description: "Запустить {#AppName}"; Flags: nowait postinstall; Check: ShouldInstallFiles
+Filename: "{app}\{#AppExeName}"; Description: "Запустить {#AppName}"; Flags: nowait postinstall skipifsilent; Check: ShouldInstallFiles
 
 [Code]
 var

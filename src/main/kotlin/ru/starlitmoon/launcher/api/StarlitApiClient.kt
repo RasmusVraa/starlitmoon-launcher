@@ -668,8 +668,17 @@ class StarlitApiClient(
 
     suspend fun listModpacks(): List<ModpackDto> {
         val response = client.get("$baseUrl/api/modpacks")
-        if (!response.status.isSuccess()) return emptyList()
-        return runCatching { response.body<ModpacksResponse>().packs }.getOrDefault(emptyList())
+        if (!response.status.isSuccess()) {
+            throw StarlitApiException(
+                response.status,
+                "Не удалось загрузить сборки (${response.status.value})",
+            )
+        }
+        val body = response.body<ModpacksResponse>()
+        if (!body.ok && body.packs.isEmpty()) {
+            throw StarlitApiException(HttpStatusCode.BadGateway, "Список сборок пуст или недоступен")
+        }
+        return body.packs
     }
 
     suspend fun getModpack(idOrSlug: String): ModpackDto? {
