@@ -263,6 +263,7 @@ fun StarlitSecondaryButton(
     enabled: Boolean = true,
     loading: Boolean = false,
     compact: Boolean = false,
+    danger: Boolean = false,
 ) {
     val shape = RoundedCornerShape(if (compact) StarlitDimens.RadiusSm else StarlitDimens.Radius)
     val interaction = remember { MutableInteractionSource() }
@@ -271,12 +272,15 @@ fun StarlitSecondaryButton(
     val active = enabled && !loading
     val targetBorder = when {
         !active -> StarlitColors.Border
+        danger && (hovered || pressed) -> StarlitColors.Offline
         pressed -> StarlitColors.Gold
         hovered -> StarlitColors.Gold.copy(alpha = 0.85f)
-        else -> StarlitColors.BorderStrong
+        else -> if (danger) StarlitColors.Offline.copy(alpha = 0.55f) else StarlitColors.BorderStrong
     }
     val targetBg = when {
         !active -> StarlitColors.Surface.copy(alpha = 0.55f)
+        danger && pressed -> StarlitColors.Offline.copy(alpha = 0.22f)
+        danger && hovered -> StarlitColors.Offline.copy(alpha = 0.12f)
         pressed -> StarlitColors.GoldMuted
         hovered -> StarlitColors.SurfaceElevated
         else -> StarlitColors.SurfaceHover
@@ -312,22 +316,25 @@ fun StarlitSecondaryButton(
     ) {
         if (loading) {
             CircularProgressIndicator(
-                modifier = Modifier.size(if (compact) 16.dp else 20.dp),
-                color = StarlitColors.Gold,
+                modifier = Modifier.size(18.dp),
+                color = if (danger) StarlitColors.Offline else StarlitColors.Gold,
                 strokeWidth = 2.dp,
             )
         } else {
-            val size = if (compact) 13.sp else 15.sp
             Text(
-                text = text,
+                text,
+                color = when {
+                    !active -> StarlitColors.TextMuted
+                    danger -> StarlitColors.Offline
+                    else -> StarlitColors.Text
+                },
                 fontWeight = FontWeight.SemiBold,
-                fontSize = size,
-                lineHeight = size,
+                fontSize = if (compact) 13.sp else 14.sp,
+                lineHeight = if (compact) 13.sp else 14.sp,
                 letterSpacing = 0.sp,
                 maxLines = 1,
                 softWrap = false,
                 textAlign = TextAlign.Center,
-                color = if (active) StarlitColors.Text else StarlitColors.TextMuted,
                 modifier = Modifier.padding(horizontal = if (compact) 12.dp else 16.dp),
             )
         }

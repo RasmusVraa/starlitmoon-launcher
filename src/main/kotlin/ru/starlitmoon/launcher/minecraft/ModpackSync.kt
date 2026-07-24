@@ -57,37 +57,13 @@ object ModpackSync {
             .onUnmappableCharacter(CodingErrorAction.REPLACE)
         return decoder.decode(ByteBuffer.wrap(bytes)).toString()
     }
-    /** Root names never deleted on update (worlds, settings, caches). */
-    private val PRESERVE_ROOTS = setOf(
+    /** Keep only worlds (+ map markers) and download cache on update. */
+    private val PRESERVE_ON_UPDATE = setOf(
         ".cache",
-        MARKER,
-        MANAGED_MODS,
         "saves",
-        "logs",
-        "crash-reports",
-        "options.txt",
-        "optionsof.txt",
-        "optionsshaders.txt",
-        "servers.dat",
-        "servers.dat_old",
-        "usercache.json",
-        "usernamecache.json",
-        "config",
-        "local",
         "XaeroWorldMap",
         "XaeroWaypoints",
         "xaero",
-        "mods", // cleared selectively — user jars kept
-    )
-
-    private val USER_SETTING_FILES = setOf(
-        "options.txt",
-        "optionsof.txt",
-        "optionsshaders.txt",
-        "servers.dat",
-        "servers.dat_old",
-        "usercache.json",
-        "usernamecache.json",
     )
 
     fun packDir(dataDir: Path, pack: ModpackDto): Path {
@@ -113,8 +89,20 @@ object ModpackSync {
     }
 
     /** True if this pack was installed at least once locally. */
-    fun isInstalled(dataDir: Path, pack: ModpackDto): Boolean =
-        localArchiveSha(dataDir, pack) != null || packDir(dataDir, pack).resolve("mods").exists()
+    fun isInstalled(dataDir: Path, pack: ModpackDto): Boolean {
+        val dir = packDir(dataDir, pack)
+        if (!dir.exists()) return false
+        return localArchiveSha(dataDir, pack) != null ||
+            dir.resolve("mods").exists() ||
+            dir.listDirectoryEntries().any { it.name !in setOf(".cache") }
+    }
+
+    /** Deletes the whole local pack folder (including worlds). */
+    fun deleteLocalPack(dataDir: Path, pack: ModpackDto): Boolean {
+        val dir = packDir(dataDir, pack)
+        if (!dir.exists()) return false
+        return runCatching { dir.toFile().deleteRecursively() }.isSuccess && !dir.exists()
+    }
 
     /**
      * @param force re-download even if local sha matches remote
@@ -163,10 +151,12 @@ object ModpackSync {
             }
         }
 
+        onProgress("Очистка сборки…", 0.89f)
+        wipeExceptWorlds(dir)
+
         onProgress("Распаковка сборки…", 0.90f)
         val zipMods = listZipModFileNames(zipPath)
-        clearManagedContent(dir, zipMods)
-        extractZip(zipPath, dir, preserveUserFiles = true) { done, total ->
+        extractZip(zipPath, dir) { done, total ->
             val frac = if (total > 0) 0.90f + 0.09f * done.toFloat() / total else 0.95f
             onProgress("Распаковка $done/$total…", frac)
         }
@@ -181,40 +171,15 @@ object ModpackSync {
         return true
     }
 
-    /** Deletes pack content except worlds, logs, user settings/config/user mods. */
-    private fun clearManagedContent(dir: Path, zipMods: Set<String>) {
+    /** Wipe pack dir except worlds / map data / zip cache. */
+    private fun wipeExceptWorlds(dir: Path) {
         if (!dir.exists()) return
-        clearManagedMods(dir.resolve("mods"), dir, zipMods)
+        Files.deleteIfExists(dir.resolve(MARKER))
+        Files.deleteIfExists(dir.resolve(MANAGED_MODS))
         dir.listDirectoryEntries().forEach { child ->
-            if (child.name in PRESERVE_ROOTS) return@forEach
+            if (child.name in PRESERVE_ON_UPDATE) return@forEach
             runCatching { child.toFile().deleteRecursively() }
         }
-    }
-
-    /**
-     * Removes only pack-owned jars. User-added mods (not in `.starlit-managed-mods`) stay.
-     * Without a managed list yet: only replace jars that are also in the new ZIP.
-     */
-    private fun clearManagedMods(modsDir: Path, packDir: Path, zipMods: Set<String>) {
-        if (!modsDir.exists()) return
-        val managed = readManagedMods(packDir)
-        modsDir.listDirectoryEntries().forEach { child ->
-            if (!Files.isRegularFile(child)) return@forEach
-            val name = child.name
-            val remove = if (managed.isNotEmpty()) name in managed else name in zipMods
-            if (remove) runCatching { Files.deleteIfExists(child) }
-        }
-    }
-
-    private fun readManagedMods(packDir: Path): Set<String> {
-        val marker = packDir.resolve(MANAGED_MODS)
-        if (!marker.exists()) return emptySet()
-        return runCatching {
-            readTextLenient(marker).lineSequence()
-                .map { it.trim() }
-                .filter { it.isNotEmpty() && !it.startsWith("#") }
-                .toSet()
-        }.getOrDefault(emptySet())
     }
 
     private fun writeManagedMods(packDir: Path, names: Set<String>) {
@@ -251,19 +216,13 @@ object ModpackSync {
         return out
     }
 
-    private fun shouldSkipExtract(relative: String, out: Path): Boolean {
+    private fun shouldSkipExtract(relative: String): Boolean {
         val norm = relative.trimStart('/').replace('\\', '/')
         if (norm.isBlank()) return true
         val top = norm.substringBefore('/')
-        // Never touch worlds / logs from the ZIP.
-        if (top == "saves" || top == "logs" || top == "crash-reports") return true
+        // Never replace local worlds / map data from the ZIP.
+        if (top == "saves") return true
         if (top == "XaeroWorldMap" || top == "XaeroWaypoints" || top == "xaero") return true
-        // Root user settings: keep existing, allow first-install from ZIP.
-        if (norm in USER_SETTING_FILES) return out.exists()
-        // Config / local: keep existing files, still add new ones from ZIP.
-        if ((top == "config" || top == "local") && out.exists()) return true
-        // User mods: never overwrite a jar that isn't from the pack (managed list / will be replaced above).
-        // Pack jars were deleted in clearManagedMods; extract always writes pack mods.
         return false
     }
 
@@ -410,7 +369,6 @@ object ModpackSync {
     private fun extractZip(
         zipPath: Path,
         dest: Path,
-        preserveUserFiles: Boolean = true,
         onEntry: (Int, Int) -> Unit = { _, _ -> },
     ) {
         dest.createDirectories()
@@ -430,12 +388,12 @@ object ModpackSync {
                     zis.closeEntry()
                     continue
                 }
-                val out = dest.resolve(name)
-                if (preserveUserFiles && shouldSkipExtract(name, out)) {
+                if (shouldSkipExtract(name)) {
                     zis.closeEntry()
                     done++
                     continue
                 }
+                val out = dest.resolve(name)
                 if (entry.isDirectory) {
                     out.createDirectories()
                 } else {

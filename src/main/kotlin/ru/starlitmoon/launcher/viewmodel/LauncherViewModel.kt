@@ -667,6 +667,12 @@ class LauncherViewModel(
         return ModpackSync.needsUpdate(configState.dataDir, pack)
     }
 
+    fun isPackInstalled(pack: ModpackDto): Boolean {
+        @Suppress("UNUSED_VARIABLE")
+        val tick = packUiRevision
+        return ModpackSync.isInstalled(configState.dataDir, pack)
+    }
+
     fun reinstallModpack(pack: ModpackDto) {
         if (!pack.hasArchive || pack.archive?.url.isNullOrBlank()) {
             errorMessage = "У сборки нет ZIP-архива"
@@ -674,7 +680,7 @@ class LauncherViewModel(
         }
         scope.launch {
             isLoading = true
-            launchProgress = "Переустановка сборки…"
+            launchProgress = "Обновление сборки…"
             launchProgressFraction = 0f
             errorMessage = null
             val detail = withContext(Dispatchers.IO) {
@@ -688,14 +694,43 @@ class LauncherViewModel(
                 }
             }
             if (result.isSuccess) {
-                infoMessage = "Сборка «${detail.name ?: detail.slug}» переустановлена"
+                infoMessage = "Сборка «${detail.name ?: detail.slug}» обновлена (миры сохранены)"
                 packUiRevision++
                 fetchModpacks(force = true)
             } else {
-                errorMessage = result.exceptionOrNull()?.message ?: "Не удалось переустановить сборку"
+                errorMessage = result.exceptionOrNull()?.message ?: "Не удалось обновить сборку"
             }
             launchProgress = null
             launchProgressFraction = null
+            isLoading = false
+        }
+    }
+
+    fun deleteLocalModpack(pack: ModpackDto) {
+        scope.launch {
+            isLoading = true
+            launchProgress = "Удаление сборки…"
+            launchProgressFraction = null
+            errorMessage = null
+            val ok = withContext(Dispatchers.IO) {
+                ModpackSync.deleteLocalPack(configState.dataDir, pack)
+            }
+            if (ok) {
+                val wasSelected = selectedModpack?.id == pack.id ||
+                    (pack.slug != null && selectedModpack?.slug == pack.slug)
+                if (wasSelected) {
+                    selectedModpack = null
+                    val next = configState.copy(selectedModpackId = "")
+                    runCatching { LauncherConfig.save(next) }
+                    configState = next
+                    refreshDiscordPresence()
+                }
+                infoMessage = "Локальная сборка «${pack.name ?: pack.slug}» удалена"
+                packUiRevision++
+            } else {
+                errorMessage = "Сборка не найдена локально или не удалось удалить"
+            }
+            launchProgress = null
             isLoading = false
         }
     }

@@ -291,6 +291,7 @@ private fun openUrl(url: String) {
 fun BuildsScreen(vm: LauncherViewModel) {
     LaunchedEffect(Unit) { vm.fetchModpacks(force = false) }
     var reinstallTarget by remember { mutableStateOf<ModpackDto?>(null) }
+    var deleteTarget by remember { mutableStateOf<ModpackDto?>(null) }
 
     Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -360,9 +361,14 @@ fun BuildsScreen(vm: LauncherViewModel) {
                                     vm.packUiRevision
                                     vm.packNeedsUpdate(pack)
                                 },
+                                installed = run {
+                                    vm.packUiRevision
+                                    vm.isPackInstalled(pack)
+                                },
                                 onSelect = { vm.selectModpack(pack) },
                                 onOpenFolder = { vm.openPackFolder(pack) },
                                 onReinstall = { reinstallTarget = pack },
+                                onDelete = { deleteTarget = pack },
                                 apiBaseUrl = vm.configState.apiBaseUrl,
                                 busy = vm.launchProgress != null,
                             )
@@ -376,12 +382,24 @@ fun BuildsScreen(vm: LauncherViewModel) {
             val name = pack.name ?: pack.slug ?: "сборку"
             StarlitConfirmDialog(
                 title = "Обновление сборки",
-                message = "Обновить «$name»?\nМоды и файлы сборки заменятся.\nМиры, сервера, options, config и ваши моды сохранятся.",
+                message = "Обновить «$name» под чистую?\nУдалится всё, кроме миров (и карт Xaero), затем сборка скачается заново.",
                 confirmText = "Обновить",
                 cancelText = "Отмена",
                 danger = false,
                 onConfirm = { vm.reinstallModpack(pack) },
                 onDismiss = { reinstallTarget = null },
+            )
+        }
+        deleteTarget?.let { pack ->
+            val name = pack.name ?: pack.slug ?: "сборку"
+            StarlitConfirmDialog(
+                title = "Удаление сборки",
+                message = "Удалить локальную «$name» полностью?\nМиры и все файлы сборки будут удалены с диска.",
+                confirmText = "Удалить",
+                cancelText = "Отмена",
+                danger = true,
+                onConfirm = { vm.deleteLocalModpack(pack) },
+                onDismiss = { deleteTarget = null },
             )
         }
     }
@@ -393,9 +411,11 @@ private fun ModpackCard(
     pack: ModpackDto,
     selected: Boolean,
     needsUpdate: Boolean,
+    installed: Boolean,
     onSelect: () -> Unit,
     onOpenFolder: () -> Unit,
     onReinstall: () -> Unit,
+    onDelete: () -> Unit,
     apiBaseUrl: String,
     busy: Boolean,
 ) {
@@ -412,7 +432,7 @@ private fun ModpackCard(
         selected = selected,
         modifier = Modifier
             .fillMaxWidth()
-            .height(340.dp)
+            .height(360.dp)
             .clickable(onClick = onSelect),
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -440,32 +460,46 @@ private fun ModpackCard(
                     )
                 }
                 if (needsUpdate) {
-                    Text(
-                        "Требуется обновление",
-                        color = StarlitColors.OnGold,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
+                    Box(
                         modifier = Modifier
                             .align(Alignment.BottomStart)
                             .padding(8.dp)
+                            .height(22.dp)
                             .clip(RoundedCornerShape(8.dp))
                             .background(StarlitColors.Offline)
-                            .padding(horizontal = 8.dp, vertical = 4.dp),
-                    )
+                            .padding(horizontal = 8.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            "Требуется обновление",
+                            color = StarlitColors.OnGold,
+                            fontSize = 11.sp,
+                            lineHeight = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                        )
+                    }
                 }
                 if (selected) {
-                    Text(
-                        "Выбрана",
-                        color = StarlitColors.OnGold,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
+                    Box(
                         modifier = Modifier
                             .align(Alignment.TopStart)
                             .padding(8.dp)
+                            .height(22.dp)
                             .clip(RoundedCornerShape(8.dp))
                             .background(StarlitColors.Gold)
-                            .padding(horizontal = 8.dp, vertical = 4.dp),
-                    )
+                            .padding(horizontal = 8.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            "Выбрана",
+                            color = StarlitColors.OnGold,
+                            fontSize = 11.sp,
+                            lineHeight = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                        )
+                    }
                 }
             }
             Column(
@@ -535,15 +569,32 @@ private fun ModpackCard(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                if (pack.hasArchive) {
+                if (pack.hasArchive || installed) {
                     Spacer(Modifier.height(8.dp))
-                    StarlitSecondaryButton(
-                        text = if (needsUpdate) "Обновить сборку" else "Переустановить",
-                        onClick = onReinstall,
+                    Row(
                         modifier = Modifier.fillMaxWidth(),
-                        compact = true,
-                        enabled = !busy,
-                    )
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        if (pack.hasArchive) {
+                            StarlitSecondaryButton(
+                                text = if (needsUpdate) "Обновить" else "Переустановить",
+                                onClick = onReinstall,
+                                modifier = Modifier.weight(1f),
+                                compact = true,
+                                enabled = !busy,
+                            )
+                        }
+                        if (installed) {
+                            StarlitSecondaryButton(
+                                text = "Удалить",
+                                onClick = onDelete,
+                                modifier = Modifier.weight(1f),
+                                compact = true,
+                                enabled = !busy,
+                                danger = true,
+                            )
+                        }
+                    }
                 }
             }
         }
