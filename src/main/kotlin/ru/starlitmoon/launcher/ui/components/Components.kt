@@ -979,13 +979,21 @@ private fun ClientUpdateMiniChip(
                     .background(accent),
             )
         }
-        Text(
-            "$percent%",
-            color = StarlitColors.Text,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Bold,
-            maxLines = 1,
-        )
+        Box(
+            modifier = Modifier.fillMaxHeight(),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = "$percent%",
+                color = StarlitColors.Text,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                lineHeight = 12.sp,
+                maxLines = 1,
+                // Skia font metrics sit slightly high; nudge to optical center.
+                modifier = Modifier.offset(y = 1.dp),
+            )
+        }
     }
 }
 
