@@ -326,10 +326,7 @@ fun CabinetScreen(vm: LauncherViewModel) {
 
             // —— bottom accordions ——
             Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .border(width = 1.dp, color = Color(0x1F788CDC))
-                    .padding(12.dp),
+                modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 AccordionBlock(
