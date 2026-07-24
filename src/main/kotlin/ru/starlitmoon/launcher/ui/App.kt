@@ -31,10 +31,12 @@ import ru.starlitmoon.launcher.ui.components.TopStatusBar
 import ru.starlitmoon.launcher.ui.components.UpdateOverlay
 import ru.starlitmoon.launcher.ui.components.WindowControlButtons
 import ru.starlitmoon.launcher.ui.screens.AdminScreen
+import ru.starlitmoon.launcher.ui.screens.BankScreen
 import ru.starlitmoon.launcher.ui.screens.BuildsScreen
 import ru.starlitmoon.launcher.ui.screens.CabinetScreen
 import ru.starlitmoon.launcher.ui.screens.HomeScreen
 import ru.starlitmoon.launcher.ui.screens.LoginScreen
+import ru.starlitmoon.launcher.ui.screens.LogsScreen
 import ru.starlitmoon.launcher.ui.screens.SettingsScreen
 import ru.starlitmoon.launcher.ui.screens.SkinsScreen
 import ru.starlitmoon.launcher.ui.theme.LocalStarlitMotion
@@ -43,7 +45,9 @@ import ru.starlitmoon.launcher.ui.theme.StarlitMotion
 import ru.starlitmoon.launcher.ui.theme.StarlitTypography
 import ru.starlitmoon.launcher.ui.theme.starlitTabTransition
 import ru.starlitmoon.launcher.viewmodel.LauncherTab
-import ru.starlitmoon.launcher.viewmodel.LauncherViewModel@Composable
+import ru.starlitmoon.launcher.viewmodel.LauncherViewModel
+
+@Composable
 fun FrameWindowScope.LauncherApp(
     vm: LauncherViewModel,
     @Suppress("UNUSED_PARAMETER") api: StarlitApiClient,
@@ -136,7 +140,9 @@ fun FrameWindowScope.LauncherApp(
                                                     LauncherTab.Home -> HomeScreen(vm)
                                                     LauncherTab.Builds -> BuildsScreen(vm)
                                                     LauncherTab.Cabinet -> CabinetScreen(vm)
+                                                    LauncherTab.Bank -> BankScreen(vm)
                                                     LauncherTab.Skins -> SkinsScreen(vm)
+                                                    LauncherTab.Logs -> LogsScreen(vm)
                                                     LauncherTab.Admin -> AdminScreen(vm)
                                                     LauncherTab.Settings -> SettingsScreen(vm)
                                                 }

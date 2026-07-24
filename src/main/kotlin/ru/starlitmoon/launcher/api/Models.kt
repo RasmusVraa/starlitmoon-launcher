@@ -256,7 +256,113 @@ data class NotificationDto(
     val id: String? = null,
     val title: String? = null,
     val message: String? = null,
+    val type: String? = null,
+    val href: String? = null,
     val read: Boolean = false,
+    val createdAt: String? = null,
+)
+
+@Serializable
+data class MarkNotificationReadResponse(
+    val ok: Boolean = false,
+    val unreadCount: Int = 0,
+    val id: String? = null,
+)
+
+@Serializable
+data class PlayerBankResponse(
+    val ok: Boolean = false,
+    val already: Boolean = false,
+    val bank: PlayerBankDto? = null,
+    val error: String? = null,
+)
+
+@Serializable
+data class PlayerBankDto(
+    val hasCard: Boolean = false,
+    val card: PlayerBankCardDto? = null,
+    val designs: PlayerBankDesignsDto? = null,
+    val history: List<BankHistoryItemDto> = emptyList(),
+    val penalties: List<BankPenaltyDto> = emptyList(),
+    val treasuryDonationCode: String? = null,
+    val treasuryDonationName: String? = null,
+)
+
+@Serializable
+data class PlayerBankCardDto(
+    val cardCode: String? = null,
+    val balance: Long = 0,
+    val ownerName: String? = null,
+    val createdAt: String? = null,
+    val cardDesign: String? = null,
+    val cardDesignTheme: String? = null,
+    val cardDesignImage: String? = null,
+    val ownedDesigns: List<String> = emptyList(),
+)
+
+@Serializable
+data class PlayerBankDesignsDto(
+    val catalog: List<BankDesignDto> = emptyList(),
+    val active: String? = null,
+    val activeTheme: String? = null,
+    val activeImage: String? = null,
+    val owned: List<String> = emptyList(),
+)
+
+@Serializable
+data class BankDesignDto(
+    val id: String? = null,
+    val name: String? = null,
+    val description: String? = null,
+    val price: Long = 0,
+    val emoji: String? = null,
+    val free: Boolean = false,
+    val rarity: String? = null,
+    val rarityLabel: String? = null,
+    val rarityColor: String? = null,
+    val themePreset: String? = null,
+    val imageUrl: String? = null,
+    val canBuy: Boolean = false,
+    val isOwned: Boolean = false,
+    val grantOnly: Boolean = false,
+    val grantOnlyLabel: String? = null,
+)
+
+@Serializable
+data class BankHistoryItemDto(
+    val id: String? = null,
+    val kind: String? = null,
+    val direction: String? = null,
+    val amount: Long = 0,
+    val balanceAfter: Long? = null,
+    val createdAt: String? = null,
+    val title: String? = null,
+    val subtitle: String? = null,
+    val counterparty: String? = null,
+    val counterpartyCode: String? = null,
+    val comment: String? = null,
+    val channel: String? = null,
+)
+
+@Serializable
+data class BankPenaltyDto(
+    val id: String? = null,
+    val amount: Long = 0,
+    val reason: String? = null,
+    val status: String? = null,
+    val dueAt: String? = null,
+    val overdue: Boolean = false,
+    val createdAt: String? = null,
+    val issuedBy: String? = null,
+)
+
+@Serializable
+data class BankDesignsResponse(
+    val ok: Boolean = false,
+    val catalog: List<BankDesignDto> = emptyList(),
+    val owned: List<String> = emptyList(),
+    val active: String? = null,
+    val balance: Long = 0,
 )
 
 @Serializable

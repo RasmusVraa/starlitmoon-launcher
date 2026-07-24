@@ -52,7 +52,27 @@ private data class ArchiveInitBody(val fileName: String, val size: Long)
 private data class ArchiveCompleteBody(val uploadId: String)
 
 @Serializable
+private data class EmptyBody(val _unused: Int? = null)
+
+@Serializable
 private data class NotifyPrefsBody(val channel: String, val enabled: Boolean)
+
+@Serializable
+private data class MarkNotificationReadBody(val id: String)
+
+@Serializable
+private data class BankTransferBody(
+    val toCode: String? = null,
+    val cardCode: String? = null,
+    val amount: Long,
+    val comment: String? = null,
+)
+
+@Serializable
+private data class BankDesignBody(
+    val designId: String? = null,
+    val id: String? = null,
+)
 
 @Serializable
 private data class BadgeBody(val activeBadgeId: String? = null, val visible: Boolean)
@@ -268,11 +288,82 @@ class StarlitApiClient(
         return response.body()
     }
 
-    suspend fun notifications(): List<NotificationDto> {
-        val cookie = sessionCookie() ?: return emptyList()
+    suspend fun notifications(): NotificationsResponse {
+        val cookie = sessionCookie() ?: return NotificationsResponse()
         val response = client.get("$baseUrl/api/auth/notifications") { header("Cookie", cookieHeader(cookie)) }
-        if (!response.status.isSuccess()) return emptyList()
-        return runCatching { response.body<NotificationsResponse>().notifications }.getOrDefault(emptyList())
+        if (!response.status.isSuccess()) return NotificationsResponse()
+        return runCatching { response.body<NotificationsResponse>() }.getOrDefault(NotificationsResponse())
+    }
+
+    suspend fun markNotificationRead(id: String): MarkNotificationReadResponse {
+        val cookie = needCookie()
+        val response = client.post("$baseUrl/api/auth/notifications/read") {
+            header("Cookie", cookieHeader(cookie))
+            contentType(ContentType.Application.Json)
+            setBody(MarkNotificationReadBody(id))
+        }
+        if (!response.status.isSuccess()) throw parseError(response)
+        return response.body()
+    }
+
+    suspend fun getPlayerBank(): PlayerBankResponse {
+        val cookie = needCookie()
+        val response = client.get("$baseUrl/api/bank/me") { header("Cookie", cookieHeader(cookie)) }
+        if (!response.status.isSuccess()) throw parseError(response)
+        return response.body()
+    }
+
+    suspend fun issueBankCard(): PlayerBankResponse {
+        val cookie = needCookie()
+        val response = client.post("$baseUrl/api/bank/issue") {
+            header("Cookie", cookieHeader(cookie))
+            contentType(ContentType.Application.Json)
+            setBody(EmptyBody())
+        }
+        if (!response.status.isSuccess()) throw parseError(response)
+        return response.body()
+    }
+
+    suspend fun transferBank(toCode: String, amount: Long, comment: String?): PlayerBankResponse {
+        val cookie = needCookie()
+        val response = client.post("$baseUrl/api/bank/transfer") {
+            header("Cookie", cookieHeader(cookie))
+            contentType(ContentType.Application.Json)
+            setBody(BankTransferBody(toCode = toCode.trim(), amount = amount, comment = comment?.trim()?.ifBlank { null }))
+        }
+        if (!response.status.isSuccess()) throw parseError(response)
+        return response.body()
+    }
+
+    suspend fun payBankPenalty(id: String): PlayerBankResponse {
+        val cookie = needCookie()
+        val response = client.post("$baseUrl/api/bank/penalties/${id.trim()}/pay") {
+            header("Cookie", cookieHeader(cookie))
+        }
+        if (!response.status.isSuccess()) throw parseError(response)
+        return response.body()
+    }
+
+    suspend fun purchaseBankDesign(designId: String): PlayerBankResponse {
+        val cookie = needCookie()
+        val response = client.post("$baseUrl/api/bank/designs/purchase") {
+            header("Cookie", cookieHeader(cookie))
+            contentType(ContentType.Application.Json)
+            setBody(BankDesignBody(designId = designId, id = designId))
+        }
+        if (!response.status.isSuccess()) throw parseError(response)
+        return response.body()
+    }
+
+    suspend fun equipBankDesign(designId: String): PlayerBankResponse {
+        val cookie = needCookie()
+        val response = client.post("$baseUrl/api/bank/designs/equip") {
+            header("Cookie", cookieHeader(cookie))
+            contentType(ContentType.Application.Json)
+            setBody(BankDesignBody(designId = designId, id = designId))
+        }
+        if (!response.status.isSuccess()) throw parseError(response)
+        return response.body()
     }
 
     suspend fun setProfileStatus(text: String): MeResponse {

@@ -25,10 +25,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Article
 import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.Checkroom
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
@@ -724,10 +727,24 @@ fun SidebarNav(vm: LauncherViewModel) {
         )
         Spacer(Modifier.height(10.dp))
         SidebarIcon(
+            icon = Icons.Default.AccountBalance,
+            selected = vm.currentTab == LauncherTab.Bank,
+            contentDescription = "Банк",
+            onClick = { vm.currentTab = LauncherTab.Bank },
+        )
+        Spacer(Modifier.height(10.dp))
+        SidebarIcon(
             icon = Icons.Default.Checkroom,
             selected = vm.currentTab == LauncherTab.Skins,
             contentDescription = "Скины",
             onClick = { vm.currentTab = LauncherTab.Skins },
+        )
+        Spacer(Modifier.height(10.dp))
+        SidebarIcon(
+            icon = Icons.AutoMirrored.Filled.Article,
+            selected = vm.currentTab == LauncherTab.Logs,
+            contentDescription = "Логи",
+            onClick = { vm.currentTab = LauncherTab.Logs },
         )
         if (vm.isAdmin) {
             Spacer(Modifier.height(10.dp))
@@ -856,6 +873,9 @@ fun TopStatusBar(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             modifier = Modifier.padding(end = if (windowControls != null) 0.dp else 20.dp),
         ) {
+            if (vm.launcherNotificationsEnabled()) {
+                NotificationsBell(vm)
+            }
             Column(horizontalAlignment = Alignment.End) {
                 Text(
                     vm.userName.ifBlank { "Игрок" },
@@ -894,6 +914,147 @@ fun TopStatusBar(
                 )
             }
             windowControls?.invoke()
+        }
+    }
+}
+
+@Composable
+private fun NotificationsBell(vm: LauncherViewModel) {
+    Box {
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(StarlitColors.SurfaceHover)
+                .border(1.dp, StarlitColors.Border, RoundedCornerShape(10.dp))
+                .clickable {
+                    vm.notificationsMenuOpen = !vm.notificationsMenuOpen
+                    if (vm.notificationsMenuOpen) vm.refreshNotifications()
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                Icons.Default.Notifications,
+                contentDescription = "Уведомления",
+                tint = if (vm.notificationUnreadCount > 0) StarlitColors.Gold else StarlitColors.TextMuted,
+                modifier = Modifier.size(18.dp),
+            )
+            if (vm.notificationUnreadCount > 0) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .offset(x = 2.dp, y = (-2).dp)
+                        .height(16.dp)
+                        .defaultMinSize(minWidth = 16.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(StarlitColors.Offline)
+                        .padding(horizontal = 4.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        if (vm.notificationUnreadCount > 99) "99+" else vm.notificationUnreadCount.toString(),
+                        color = StarlitColors.OnGold,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                    )
+                }
+            }
+        }
+        if (vm.notificationsMenuOpen) {
+            androidx.compose.ui.window.Popup(
+                alignment = Alignment.TopEnd,
+                onDismissRequest = { vm.notificationsMenuOpen = false },
+                properties = androidx.compose.ui.window.PopupProperties(focusable = true),
+            ) {
+                Column(
+                    modifier = Modifier
+                        .padding(top = 44.dp, end = 8.dp)
+                        .width(360.dp)
+                        .height(420.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(Color(0xFF12151F))
+                        .border(1.dp, StarlitColors.BorderStrong, RoundedCornerShape(14.dp))
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("Уведомления", color = StarlitColors.Text, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "Обновить",
+                            color = StarlitColors.Gold,
+                            fontSize = 12.sp,
+                            modifier = Modifier.clickable { vm.refreshNotifications(silent = false) },
+                        )
+                    }
+                    if (vm.notifications.isEmpty()) {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text("Пока нет уведомлений", color = StarlitColors.TextMuted, fontSize = 13.sp)
+                        }
+                    } else {
+                        androidx.compose.foundation.lazy.LazyColumn(
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxSize(),
+                        ) {
+                            items(vm.notifications.size) { idx ->
+                                val n = vm.notifications[idx]
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(
+                                            if (n.read) StarlitColors.Surface.copy(alpha = 0.45f)
+                                            else StarlitColors.GoldMuted.copy(alpha = 0.35f),
+                                        )
+                                        .clickable { vm.openNotification(n) }
+                                        .padding(10.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                                ) {
+                                    Text(
+                                        n.title?.ifBlank { null } ?: "Уведомление",
+                                        color = StarlitColors.Text,
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontSize = 13.sp,
+                                        maxLines = 2,
+                                    )
+                                    if (!n.message.isNullOrBlank()) {
+                                        Text(
+                                            n.message.orEmpty(),
+                                            color = StarlitColors.TextMuted,
+                                            fontSize = 12.sp,
+                                            maxLines = 4,
+                                        )
+                                    }
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                    ) {
+                                        Text(
+                                            n.createdAt?.take(16)?.replace('T', ' ') ?: "",
+                                            color = StarlitColors.TextDim,
+                                            fontSize = 10.sp,
+                                        )
+                                        if (!n.read) {
+                                            Text(
+                                                "Прочитано",
+                                                color = StarlitColors.Gold,
+                                                fontSize = 11.sp,
+                                                modifier = Modifier.clickable {
+                                                    n.id?.let { vm.markNotificationRead(it) }
+                                                },
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }

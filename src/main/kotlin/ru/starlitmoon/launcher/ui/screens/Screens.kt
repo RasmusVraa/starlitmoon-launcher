@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.Animation
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.VideogameAsset
@@ -888,6 +889,19 @@ fun SettingsScreen(vm: LauncherViewModel) {
                     icon = { Icon(Icons.Default.Animation, null, tint = StarlitColors.Gold) },
                 ) {
                     StarlitToggle(checked = animationsEnabled, onCheckedChange = { animationsEnabled = it })
+                }
+
+                HorizontalDivider(color = StarlitColors.Border)
+
+                SettingsRow(
+                    title = "Уведомления в лаунчере",
+                    subtitle = "Колокольчик с уведомлениями с сайта (как в кабинете)",
+                    icon = { Icon(Icons.Default.Notifications, null, tint = StarlitColors.Gold) },
+                ) {
+                    StarlitToggle(
+                        checked = vm.launcherNotificationsEnabled(),
+                        onCheckedChange = { vm.setNotifyPref("launcher", it) },
+                    )
                 }
             }
         }

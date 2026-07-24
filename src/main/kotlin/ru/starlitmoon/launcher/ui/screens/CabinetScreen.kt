@@ -84,6 +84,7 @@ fun CabinetScreen(vm: LauncherViewModel) {
         listOf(
             ru.starlitmoon.launcher.api.NotifyChannelDto("ingame", "В игре", "Сообщение в чат Minecraft", enabled = true),
             ru.starlitmoon.launcher.api.NotifyChannelDto("discord", "Discord", "ЛС от бота", enabled = true),
+            ru.starlitmoon.launcher.api.NotifyChannelDto("launcher", "В лаунчере", "Показывать уведомления в лаунчере", enabled = true),
         )
     }
     val ownedBadges = badges?.owned.orEmpty()
@@ -338,7 +339,7 @@ fun CabinetScreen(vm: LauncherViewModel) {
                     onToggle = { notifyOpen = !notifyOpen },
                 ) {
                     Text(
-                        "Уведомления в колокольчике на сайте включены всегда.",
+                        "Уведомления в колокольчике на сайте включены всегда. Канал «В лаунчере» управляет колокольчиком в приложении.",
                         color = StarlitColors.TextDim,
                         fontSize = 12.sp,
                     )

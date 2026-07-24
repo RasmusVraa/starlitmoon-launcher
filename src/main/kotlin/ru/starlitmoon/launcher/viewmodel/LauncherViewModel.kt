@@ -16,6 +16,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.yield
 import javax.swing.SwingUtilities
 import ru.starlitmoon.launcher.LauncherConfig
+import ru.starlitmoon.launcher.LauncherLog
 import ru.starlitmoon.launcher.LauncherVersion
 import ru.starlitmoon.launcher.discord.DiscordPresence
 import ru.starlitmoon.launcher.api.AdminAccountDto
@@ -41,6 +42,7 @@ import ru.starlitmoon.launcher.api.PermissionDefDto
 import ru.starlitmoon.launcher.api.MeResponse
 import ru.starlitmoon.launcher.api.ModpackDto
 import ru.starlitmoon.launcher.api.NotificationDto
+import ru.starlitmoon.launcher.api.PlayerBankDto
 import ru.starlitmoon.launcher.api.ServerStatus
 import ru.starlitmoon.launcher.api.StarlitApiClient
 import ru.starlitmoon.launcher.api.StarlitApiException
@@ -63,7 +65,7 @@ import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
 import kotlin.io.path.writeBytes
 
-enum class LauncherTab { Home, Builds, Cabinet, Skins, Settings, Admin }
+enum class LauncherTab { Home, Builds, Cabinet, Bank, Skins, Logs, Settings, Admin }
 
 class LauncherViewModel(
     private val scope: CoroutineScope,
@@ -117,6 +119,14 @@ class LauncherViewModel(
     var adminConsoleError by mutableStateOf<String?>(null)
     var adminRconResponse by mutableStateOf("")
     var notifications by mutableStateOf<List<NotificationDto>>(emptyList())
+    var notificationUnreadCount by mutableStateOf(0)
+    var notificationsMenuOpen by mutableStateOf(false)
+    var playerBank by mutableStateOf<PlayerBankDto?>(null)
+    var isLoadingBank by mutableStateOf(false)
+    var bankHistoryFilter by mutableStateOf("all")
+    var launcherLogText by mutableStateOf("")
+    var gameLogText by mutableStateOf("")
+    var logsSubTab by mutableStateOf(0)
     var launchProgress by mutableStateOf<String?>(null)
     var launchProgressFraction by mutableStateOf<Float?>(null)
     /** Id сборки, ZIP которой сейчас заливается в админке (для оверлея прогресса). */
@@ -183,6 +193,7 @@ class LauncherViewModel(
     private var skinLibrary = ru.starlitmoon.launcher.minecraft.SkinLibrary(configState)
 
     private var statusJob: Job? = null
+    private var notificationsJob: Job? = null
     private var booted = false
 
     private fun refreshSkinLibraryState() {
@@ -200,6 +211,7 @@ class LauncherViewModel(
     fun boot() {
         if (booted) return
         booted = true
+        LauncherLog.info("Launcher ${LauncherVersion.CURRENT} started")
         // Старые скрипты автообновления могли перезапускать лаунчер после обычного закрытия.
         runCatching { LauncherSelfUpdater.cancelPendingRestart() }
         scope.launch {
@@ -226,6 +238,7 @@ class LauncherViewModel(
             publicJob.await()
             fetchModpacks()
             startStatusPolling()
+            startNotificationsPolling()
             discordPresence.start(configState.discordRpcEnabled)
             refreshDiscordPresence()
         }
@@ -461,7 +474,13 @@ class LauncherViewModel(
             adminRconResponse = ""
             lastResetPassword = null
             notifications = emptyList()
+            notificationUnreadCount = 0
+            notificationsMenuOpen = false
+            playerBank = null
+            notificationsJob?.cancel()
+            notificationsJob = null
             currentTab = LauncherTab.Home
+            LauncherLog.info("Logged out")
             isLoading = false
             refreshDiscordPresence()
         }
@@ -1032,7 +1051,9 @@ class LauncherViewModel(
                     meData = me
                     skinTextureHash = me.cabinet?.player?.skinTextureHash ?: skinTextureHash
                     avatarRevision++
-                    notifications = api.notifications()
+                    val inbox = api.notifications()
+                    notifications = inbox.notifications
+                    notificationUnreadCount = inbox.unreadCount
                     statusDraft = me.cabinet?.player?.profileStatus
                         ?: me.cabinet?.profileStatus.orEmpty()
                 }
@@ -1065,7 +1086,16 @@ class LauncherViewModel(
     fun setNotifyPref(channel: String, enabled: Boolean) {
         scope.launch {
             runCatching { withContext(Dispatchers.IO) { api.setNotificationPref(channel, enabled) } }
-                .onSuccess { meData = it }
+                .onSuccess {
+                    meData = it
+                    if (channel == "launcher") {
+                        if (enabled) refreshNotifications()
+                        else {
+                            notifications = emptyList()
+                            notificationUnreadCount = 0
+                        }
+                    }
+                }
                 .onFailure { handleError(it) }
         }
     }
@@ -1620,8 +1650,12 @@ class LauncherViewModel(
                 refreshDiscordPresence()
             }
             notifications = withContext(Dispatchers.IO) {
-                runCatching { api.notifications() }.getOrDefault(emptyList())
-            }
+                runCatching { api.notifications() }.getOrNull()
+            }?.let { inbox ->
+                notificationUnreadCount = inbox.unreadCount
+                inbox.notifications
+            }.orEmpty()
+            startNotificationsPolling()
         }
         if (me.admin) refreshAdmin()
         refreshDiscordPresence()
@@ -1679,12 +1713,182 @@ class LauncherViewModel(
         }
     }
 
+    fun launcherNotificationsEnabled(): Boolean {
+        val prefs = meData?.cabinet?.notificationPrefs
+        if (prefs != null && prefs.containsKey("launcher")) return prefs["launcher"] != false
+        val channel = meData?.cabinet?.notificationChannels?.firstOrNull { it.id == "launcher" }
+        if (channel != null) return channel.enabled
+        return true
+    }
+
+    fun refreshNotifications(silent: Boolean = true) {
+        if (!isLoggedIn || !launcherNotificationsEnabled()) {
+            if (!launcherNotificationsEnabled()) {
+                notifications = emptyList()
+                notificationUnreadCount = 0
+            }
+            return
+        }
+        scope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) { api.notifications() }
+            }.onSuccess { inbox ->
+                notifications = inbox.notifications
+                notificationUnreadCount = inbox.unreadCount
+            }.onFailure {
+                if (!silent) handleError(it)
+            }
+        }
+    }
+
+    fun markNotificationRead(id: String) {
+        if (id.isBlank()) return
+        scope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) { api.markNotificationRead(id) }
+            }.onSuccess { res ->
+                notifications = notifications.map { n ->
+                    if (n.id == id) n.copy(read = true) else n
+                }
+                notificationUnreadCount = res.unreadCount.coerceAtLeast(
+                    notifications.count { !it.read },
+                )
+            }.onFailure { handleError(it) }
+        }
+    }
+
+    fun openNotification(n: NotificationDto) {
+        n.id?.let { markNotificationRead(it) }
+        val href = n.href?.trim().orEmpty()
+        if (href.isNotBlank()) {
+            notificationsMenuOpen = false
+            openSitePath(href)
+        }
+    }
+
+    fun refreshLogs() {
+        launcherLogText = LauncherLog.readText(configState.dataDir)
+        gameLogText = LauncherLog.readGameLaunchText(configState.dataDir)
+    }
+
+    fun clearLauncherLog() {
+        LauncherLog.clear(configState.dataDir)
+        LauncherLog.info("Log cleared by user")
+        refreshLogs()
+    }
+
+    fun openLogsFolder() {
+        runCatching {
+            Desktop.getDesktop().open(configState.dataDir.toFile())
+        }.onFailure { errorMessage = "Не удалось открыть папку логов" }
+    }
+
+    fun refreshPlayerBank() {
+        if (!isLoggedIn) return
+        scope.launch {
+            isLoadingBank = true
+            runCatching {
+                withContext(Dispatchers.IO) { api.getPlayerBank() }
+            }.onSuccess { res ->
+                playerBank = res.bank
+            }.onFailure { handleError(it) }
+            isLoadingBank = false
+        }
+    }
+
+    fun issueBankCard() {
+        scope.launch {
+            isLoadingBank = true
+            runCatching {
+                withContext(Dispatchers.IO) { api.issueBankCard() }
+            }.onSuccess { res ->
+                playerBank = res.bank ?: playerBank
+                infoMessage = if (res.already) "Карта уже выдана" else "Карта выпущена"
+                refreshPlayerBank()
+            }.onFailure { handleError(it) }
+            isLoadingBank = false
+        }
+    }
+
+    fun transferBank(toCode: String, amount: Long, comment: String?) {
+        scope.launch {
+            isLoadingBank = true
+            runCatching {
+                withContext(Dispatchers.IO) { api.transferBank(toCode, amount, comment) }
+            }.onSuccess { res ->
+                playerBank = res.bank ?: playerBank
+                infoMessage = "Перевод выполнен"
+                refreshPlayerBank()
+            }.onFailure { handleError(it) }
+            isLoadingBank = false
+        }
+    }
+
+    fun payBankPenalty(id: String) {
+        scope.launch {
+            isLoadingBank = true
+            runCatching {
+                withContext(Dispatchers.IO) { api.payBankPenalty(id) }
+            }.onSuccess { res ->
+                playerBank = res.bank ?: playerBank
+                infoMessage = "Штраф оплачен"
+                refreshPlayerBank()
+            }.onFailure { handleError(it) }
+            isLoadingBank = false
+        }
+    }
+
+    fun purchaseBankDesign(designId: String) {
+        scope.launch {
+            isLoadingBank = true
+            runCatching {
+                withContext(Dispatchers.IO) { api.purchaseBankDesign(designId) }
+            }.onSuccess { res ->
+                playerBank = res.bank ?: playerBank
+                infoMessage = "Дизайн куплен"
+                refreshPlayerBank()
+            }.onFailure { handleError(it) }
+            isLoadingBank = false
+        }
+    }
+
+    fun equipBankDesign(designId: String) {
+        scope.launch {
+            isLoadingBank = true
+            runCatching {
+                withContext(Dispatchers.IO) { api.equipBankDesign(designId) }
+            }.onSuccess { res ->
+                playerBank = res.bank ?: playerBank
+                infoMessage = "Дизайн применён"
+                refreshPlayerBank()
+            }.onFailure { handleError(it) }
+            isLoadingBank = false
+        }
+    }
+
     private fun startStatusPolling() {
         statusJob?.cancel()
         statusJob = scope.launch {
             while (true) {
                 delay(60_000)
                 withContext(Dispatchers.IO) { refreshPublicData() }
+            }
+        }
+    }
+
+    private fun startNotificationsPolling() {
+        notificationsJob?.cancel()
+        if (!isLoggedIn) return
+        notificationsJob = scope.launch {
+            while (isActive) {
+                if (launcherNotificationsEnabled()) {
+                    runCatching {
+                        val inbox = withContext(Dispatchers.IO) { api.notifications() }
+                        notifications = inbox.notifications
+                        notificationUnreadCount = inbox.unreadCount
+                    }
+                }
+                delay(45_000)
             }
         }
     }
@@ -1707,6 +1911,7 @@ class LauncherViewModel(
 
     fun dispose() {
         statusJob?.cancel()
+        notificationsJob?.cancel()
         gameWatchJob?.cancel()
         killProcessTree(gameProcess)
         clearGameProcess()
@@ -1724,6 +1929,7 @@ class LauncherViewModel(
     /** Minimal teardown before hard exit during self-update (avoid hung closes). */
     fun disposeForSelfUpdate() {
         statusJob?.cancel()
+        notificationsJob?.cancel()
         gameWatchJob?.cancel()
         killProcessTree(gameProcess)
         clearGameProcess()
