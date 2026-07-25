@@ -81,12 +81,15 @@ object ModpackSync {
     }
 
     fun needsUpdate(dataDir: Path, pack: ModpackDto): Boolean {
-        if (!pack.hasArchive) return false
-        val remote = pack.archive?.sha256?.trim()?.lowercase().orEmpty()
-        if (remote.isBlank()) return false
-        // Not installed locally → download, not "update".
-        val local = localArchiveSha(dataDir, pack) ?: return false
-        return local != remote
+        // ZIP archive path (Starlit API).
+        if (pack.hasArchive) {
+            val remote = pack.archive?.sha256?.trim()?.lowercase().orEmpty()
+            if (remote.isNotBlank()) {
+                val local = localArchiveSha(dataDir, pack) ?: return false
+                return local != remote
+            }
+        }
+        return false
     }
 
     /** True if this pack was installed at least once locally. */
@@ -113,6 +116,7 @@ object ModpackSync {
         dataDir: Path,
         pack: ModpackDto,
         force: Boolean = false,
+        control: DownloadControl = DownloadControl(),
         onProgress: (ProgressEvent) -> Unit = {},
     ): Boolean {
         val archive = pack.archive
@@ -141,7 +145,7 @@ object ModpackSync {
 
         val expectedSize = archive?.size?.takeIf { it > 0 }
         onProgress(ProgressEvent("Подключение к архиву…", 0.01f, bytesTotal = expectedSize, kind = ProgressEvent.Kind.Download))
-        downloadTo(url, zipPath, expectedSize, onProgress)
+        downloadTo(url, zipPath, expectedSize, control, onProgress)
 
         if (expectedSha.isNotBlank()) {
             onProgress(
@@ -264,6 +268,7 @@ object ModpackSync {
         url: String,
         target: Path,
         expectedSize: Long?,
+        control: DownloadControl,
         onProgress: (ProgressEvent) -> Unit,
     ) {
         target.parent?.createDirectories()
@@ -285,8 +290,10 @@ object ModpackSync {
         while (true) {
             attempt++
             try {
-                downloadOnce(url, tmp, existing, expectedSize, onProgress)
+                downloadOnce(url, tmp, existing, expectedSize, control, onProgress)
                 break
+            } catch (e: DownloadCancelledException) {
+                throw e
             } catch (e: Exception) {
                 if (attempt >= 3) throw e
                 onProgress(
@@ -325,8 +332,10 @@ object ModpackSync {
         tmp: Path,
         existing: Long,
         expectedSize: Long?,
+        control: DownloadControl,
         onProgress: (ProgressEvent) -> Unit,
     ) {
+        control.checkpoint()
         val conn = (URI(url).toURL().openConnection() as HttpURLConnection).apply {
             instanceFollowRedirects = true
             connectTimeout = CONNECT_TIMEOUT_MS
@@ -382,10 +391,12 @@ object ModpackSync {
                     var lastUiAtNs = 0L
                     var speedEma = 0.0
                     while (true) {
+                        control.checkpoint()
                         val n = input.read(buf)
                         if (n <= 0) break
                         output.write(buf, 0, n)
                         downloaded += n
+                        control.throttle(n)
                         val nowNs = System.nanoTime()
                         val sinceBytes = downloaded - speedWindowBytes
                         val dtSec = (nowNs - speedWindowAtNs) / 1_000_000_000.0

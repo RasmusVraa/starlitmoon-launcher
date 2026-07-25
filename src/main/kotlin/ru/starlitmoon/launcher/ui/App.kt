@@ -126,6 +126,11 @@ fun FrameWindowScope.LauncherApp(
                                         if (update != null && vm.clientUpdateVisible) {
                                             ClientUpdateScreen(
                                                 progress = update,
+                                                paused = vm.downloadPaused,
+                                                speedLimitKBps = vm.downloadSpeedLimitKBps,
+                                                onPauseToggle = vm::toggleDownloadPause,
+                                                onCancel = vm::cancelClientDownload,
+                                                onSpeedLimitChange = vm::updateDownloadSpeedLimitKBps,
                                             )
                                         } else {
                                             AnimatedContent(

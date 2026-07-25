@@ -32,6 +32,8 @@ import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.Checkroom
+import androidx.compose.material.icons.filled.ChevronLeft
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Person
@@ -707,92 +709,116 @@ fun BrandWordmark(modifier: Modifier = Modifier) {
 @Composable
 fun SidebarNav(vm: LauncherViewModel) {
     var confirmLogout by remember { mutableStateOf(false) }
+    val expanded = vm.sidebarExpanded
+    val width = starlitAnimateDp(
+        if (expanded) StarlitDimens.SidebarWidthExpanded else StarlitDimens.SidebarWidth,
+        durationMs = 220,
+        label = "sidebarWidth",
+    )
     Box(
         modifier = Modifier
-            .width(StarlitDimens.SidebarWidth)
+            .width(width)
             .fillMaxHeight(),
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color(0xFF0A0C12))
-                .border(width = 1.dp, color = StarlitColors.Border),
-            horizontalAlignment = Alignment.CenterHorizontally,
+                .border(width = 1.dp, color = StarlitColors.Border)
+                .padding(horizontal = if (expanded) 10.dp else 0.dp),
+            horizontalAlignment = if (expanded) Alignment.Start else Alignment.CenterHorizontally,
         ) {
-            Spacer(Modifier.height(18.dp))
+            Spacer(Modifier.height(14.dp))
 
             fun go(tab: LauncherTab) {
                 vm.selectTab(tab)
             }
 
-            SidebarIcon(
+            SidebarEntry(
                 icon = Icons.Default.Home,
+                label = "Главная",
+                expanded = expanded,
                 selected = !vm.clientUpdateVisible && vm.currentTab == LauncherTab.Home,
-                contentDescription = "Главная",
                 onClick = { go(LauncherTab.Home) },
-                enabled = true,
             )
-            Spacer(Modifier.height(10.dp))
-            SidebarIcon(
+            Spacer(Modifier.height(8.dp))
+            SidebarEntry(
                 icon = Icons.Default.Apps,
+                label = "Сборки",
+                expanded = expanded,
                 selected = !vm.clientUpdateVisible && vm.currentTab == LauncherTab.Builds,
-                contentDescription = "Сборки",
                 onClick = { go(LauncherTab.Builds) },
             )
-            Spacer(Modifier.height(10.dp))
-            SidebarIcon(
+            Spacer(Modifier.height(8.dp))
+            SidebarEntry(
                 icon = Icons.Default.Person,
+                label = "Кабинет",
+                expanded = expanded,
                 selected = !vm.clientUpdateVisible && vm.currentTab == LauncherTab.Cabinet,
-                contentDescription = "Кабинет",
                 onClick = { go(LauncherTab.Cabinet) },
             )
-            Spacer(Modifier.height(10.dp))
-            SidebarIcon(
+            Spacer(Modifier.height(8.dp))
+            SidebarEntry(
                 icon = Icons.Default.AccountBalance,
+                label = "Банк",
+                expanded = expanded,
                 selected = !vm.clientUpdateVisible && vm.currentTab == LauncherTab.Bank,
-                contentDescription = "Банк",
                 onClick = { go(LauncherTab.Bank) },
             )
-            Spacer(Modifier.height(10.dp))
-            SidebarIcon(
+            Spacer(Modifier.height(8.dp))
+            SidebarEntry(
                 icon = Icons.Default.Checkroom,
+                label = "Скины",
+                expanded = expanded,
                 selected = !vm.clientUpdateVisible && vm.currentTab == LauncherTab.Skins,
-                contentDescription = "Скины",
                 onClick = { go(LauncherTab.Skins) },
             )
-            Spacer(Modifier.height(10.dp))
-            SidebarIcon(
+            Spacer(Modifier.height(8.dp))
+            SidebarEntry(
                 icon = Icons.AutoMirrored.Filled.Article,
+                label = "Логи",
+                expanded = expanded,
                 selected = !vm.clientUpdateVisible && vm.currentTab == LauncherTab.Logs,
-                contentDescription = "Логи",
                 onClick = { go(LauncherTab.Logs) },
             )
             if (vm.isAdmin) {
-                Spacer(Modifier.height(10.dp))
-                SidebarIcon(
+                Spacer(Modifier.height(8.dp))
+                SidebarEntry(
                     icon = Icons.Default.Security,
+                    label = "Админ",
+                    expanded = expanded,
                     selected = !vm.clientUpdateVisible && vm.currentTab == LauncherTab.Admin,
-                    contentDescription = "Админ",
                     onClick = { go(LauncherTab.Admin) },
                 )
             }
 
             Spacer(Modifier.weight(1f))
-            SidebarIcon(
+            SidebarEntry(
                 icon = Icons.Default.Settings,
+                label = "Настройки",
+                expanded = expanded,
                 selected = !vm.clientUpdateVisible && vm.currentTab == LauncherTab.Settings,
-                contentDescription = "Настройки",
                 onClick = { go(LauncherTab.Settings) },
             )
-            Spacer(Modifier.height(10.dp))
-            SidebarIcon(
+            Spacer(Modifier.height(8.dp))
+            SidebarEntry(
                 icon = Icons.AutoMirrored.Filled.Logout,
+                label = "Выйти",
+                expanded = expanded,
                 selected = false,
-                contentDescription = "Выйти",
                 onClick = { confirmLogout = true },
                 tintOverride = StarlitColors.TextMuted,
             )
-            Spacer(Modifier.height(18.dp))
+            Spacer(Modifier.height(8.dp))
+            SidebarEntry(
+                icon = if (expanded) Icons.Default.ChevronLeft else Icons.Default.ChevronRight,
+                label = if (expanded) "Свернуть" else "Меню",
+                expanded = expanded,
+                selected = false,
+                onClick = { vm.toggleSidebarExpanded() },
+                tintOverride = StarlitColors.TextMuted,
+            )
+            Spacer(Modifier.height(14.dp))
         }
         if (confirmLogout) {
             StarlitConfirmDialog(
@@ -805,6 +831,96 @@ fun SidebarNav(vm: LauncherViewModel) {
                 onDismiss = { confirmLogout = false },
             )
         }
+    }
+}
+
+@Composable
+private fun SidebarEntry(
+    icon: ImageVector,
+    label: String,
+    expanded: Boolean,
+    selected: Boolean,
+    onClick: () -> Unit,
+    tintOverride: Color? = null,
+    enabled: Boolean = true,
+) {
+    if (expanded) {
+        SidebarRow(
+            icon = icon,
+            label = label,
+            selected = selected,
+            onClick = onClick,
+            tintOverride = tintOverride,
+            enabled = enabled,
+        )
+    } else {
+        Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            SidebarIcon(
+                icon = icon,
+                selected = selected,
+                contentDescription = label,
+                onClick = onClick,
+                tintOverride = tintOverride,
+                enabled = enabled,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SidebarRow(
+    icon: ImageVector,
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    tintOverride: Color? = null,
+    enabled: Boolean = true,
+) {
+    val shape = RoundedCornerShape(12.dp)
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
+    val iconTint = when {
+        tintOverride != null -> tintOverride
+        selected -> StarlitColors.Gold
+        hovered -> StarlitColors.Text
+        else -> StarlitColors.TextMuted
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(44.dp)
+            .clip(shape)
+            .background(
+                when {
+                    selected -> StarlitColors.GoldMuted
+                    hovered -> StarlitColors.SurfaceHover
+                    else -> Color.Transparent
+                },
+            )
+            .border(
+                1.dp,
+                if (selected) StarlitColors.Gold.copy(alpha = 0.45f) else Color.Transparent,
+                shape,
+            )
+            .clickable(
+                enabled = enabled,
+                interactionSource = interaction,
+                indication = null,
+                onClick = onClick,
+            )
+            .padding(horizontal = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Icon(icon, contentDescription = label, tint = iconTint, modifier = Modifier.size(22.dp))
+        Text(
+            label,
+            color = if (selected) StarlitColors.Gold else StarlitColors.Text,
+            fontSize = 13.sp,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 

@@ -24,7 +24,7 @@ data class LauncherConfig(
     /** Безрамочный режим (окно на весь экран без рамки), как BorderlessMinecraft. */
     val borderlessFullscreen: Boolean = false,
     val autoJoinServer: Boolean = false,
-    val keepLauncherOpen: Boolean = false,
+    val keepLauncherOpen: Boolean = true,
     val autoLogin: Boolean = false,
     val savePassword: Boolean = false,
     val vsync: Boolean = true,
@@ -35,6 +35,15 @@ data class LauncherConfig(
     val selectedModpackId: String = "",
     val githubOwner: String = "RasmusVraa",
     val githubRepo: String = "starlitmoon-launcher",
+    /** Репозиторий сборок (пофайлово): packs/{slug}/manifest.json */
+    val modpackGithubOwner: String = "RasmusVraa",
+    val modpackGithubRepo: String = "starlitmoon-modpacks",
+    val modpackGithubRef: String = "main",
+    /** Prefer GitHub per-file sync when repo is set; fall back to API ZIP. */
+    val preferGithubModpacks: Boolean = true,
+    /** 0 = без лимита. КБ/с для скачивания сборок. */
+    val downloadSpeedLimitKBps: Int = 0,
+    val sidebarExpanded: Boolean = false,
     val checkUpdatesOnStart: Boolean = true,
     /** Показывать статус лаунчера в Discord (Rich Presence). */
     val discordRpcEnabled: Boolean = true,
@@ -103,6 +112,15 @@ data class LauncherConfig(
             }
             if (next.githubRepo.isBlank()) {
                 next = next.copy(githubRepo = "starlitmoon-launcher")
+            }
+            if (next.modpackGithubOwner.isBlank()) {
+                next = next.copy(modpackGithubOwner = "RasmusVraa")
+            }
+            if (next.modpackGithubRepo.isBlank()) {
+                next = next.copy(modpackGithubRepo = "starlitmoon-modpacks")
+            }
+            if (next.modpackGithubRef.isBlank()) {
+                next = next.copy(modpackGithubRef = "main")
             }
             if (next != loaded) save(next)
             return next

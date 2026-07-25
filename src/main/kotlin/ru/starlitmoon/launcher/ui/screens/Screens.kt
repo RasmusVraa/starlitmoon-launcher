@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.VideogameAsset
 import androidx.compose.material3.CircularProgressIndicator
@@ -358,6 +359,7 @@ fun BuildsScreen(vm: LauncherViewModel) {
                                     vm.packUiRevision
                                     vm.isPackInstalled(pack)
                                 },
+                                preferGithub = vm.configState.preferGithubModpacks,
                                 onSelect = { vm.selectModpack(pack) },
                                 onOpenFolder = { vm.openPackFolder(pack) },
                                 onReinstall = { reinstallTarget = pack },
@@ -430,6 +432,7 @@ private fun ModpackCard(
     selected: Boolean,
     needsUpdate: Boolean,
     installed: Boolean,
+    preferGithub: Boolean,
     onSelect: () -> Unit,
     onOpenFolder: () -> Unit,
     onReinstall: () -> Unit,
@@ -587,13 +590,13 @@ private fun ModpackCard(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                if (pack.hasArchive || installed) {
+                if (pack.hasArchive || installed || preferGithub) {
                     Spacer(Modifier.height(8.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        if (pack.hasArchive) {
+                        if (pack.hasArchive || preferGithub) {
                             StarlitSecondaryButton(
                                 text = when {
                                     !installed -> "Скачать"
@@ -894,6 +897,50 @@ fun SettingsScreen(vm: LauncherViewModel) {
                     icon = { Icon(Icons.Default.VideogameAsset, null, tint = StarlitColors.Gold) },
                 ) {
                     StarlitToggle(checked = keepLauncherOpen, onCheckedChange = { keepLauncherOpen = it })
+                }
+
+                HorizontalDivider(color = StarlitColors.Border)
+
+                SettingsRow(
+                    title = "Сборки с GitHub",
+                    subtitle = if (base.preferGithubModpacks) {
+                        "${base.modpackGithubOwner}/${base.modpackGithubRepo} · ${base.modpackGithubRef}"
+                    } else {
+                        "Выключено — только ZIP с сайта"
+                    },
+                    icon = { Icon(Icons.Default.FolderOpen, null, tint = StarlitColors.Gold) },
+                ) {
+                    StarlitToggle(
+                        checked = base.preferGithubModpacks,
+                        onCheckedChange = {
+                            vm.saveSettings(base.copy(preferGithubModpacks = it), notify = false)
+                        },
+                    )
+                }
+
+                HorizontalDivider(color = StarlitColors.Border)
+
+                SettingsRow(
+                    title = "Лимит скачивания",
+                    subtitle = if (vm.downloadSpeedLimitKBps <= 0) {
+                        "Без ограничения"
+                    } else {
+                        "${vm.downloadSpeedLimitKBps} КБ/с"
+                    },
+                    icon = { Icon(Icons.Default.Speed, null, tint = StarlitColors.Gold) },
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf(0, 512, 1024, 2048, 5120).forEach { kb ->
+                            val active = vm.downloadSpeedLimitKBps == kb || (kb == 0 && vm.downloadSpeedLimitKBps <= 0)
+                            StarlitSecondaryButton(
+                                text = if (kb == 0) "∞" else "${kb / 1024}М",
+                                onClick = { vm.updateDownloadSpeedLimitKBps(kb) },
+                                compact = true,
+                                modifier = Modifier.width(48.dp),
+                                enabled = !active,
+                            )
+                        }
+                    }
                 }
 
                 HorizontalDivider(color = StarlitColors.Border)

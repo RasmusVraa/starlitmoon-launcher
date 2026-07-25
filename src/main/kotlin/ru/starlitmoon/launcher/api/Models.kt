@@ -502,6 +502,10 @@ data class ModpackDto(
     val mods: List<ModpackModDto> = emptyList(),
     /** Опционально: версия Fabric Loader / NeoForge. Пусто = последняя подходящая. */
     val loaderVersion: String? = null,
+    /** Optional per-pack GitHub override (otherwise LauncherConfig defaults). */
+    val githubOwner: String? = null,
+    val githubRepo: String? = null,
+    val githubRef: String? = null,
 )
 
 @Serializable

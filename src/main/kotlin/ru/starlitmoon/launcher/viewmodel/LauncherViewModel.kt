@@ -47,6 +47,9 @@ import ru.starlitmoon.launcher.api.ServerStatus
 import ru.starlitmoon.launcher.api.StarlitApiClient
 import ru.starlitmoon.launcher.api.StarlitApiException
 import ru.starlitmoon.launcher.minecraft.BorderlessMinecraft
+import ru.starlitmoon.launcher.minecraft.DownloadCancelledException
+import ru.starlitmoon.launcher.minecraft.DownloadControl
+import ru.starlitmoon.launcher.minecraft.GithubModpackSync
 import ru.starlitmoon.launcher.minecraft.MinecraftLauncher
 import ru.starlitmoon.launcher.minecraft.ModpackSync
 import ru.starlitmoon.launcher.minecraft.OfflineSkinBridge
@@ -140,9 +143,41 @@ class LauncherViewModel(
     private var speedSampleBytes = 0L
     private var speedSampleAtMs = 0L
     private var speedEmaBps = 0.0
+    private val downloadControl = DownloadControl()
+    var downloadPaused by mutableStateOf(false)
+    var downloadSpeedLimitKBps by mutableStateOf(initialConfig.downloadSpeedLimitKBps.coerceAtLeast(0))
 
     val isClientUpdateBusy: Boolean
         get() = clientUpdate != null
+
+    var sidebarExpanded by mutableStateOf(initialConfig.sidebarExpanded)
+
+    fun toggleSidebarExpanded() {
+        sidebarExpanded = !sidebarExpanded
+        val next = configState.copy(sidebarExpanded = sidebarExpanded)
+        runCatching { LauncherConfig.save(next) }
+        configState = next
+    }
+
+    fun cancelClientDownload() {
+        downloadControl.cancel()
+        downloadPaused = false
+        infoMessage = "Скачивание отменяется…"
+    }
+
+    fun toggleDownloadPause() {
+        downloadControl.togglePause()
+        downloadPaused = downloadControl.paused
+    }
+
+    fun updateDownloadSpeedLimitKBps(kbps: Int) {
+        val v = kbps.coerceIn(0, 100_000)
+        downloadSpeedLimitKBps = v
+        downloadControl.speedLimitBps = if (v <= 0) 0L else v * 1024L
+        val next = configState.copy(downloadSpeedLimitKBps = v)
+        runCatching { LauncherConfig.save(next) }
+        configState = next
+    }
 
     fun openClientUpdatePage() {
         if (clientUpdate != null) clientUpdateVisible = true
@@ -728,8 +763,11 @@ class LauncherViewModel(
     }
 
     fun reinstallModpack(pack: ModpackDto) {
-        if (!pack.hasArchive || pack.archive?.url.isNullOrBlank()) {
-            errorMessage = "У сборки нет ZIP-архива"
+        val canGithub = configState.preferGithubModpacks &&
+            configState.modpackGithubRepo.isNotBlank() &&
+            !(pack.slug ?: pack.id).isNullOrBlank()
+        if (!canGithub && (!pack.hasArchive || pack.archive?.url.isNullOrBlank())) {
+            errorMessage = "У сборки нет источника файлов (GitHub / ZIP)"
             return
         }
         scope.launch {
@@ -741,7 +779,7 @@ class LauncherViewModel(
             } ?: pack
             val result = runCatching {
                 withContext(Dispatchers.IO) {
-                    ModpackSync.syncArchive(configState.dataDir, detail, force = true) { event ->
+                    syncModpackFiles(detail, force = true) { event ->
                         val phase = when (event.kind) {
                             ProgressEvent.Kind.Verify -> ClientUpdatePhase.Verify
                             else -> ClientUpdatePhase.Download
@@ -756,15 +794,76 @@ class LauncherViewModel(
                 }
             }
             if (result.isSuccess) {
-                infoMessage = "Сборка «${detail.name ?: detail.slug}» обновлена (миры сохранены)"
+                infoMessage = "Сборка «${detail.name ?: detail.slug}» обновлена"
                 packUiRevision++
                 fetchModpacks(force = true)
             } else {
-                errorMessage = result.exceptionOrNull()?.message ?: "Не удалось обновить сборку"
+                val err = result.exceptionOrNull()
+                errorMessage = when (err) {
+                    is DownloadCancelledException -> "Скачивание отменено"
+                    else -> err?.message ?: "Не удалось обновить сборку"
+                }
             }
             clearLaunchProgress()
+            downloadPaused = false
             isLoading = false
         }
+    }
+
+    /**
+     * Prefer GitHub per-file manifest; fall back to Starlit API ZIP archive.
+     */
+    private fun syncModpackFiles(
+        pack: ModpackDto,
+        force: Boolean = false,
+        onProgress: (ProgressEvent) -> Unit,
+    ): Boolean {
+        downloadControl.reset()
+        downloadPaused = false
+        downloadControl.speedLimitBps =
+            if (downloadSpeedLimitKBps <= 0) 0L else downloadSpeedLimitKBps * 1024L
+
+        val owner = pack.githubOwner?.trim()?.ifBlank { null } ?: configState.modpackGithubOwner
+        val repo = pack.githubRepo?.trim()?.ifBlank { null } ?: configState.modpackGithubRepo
+        val ref = pack.githubRef?.trim()?.ifBlank { null } ?: configState.modpackGithubRef
+        val slug = pack.slug?.trim()?.ifBlank { null } ?: pack.id?.trim()?.ifBlank { null }
+        val preferGh = configState.preferGithubModpacks && owner.isNotBlank() && repo.isNotBlank() && !slug.isNullOrBlank()
+
+        if (preferGh) {
+            try {
+                return GithubModpackSync.sync(
+                    dataDir = configState.dataDir,
+                    pack = pack,
+                    source = GithubModpackSync.GithubSource(owner, repo, ref),
+                    force = force,
+                    control = downloadControl,
+                    onProgress = onProgress,
+                )
+            } catch (e: DownloadCancelledException) {
+                throw e
+            } catch (e: Exception) {
+                // Fall back to ZIP when GitHub is unavailable / has no manifest.
+                if (!pack.hasArchive || pack.archive?.url.isNullOrBlank()) throw e
+                onProgress(
+                    ProgressEvent(
+                        "GitHub недоступен — скачиваем ZIP…",
+                        0.03f,
+                        kind = ProgressEvent.Kind.Download,
+                    ),
+                )
+            }
+        }
+
+        if (!pack.hasArchive || pack.archive?.url.isNullOrBlank()) {
+            error("Нет ZIP-архива и нет GitHub-манифеста для сборки")
+        }
+        return ModpackSync.syncArchive(
+            dataDir = configState.dataDir,
+            pack = pack,
+            force = force,
+            control = downloadControl,
+            onProgress = onProgress,
+        )
     }
 
     fun deleteLocalModpack(pack: ModpackDto) {
@@ -984,12 +1083,15 @@ class LauncherViewModel(
             var instanceDir: Path? = null
             if (detail != null) {
                 instanceDir = ModpackSync.packDir(configState.dataDir, detail).also { it.createDirectories() }
-                if (detail.hasArchive && !detail.archive?.url.isNullOrBlank()) {
+                val canGithub = configState.preferGithubModpacks &&
+                    configState.modpackGithubRepo.isNotBlank()
+                val canZip = detail.hasArchive && !detail.archive?.url.isNullOrBlank()
+                if (canGithub || canZip) {
                     beginClientUpdate(ClientUpdatePhase.Download, "Загрузка файлов сборки…", 0.12f)
                     yield()
                     val synced = runCatching {
                         withContext(Dispatchers.IO) {
-                            ModpackSync.syncArchive(configState.dataDir, detail) { event ->
+                            syncModpackFiles(detail, force = false) { event ->
                                 val phase = when (event.kind) {
                                     ProgressEvent.Kind.Verify -> ClientUpdatePhase.Verify
                                     else -> ClientUpdatePhase.Download
@@ -1004,8 +1106,13 @@ class LauncherViewModel(
                         }
                     }
                     if (synced.isFailure) {
-                        errorMessage = synced.exceptionOrNull()?.message ?: "Не удалось скачать сборку"
+                        val err = synced.exceptionOrNull()
+                        errorMessage = when (err) {
+                            is DownloadCancelledException -> "Скачивание отменено"
+                            else -> err?.message ?: "Не удалось скачать сборку"
+                        }
                         clearLaunchProgress()
+                        downloadPaused = false
                         isLoading = false
                         return@launch
                     }
@@ -1049,7 +1156,7 @@ class LauncherViewModel(
                 result.process?.let { attachGameProcess(it, result.skinBridge) }
                     ?: run {
                         result.skinBridge?.close()
-                        if (!configState.keepLauncherOpen) requestExit = true
+                        // No process handle — keep launcher open.
                     }
             } else {
                 result.skinBridge?.close()
@@ -1123,7 +1230,7 @@ class LauncherViewModel(
                     }
                     !stoppedByUser -> {
                         infoMessage = "Игра закрыта"
-                        if (!configState.keepLauncherOpen) requestExit = true
+                        // Launcher always stays open when Minecraft exits.
                     }
                 }
             }
