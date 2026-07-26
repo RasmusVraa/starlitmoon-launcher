@@ -37,6 +37,8 @@ object GithubModpackSync {
     private const val READ_TIMEOUT_MS = 90_000
     /** Parallel file downloads (GitHub rate-limits gently; 8 is a good balance). */
     private const val PARALLELISM = 8
+    private val LFS_POINTER_PREFIX =
+        "version https://git-lfs.github.com/spec/v1".toByteArray(StandardCharsets.US_ASCII)
 
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -172,6 +174,8 @@ object GithubModpackSync {
         val filesTotal = files.size
         val progressLock = Any()
         val firstError = AtomicReference<Throwable?>(null)
+        val speedTracker = SpeedTracker()
+        val lastProgressAtNs = AtomicLong(0L)
 
         if (files.isEmpty()) {
             marker.writeText(remoteHash.ifBlank { "empty-loader-only" })
@@ -186,7 +190,12 @@ object GithubModpackSync {
             return meta
         }
 
-        fun emit(message: String, currentFile: String? = null, kind: ProgressEvent.Kind = ProgressEvent.Kind.Download) {
+        fun emit(
+            message: String,
+            currentFile: String? = null,
+            speed: Long? = null,
+            kind: ProgressEvent.Kind = ProgressEvent.Kind.Download,
+        ) {
             val done = filesDone.get()
             val bytes = doneBytes.get()
             onProgress(
@@ -198,6 +207,8 @@ object GithubModpackSync {
                     filesDone = done,
                     filesTotal = filesTotal,
                     currentFile = currentFile,
+                    speedBps = speed,
+                    threads = PARALLELISM,
                     kind = kind,
                 ),
             )
@@ -224,7 +235,7 @@ object GithubModpackSync {
                             filesDone.incrementAndGet()
                             doneBytes.addAndGet(expectedSize ?: dest.fileSize())
                             synchronized(progressLock) {
-                                emit("Файл ${filesDone.get()}/$filesTotal", file.path)
+                                emit("Файл ${filesDone.get()}/$filesTotal", file.path, speedTracker.current())
                             }
                             return@submit
                         }
@@ -238,20 +249,27 @@ object GithubModpackSync {
                             dest = dest,
                             expectedSize = expectedSize,
                             control = control,
-                            onChunk = { _, fileDone, _ ->
-                                // Lightweight mid-file progress (throttled by caller frequency).
-                                if (fileDone == 0L || fileDone % (512 * 1024) < 64 * 1024) {
+                            onChunk = { n, _, _ ->
+                                doneBytes.addAndGet(n.toLong())
+                                val speed = speedTracker.onBytes(n)
+                                val now = System.nanoTime()
+                                val prev = lastProgressAtNs.get()
+                                val shouldEmit = now - prev >= 200_000_000L &&
+                                    lastProgressAtNs.compareAndSet(prev, now)
+                                if (shouldEmit) {
                                     synchronized(progressLock) {
                                         onProgress(
                                             ProgressEvent(
                                                 message = "Скачивание ${file.path}",
                                                 fraction = (0.05f + 0.90f * filesDone.get().toFloat() / filesTotal)
                                                     .coerceIn(0.05f, 0.95f),
-                                                bytesDone = doneBytes.get() + fileDone,
+                                                bytesDone = doneBytes.get(),
                                                 bytesTotal = totalBytes,
                                                 filesDone = filesDone.get(),
                                                 filesTotal = filesTotal,
                                                 currentFile = file.path,
+                                                speedBps = speed,
+                                                threads = PARALLELISM,
                                                 kind = ProgressEvent.Kind.Download,
                                             ),
                                         )
@@ -260,9 +278,8 @@ object GithubModpackSync {
                             },
                         )
                         filesDone.incrementAndGet()
-                        doneBytes.addAndGet(expectedSize ?: dest.fileSize())
                         synchronized(progressLock) {
-                            emit("Файл ${filesDone.get()}/$filesTotal", file.path)
+                            emit("Файл ${filesDone.get()}/$filesTotal", file.path, speedTracker.current())
                         }
                     } catch (e: DownloadCancelledException) {
                         firstError.compareAndSet(null, e)
@@ -360,8 +377,14 @@ object GithubModpackSync {
         if (!path.exists()) return false
         val size = path.fileSize()
         if (size <= 0L || size > 1024L) return false
-        val head = Files.readString(path).trimStart()
-        return head.startsWith("version https://git-lfs.github.com/spec/v1")
+        // Do not use Files.readString — small binaries throw MalformedInputException ("Input length = 1").
+        val bytes = Files.readAllBytes(path)
+        val prefix = LFS_POINTER_PREFIX
+        if (bytes.size < prefix.size) return false
+        for (i in prefix.indices) {
+            if (bytes[i] != prefix[i]) return false
+        }
+        return true
     }
 
     private fun openGet(url: String): HttpURLConnection {
@@ -377,5 +400,27 @@ object GithubModpackSync {
         conn.setRequestProperty("Cache-Control", "no-cache")
         conn.setRequestProperty("Pragma", "no-cache")
         return conn
+    }
+
+    /** Thread-safe smoothed download speed. */
+    private class SpeedTracker {
+        private var windowBytes = 0L
+        private var windowAtNs = System.nanoTime()
+        private var ema = 0.0
+
+        fun onBytes(n: Int): Long = synchronized(this) {
+            if (n > 0) windowBytes += n
+            val now = System.nanoTime()
+            val dt = (now - windowAtNs) / 1_000_000_000.0
+            if (dt >= 0.25 && windowBytes >= 16 * 1024) {
+                val instant = windowBytes / dt
+                ema = if (ema <= 0) instant else ema * 0.55 + instant * 0.45
+                windowBytes = 0L
+                windowAtNs = now
+            }
+            ema.toLong().coerceAtLeast(0L)
+        }
+
+        fun current(): Long = synchronized(this) { ema.toLong().coerceAtLeast(0L).takeIf { it > 0 } ?: 0L }
     }
 }
