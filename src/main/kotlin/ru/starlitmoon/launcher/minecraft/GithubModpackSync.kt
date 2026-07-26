@@ -69,6 +69,10 @@ object GithubModpackSync {
     fun manifestUrl(source: GithubSource, slug: String): String =
         "https://raw.githubusercontent.com/${source.owner}/${source.repo}/${source.ref}/packs/$slug/manifest.json"
 
+    /** Cache-busted manifest URL — raw.githubusercontent.com often serves stale branch tips. */
+    private fun manifestUrlFresh(source: GithubSource, slug: String): String =
+        manifestUrl(source, slug) + "?t=${System.currentTimeMillis()}"
+
     /** Non-LFS files (configs, txt) live on raw; LFS jars need media. */
     fun fileUrlRaw(source: GithubSource, slug: String, relativePath: String): String {
         val clean = relativePath.trim().trimStart('/')
@@ -86,7 +90,7 @@ object GithubModpackSync {
 
     fun fetchManifest(source: GithubSource, slug: String, control: DownloadControl): Manifest {
         control.checkpoint()
-        val url = manifestUrl(source, slug)
+        val url = manifestUrlFresh(source, slug)
         val conn = openGet(url)
         try {
             val code = conn.responseCode
@@ -167,8 +171,7 @@ object GithubModpackSync {
 
             val expected = file.sha256?.trim()?.lowercase().orEmpty()
             if (!force && expected.isNotBlank() && dest.exists()) {
-                val local = sha256Hex(dest)
-                if (local == expected) {
+                if (sha256Matches(dest, expected)) {
                     filesDone++
                     doneBytes += file.size?.coerceAtLeast(0) ?: dest.fileSize()
                     onProgress(
@@ -242,7 +245,7 @@ object GithubModpackSync {
                 continue
             }
             val dest = dir.resolve(file.path)
-            if (!dest.exists() || sha256Hex(dest) != expected) {
+            if (!dest.exists() || !sha256Matches(dest, expected)) {
                 error("Контрольная сумма не совпала: ${file.path}")
             }
             verified++
@@ -293,21 +296,78 @@ object GithubModpackSync {
             downloadToPart(lfsUrl, dest, control, onChunk)
         }
         if (expectedSha != null) {
-            val actual = sha256Hex(part)
-            if (actual != expectedSha) {
+            if (!sha256Matches(part, expectedSha)) {
                 Files.deleteIfExists(part)
                 error("SHA-256 не совпал для ${dest.name}")
             }
         }
-        if (expectedSize != null && part.exists() && part.fileSize() != expectedSize) {
-            // Soft check: LFS size in manifest should match; mismatch after pointer resolve is fatal.
+        if (expectedSize != null && part.exists()) {
             val size = part.fileSize()
+            // Soft size check: text files may differ by CRLF vs LF vs manifest.
             if (size < 1024 && expectedSize > 4096) {
                 Files.deleteIfExists(part)
                 error("Скачан LFS-указатель вместо файла: ${dest.name} (нужен media.githubusercontent.com)")
             }
         }
         Files.move(part, dest, StandardCopyOption.REPLACE_EXISTING)
+    }
+
+    /** Exact match, or match after CRLF↔LF (GitHub raw serves LF; Windows trees often CRLF). */
+    private fun sha256Matches(path: Path, expected: String): Boolean {
+        val want = expected.trim().lowercase()
+        if (sha256Hex(path) == want) return true
+        val bytes = Files.readAllBytes(path)
+        if (bytes.isEmpty() || bytes.size > 8 * 1024 * 1024) return false
+        // Only rewrite newlines for small/text-ish payloads (not jar/zip magic).
+        if (bytes.size >= 4) {
+            val b0 = bytes[0].toInt() and 0xff
+            val b1 = bytes[1].toInt() and 0xff
+            if (b0 == 0x50 && b1 == 0x4b) return false // PK zip/jar
+            if (b0 == 0x1f && b1 == 0x8b) return false // gzip
+        }
+        val asLf = stripCr(bytes)
+        if (asLf.size != bytes.size && sha256Bytes(asLf) == want) return true
+        val asCrlf = lfToCrlf(bytes)
+        if (asCrlf.size != bytes.size && sha256Bytes(asCrlf) == want) return true
+        return false
+    }
+
+    private fun stripCr(bytes: ByteArray): ByteArray {
+        var cr = 0
+        for (b in bytes) if (b == '\r'.code.toByte()) cr++
+        if (cr == 0) return bytes
+        val out = ByteArray(bytes.size - cr)
+        var j = 0
+        for (b in bytes) if (b != '\r'.code.toByte()) out[j++] = b
+        return out
+    }
+
+    private fun lfToCrlf(bytes: ByteArray): ByteArray {
+        var lf = 0
+        var i = 0
+        while (i < bytes.size) {
+            if (bytes[i] == '\n'.code.toByte() && (i == 0 || bytes[i - 1] != '\r'.code.toByte())) lf++
+            i++
+        }
+        if (lf == 0) return bytes
+        val out = ByteArray(bytes.size + lf)
+        var j = 0
+        i = 0
+        while (i < bytes.size) {
+            val b = bytes[i]
+            if (b == '\n'.code.toByte() && (i == 0 || bytes[i - 1] != '\r'.code.toByte())) {
+                out[j++] = '\r'.code.toByte()
+            }
+            out[j++] = b
+            i++
+        }
+        return out
+    }
+
+    private fun sha256Bytes(bytes: ByteArray): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        digest.update(bytes)
+        return digest.digest().joinToString("") { "%02x".format(it) }
     }
 
     private fun downloadToPart(
@@ -354,11 +414,15 @@ object GithubModpackSync {
     private fun openGet(url: String): HttpURLConnection {
         val conn = URI.create(url).toURL().openConnection() as HttpURLConnection
         conn.instanceFollowRedirects = true
+        conn.useCaches = false
+        conn.defaultUseCaches = false
         conn.connectTimeout = CONNECT_TIMEOUT_MS
         conn.readTimeout = READ_TIMEOUT_MS
         conn.requestMethod = "GET"
         conn.setRequestProperty("User-Agent", "StarlitMoonLauncher")
         conn.setRequestProperty("Accept", "*/*")
+        conn.setRequestProperty("Cache-Control", "no-cache")
+        conn.setRequestProperty("Pragma", "no-cache")
         return conn
     }
 
