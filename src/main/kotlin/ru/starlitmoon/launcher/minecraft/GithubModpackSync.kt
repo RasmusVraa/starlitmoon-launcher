@@ -175,7 +175,23 @@ object GithubModpackSync {
             it.copy(path = it.path.trim().trimStart('/').trimEnd('"').trim())
         }
             .filter { it.path.isNotBlank() && !it.path.contains("..") && !it.path.contains('\u0000') }
-        val totalBytes = files.sumOf { it.size?.coerceAtLeast(0) ?: 0L }.takeIf { it > 0 }
+        // Manifest may list Git LFS pointer sizes (~130 B) for jars — treat those as unknown.
+        fun untrustedSize(path: String, size: Long?): Boolean {
+            val s = size ?: return true
+            if (s <= 0L) return true
+            if (s < 512L) {
+                val lower = path.lowercase()
+                if (lower.endsWith(".jar") || lower.endsWith(".zip") || lower.endsWith(".xwmc") ||
+                    lower.endsWith(".jar.part")
+                ) {
+                    return true
+                }
+            }
+            return false
+        }
+        val totalBytes = AtomicLong(
+            files.sumOf { f -> if (untrustedSize(f.path, f.size)) 0L else (f.size ?: 0L) },
+        )
         // Completed pack content only (not LFS pointers / retries).
         val completedBytes = AtomicLong(0L)
         // Bytes of in-flight final downloads (excludes discarded LFS pointers).
@@ -202,10 +218,13 @@ object GithubModpackSync {
             return meta
         }
 
-        fun displayedBytes(): Long {
-            val raw = completedBytes.get() + inFlightBytes.get()
-            return totalBytes?.let { raw.coerceAtMost(it) } ?: raw
+        fun uiTotal(): Long {
+            val done = completedBytes.get() + inFlightBytes.get()
+            val known = totalBytes.get()
+            return maxOf(known, done)
         }
+
+        fun displayedBytes(): Long = completedBytes.get() + inFlightBytes.get()
 
         fun emit(
             message: String,
@@ -214,12 +233,14 @@ object GithubModpackSync {
             kind: ProgressEvent.Kind = ProgressEvent.Kind.Download,
         ) {
             val done = filesDone.get()
+            val bytes = displayedBytes()
+            val total = uiTotal().takeIf { it > 0 }
             onProgress(
                 ProgressEvent(
                     message = message,
                     fraction = (0.05f + 0.90f * done.toFloat() / filesTotal).coerceIn(0.05f, 0.95f),
-                    bytesDone = displayedBytes(),
-                    bytesTotal = totalBytes,
+                    bytesDone = bytes,
+                    bytesTotal = total,
                     filesDone = done,
                     filesTotal = filesTotal,
                     currentFile = currentFile,
@@ -228,6 +249,15 @@ object GithubModpackSync {
                     kind = kind,
                 ),
             )
+        }
+
+        fun commitFileSize(path: String, expectedSize: Long?, actualSize: Long) {
+            completedBytes.addAndGet(actualSize)
+            when {
+                untrustedSize(path, expectedSize) -> totalBytes.addAndGet(actualSize)
+                expectedSize != null && actualSize != expectedSize ->
+                    totalBytes.addAndGet(actualSize - expectedSize)
+            }
         }
 
         fun adjustParallelism(onNetworkError: Boolean = false, completedFileSize: Long? = null) {
@@ -282,17 +312,27 @@ object GithubModpackSync {
 
                         val expectedSize = file.size?.takeIf { it > 0 }
                         if (!force && dest.exists() && dest.fileSize() > 0L &&
-                            (expectedSize == null || dest.fileSize() == expectedSize)
+                            (expectedSize == null || untrustedSize(file.path, expectedSize) ||
+                                dest.fileSize() == expectedSize)
                         ) {
-                            val skipSize = expectedSize ?: dest.fileSize()
-                            filesDone.incrementAndGet()
-                            completedBytes.addAndGet(skipSize)
-                            // Skips are instant — still bump parallelism for remaining small files.
-                            adjustParallelism(completedFileSize = skipSize)
-                            synchronized(progressLock) {
-                                emit("Файл ${filesDone.get()}/$filesTotal", file.path, speedTracker.current())
+                            // Skip only when size matches, or when manifest size is an LFS pointer stub
+                            // and the local file is already larger (real jar present).
+                            val localSize = dest.fileSize()
+                            val canSkip = when {
+                                expectedSize == null -> localSize > 0L
+                                untrustedSize(file.path, expectedSize) -> localSize > expectedSize
+                                else -> localSize == expectedSize
                             }
-                            return@execute
+                            if (canSkip) {
+                                val skipSize = localSize
+                                filesDone.incrementAndGet()
+                                commitFileSize(file.path, expectedSize, skipSize)
+                                adjustParallelism(completedFileSize = skipSize)
+                                synchronized(progressLock) {
+                                    emit("Файл ${filesDone.get()}/$filesTotal", file.path, speedTracker.current())
+                                }
+                                return@execute
+                            }
                         }
 
                         val customUrl = file.url?.trim()?.ifBlank { null }
@@ -328,14 +368,14 @@ object GithubModpackSync {
                                                         message = "Скачивание ${file.path}",
                                                         fraction = (0.05f + 0.90f * filesDone.get().toFloat() / filesTotal)
                                                             .coerceIn(0.05f, 0.95f),
-                                                        bytesDone = displayedBytes(),
-                                                        bytesTotal = totalBytes,
-                                                        filesDone = filesDone.get(),
-                                                        filesTotal = filesTotal,
-                                                        currentFile = file.path,
-                                                        speedBps = speed.takeIf { it > 0 },
-                                                        threads = targetParallel.get(),
-                                                        kind = ProgressEvent.Kind.Download,
+                                                bytesDone = displayedBytes(),
+                                                bytesTotal = uiTotal().takeIf { it > 0 },
+                                                filesDone = filesDone.get(),
+                                                filesTotal = filesTotal,
+                                                currentFile = file.path,
+                                                speedBps = speed.takeIf { it > 0 },
+                                                threads = targetParallel.get(),
+                                                kind = ProgressEvent.Kind.Download,
                                                     ),
                                                 )
                                             }
@@ -356,7 +396,7 @@ object GithubModpackSync {
                                             fraction = (0.05f + 0.90f * filesDone.get().toFloat() / filesTotal)
                                                 .coerceIn(0.05f, 0.95f),
                                             bytesDone = displayedBytes(),
-                                            bytesTotal = totalBytes,
+                                            bytesTotal = uiTotal().takeIf { it > 0 },
                                             filesDone = filesDone.get(),
                                             filesTotal = filesTotal,
                                             currentFile = file.path,
@@ -369,14 +409,15 @@ object GithubModpackSync {
                                 Thread.sleep((400L * attempt).coerceAtMost(3_000L))
                             }
                         }
-                        // Commit: replace in-flight with manifest/actual size.
+                        // Commit: replace in-flight with actual on-disk size.
                         if (fileInFlight != 0L) {
                             inFlightBytes.addAndGet(-fileInFlight)
                             fileInFlight = 0L
                         }
-                        completedBytes.addAndGet(expectedSize ?: dest.fileSize())
+                        val actualSize = dest.fileSize()
+                        commitFileSize(file.path, expectedSize, actualSize)
                         filesDone.incrementAndGet()
-                        adjustParallelism(completedFileSize = expectedSize ?: dest.fileSize())
+                        adjustParallelism(completedFileSize = actualSize)
                         synchronized(progressLock) {
                             emit("Файл ${filesDone.get()}/$filesTotal", file.path, speedTracker.current())
                         }
@@ -414,12 +455,13 @@ object GithubModpackSync {
         firstError.get()?.let { throw it }
 
         marker.writeText(remoteHash)
+        val finalBytes = maxOf(totalBytes.get(), completedBytes.get())
         onProgress(
             ProgressEvent(
                 "Сборка готова",
                 1f,
-                bytesDone = totalBytes ?: completedBytes.get(),
-                bytesTotal = totalBytes,
+                bytesDone = finalBytes,
+                bytesTotal = finalBytes.takeIf { it > 0 },
                 filesDone = filesTotal,
                 filesTotal = filesTotal,
             ),

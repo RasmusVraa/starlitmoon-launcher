@@ -786,7 +786,8 @@ class LauncherViewModel(
                     }
                 }
                 val launchPack = detail.withGithubMeta(syncMeta)
-                beginClientUpdate(ClientUpdatePhase.Client, "Установка лоадера…", 0.85f)
+                // Loader (NeoForge/Fabric) — только после полной установки файлов сборки.
+                beginClientUpdate(ClientUpdatePhase.Client, "Установка NeoForge / лоадера…", 0.05f)
                 ensurePackLoader(launchPack) { msg, frac ->
                     reportLaunchProgress(msg, frac, phaseOverride = ClientUpdatePhase.Client)
                 }
@@ -883,7 +884,7 @@ class LauncherViewModel(
         )
     }
 
-    /** Install Fabric / NeoForge / vanilla client assets during pack download. */
+    /** Install Fabric / NeoForge after pack files are already on disk. */
     private suspend fun ensurePackLoader(
         pack: ModpackDto,
         onProgress: (String, Float?) -> Unit,
@@ -895,10 +896,10 @@ class LauncherViewModel(
         val loaderVersion = pack.loaderVersion?.trim()?.ifBlank { null }
         val launcher = MinecraftLauncher(configState)
         val versionId = launcher.resolveLaunchVersionId(mcVersion, loader, loaderVersion) { msg, frac ->
-            onProgress(msg, if (frac != null) 0.85f + frac * 0.08f else null)
+            onProgress(msg, frac)
         }
         launcher.ensureVersion(versionId) { msg, frac ->
-            onProgress(msg, if (frac != null) 0.93f + frac * 0.07f else null)
+            onProgress(msg, frac)
         }.getOrElse { throw it }
     }
 
@@ -1155,8 +1156,15 @@ class LauncherViewModel(
                     ?: configState.minecraftVersionId
                 loader = launchPack.loader?.lowercase()?.ifBlank { null } ?: "vanilla"
                 loaderVersion = launchPack.loaderVersion?.trim()?.ifBlank { null }
-                // Install NeoForge / Fabric / vanilla client as part of pack download.
-                beginClientUpdate(ClientUpdatePhase.Client, "Установка лоадера…", 0.82f)
+                // Pack ZIPs often ship versions/<mc>/<mc>.jar; with NeoForge that jar becomes
+                // automatic module `_1._21._1` and fights module `minecraft`.
+                if (loader == "neoforge" || loader == "forge") {
+                    withContext(Dispatchers.IO) {
+                        scrubPackVanillaClientJar(instanceDir!!, resolvedVersionId)
+                    }
+                }
+                // NeoForge/Fabric — строго после файлов сборки (отдельный этап).
+                beginClientUpdate(ClientUpdatePhase.Client, "Установка NeoForge / лоадера…", 0.05f)
                 yield()
                 val loaderOk = runCatching {
                     ensurePackLoader(launchPack) { msg, frac ->
@@ -1170,15 +1178,8 @@ class LauncherViewModel(
                     isLoading = false
                     return@launch
                 }
-                // Pack ZIPs often ship versions/<mc>/<mc>.jar; with NeoForge that jar becomes
-                // automatic module `_1._21._1` and fights module `minecraft`.
-                if (loader == "neoforge" || loader == "forge") {
-                    withContext(Dispatchers.IO) {
-                        scrubPackVanillaClientJar(instanceDir!!, resolvedVersionId)
-                    }
-                }
             }
-            beginClientUpdate(ClientUpdatePhase.Client, "Подготовка клиента…", 0.90f)
+            beginClientUpdate(ClientUpdatePhase.Client, "Подготовка клиента…", 0.55f)
             yield()
             val result = withContext(Dispatchers.IO) {
                 mc = MinecraftLauncher(configState)
