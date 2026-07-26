@@ -36,10 +36,14 @@ object GithubModpackSync {
     private const val MARKER = ".starlit-archive.sha256"
     private const val CONNECT_TIMEOUT_MS = 45_000
     private const val READ_TIMEOUT_MS = 120_000
-    private const val PARALLEL_MIN = 1
-    private const val PARALLEL_MAX = 10
-    private const val PARALLEL_START = 3
+    /** Floor for normal adaptation — small files need many connections. */
+    private const val PARALLEL_MIN = 4
+    /** Absolute floor only after repeated network errors. */
+    private const val PARALLEL_ERROR_MIN = 2
+    private const val PARALLEL_MAX = 12
+    private const val PARALLEL_START = 6
     private const val DOWNLOAD_RETRIES = 5
+    private const val SMALL_FILE_BYTES = 512L * 1024L
     private val LFS_POINTER_PREFIX =
         "version https://git-lfs.github.com/spec/v1".toByteArray(StandardCharsets.US_ASCII)
 
@@ -226,21 +230,26 @@ object GithubModpackSync {
             )
         }
 
-        fun adjustParallelism(onNetworkError: Boolean = false) {
+        fun adjustParallelism(onNetworkError: Boolean = false, completedFileSize: Long? = null) {
             val cur = targetParallel.get()
+            val cap = PARALLEL_MAX.coerceAtMost(filesTotal.coerceAtLeast(1))
             if (onNetworkError) {
-                targetParallel.set((cur - 1).coerceAtLeast(PARALLEL_MIN))
+                targetParallel.set((cur - 1).coerceAtLeast(PARALLEL_ERROR_MIN).coerceAtMost(cap))
                 return
             }
+            val size = completedFileSize ?: 0L
+            val smallFile = size in 1 until SMALL_FILE_BYTES
             val speed = speedTracker.current()
-            if (speed <= 0L) return
             val next = when {
-                speed >= 2_500_000L && cur < PARALLEL_MAX -> cur + 1
-                speed >= 1_000_000L && cur < PARALLEL_MAX -> cur + 1
-                speed <= 80_000L && cur > PARALLEL_MIN -> cur - 1
-                speed <= 250_000L && cur > PARALLEL_MIN + 1 -> cur - 1
+                // Small configs/json: throughput looks low because of HTTP overhead — open more sockets.
+                smallFile && cur < cap -> (cur + 2).coerceAtMost(cap)
+                speed >= 2_000_000L && cur < cap -> cur + 1
+                speed >= 700_000L && cur < cap -> cur + 1
+                // Only throttle down on large files with truly low bandwidth.
+                !smallFile && size >= SMALL_FILE_BYTES &&
+                    speed in 1L..150_000L && cur > PARALLEL_MIN -> cur - 1
                 else -> cur
-            }.coerceIn(PARALLEL_MIN, PARALLEL_MAX.coerceAtMost(filesTotal.coerceAtLeast(1)))
+            }.coerceIn(PARALLEL_MIN.coerceAtMost(cap), cap)
             targetParallel.set(next)
         }
 
@@ -275,8 +284,11 @@ object GithubModpackSync {
                         if (!force && dest.exists() && dest.fileSize() > 0L &&
                             (expectedSize == null || dest.fileSize() == expectedSize)
                         ) {
+                            val skipSize = expectedSize ?: dest.fileSize()
                             filesDone.incrementAndGet()
-                            completedBytes.addAndGet(expectedSize ?: dest.fileSize())
+                            completedBytes.addAndGet(skipSize)
+                            // Skips are instant — still bump parallelism for remaining small files.
+                            adjustParallelism(completedFileSize = skipSize)
                             synchronized(progressLock) {
                                 emit("Файл ${filesDone.get()}/$filesTotal", file.path, speedTracker.current())
                             }
@@ -364,7 +376,7 @@ object GithubModpackSync {
                         }
                         completedBytes.addAndGet(expectedSize ?: dest.fileSize())
                         filesDone.incrementAndGet()
-                        adjustParallelism()
+                        adjustParallelism(completedFileSize = expectedSize ?: dest.fileSize())
                         synchronized(progressLock) {
                             emit("Файл ${filesDone.get()}/$filesTotal", file.path, speedTracker.current())
                         }
