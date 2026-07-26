@@ -125,11 +125,23 @@ class MinecraftLauncher(
             val libs = merged.libraries.filter { it.appliesToCurrentOs() }
             val totalLibs = libs.size.coerceAtLeast(1)
             val libSem = Semaphore(12)
+            val libsDone = java.util.concurrent.atomic.AtomicInteger(0)
+            onProgress("Библиотеки 0/$totalLibs (0%)", 0.08f)
             coroutineScope {
-                libs.mapIndexed { index, library ->
+                libs.map { library ->
                     async(Dispatchers.IO) {
                         libSem.withPermit {
-                            val artifact = library.resolvedArtifact() ?: return@withPermit
+                            val artifact = library.resolvedArtifact() ?: run {
+                                val done = libsDone.incrementAndGet()
+                                if (done % 5 == 0 || done == totalLibs) {
+                                    val frac = 0.08f + 0.32f * done.toFloat() / totalLibs
+                                    onProgress(
+                                        "Библиотеки $done/$totalLibs (${done * 100 / totalLibs}%)",
+                                        frac,
+                                    )
+                                }
+                                return@withPermit
+                            }
                             val libPath = if (artifact.path.isNotBlank()) {
                                 config.librariesDir.resolve(artifact.path)
                             } else {
@@ -141,9 +153,14 @@ class MinecraftLauncher(
                             if (library.isNativesForCurrentOs()) {
                                 extractNatives(libPath, nativesDir)
                             }
-                            if ((index + 1) % 5 == 0 || index + 1 == totalLibs) {
-                                val frac = 0.08f + 0.32f * (index + 1).toFloat() / totalLibs
-                                onProgress("Библиотеки ${index + 1}/$totalLibs (${(index + 1) * 100 / totalLibs}%)", frac)
+                            val done = libsDone.incrementAndGet()
+                            // Count completed downloads — not array index (parallel finish order).
+                            if (done % 5 == 0 || done == totalLibs) {
+                                val frac = 0.08f + 0.32f * done.toFloat() / totalLibs
+                                onProgress(
+                                    "Библиотеки $done/$totalLibs (${done * 100 / totalLibs}%)",
+                                    frac,
+                                )
                             }
                         }
                     }

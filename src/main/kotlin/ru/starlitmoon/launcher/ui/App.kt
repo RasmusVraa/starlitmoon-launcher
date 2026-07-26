@@ -124,11 +124,12 @@ fun FrameWindowScope.LauncherApp(
                                     Box(modifier = Modifier.fillMaxSize()) {
                                         val update = vm.clientUpdate
                                         if (update != null && vm.clientUpdateVisible) {
+                                            val downloadControls = vm.updatePhaseIsDownload
                                             ClientUpdateScreen(
                                                 progress = update,
                                                 paused = vm.downloadPaused,
-                                                onPauseToggle = vm::toggleDownloadPause,
-                                                onCancel = vm::cancelClientDownload,
+                                                onPauseToggle = if (downloadControls) vm::toggleDownloadPause else null,
+                                                onCancel = if (downloadControls) vm::cancelClientDownload else null,
                                             )
                                         } else {
                                             AnimatedContent(

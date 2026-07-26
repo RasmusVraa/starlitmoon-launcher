@@ -140,6 +140,10 @@ class LauncherViewModel(
     /** Full update page shown; can be dismissed while download continues. */
     var clientUpdateVisible by mutableStateOf(false)
     private var updatePhase: ClientUpdatePhase = ClientUpdatePhase.Prep
+
+    /** Pause/Cancel only apply to pack file downloads, not NeoForge/client prep. */
+    val updatePhaseIsDownload: Boolean
+        get() = clientUpdate != null && updatePhase == ClientUpdatePhase.Download
     private var speedSampleBytes = 0L
     private var speedSampleAtMs = 0L
     private var speedEmaBps = 0.0
@@ -188,7 +192,9 @@ class LauncherViewModel(
     }
 
     fun selectTab(tab: LauncherTab) {
-        // Allow browsing other pages while a client update runs in the background.
+        // Don't dismiss the update page while install/download is running —
+        // sidebar clicks were kicking users off during NeoForge install.
+        if (clientUpdate != null) return
         clientUpdateVisible = false
         currentTab = tab
     }
@@ -788,8 +794,14 @@ class LauncherViewModel(
                 val launchPack = detail.withGithubMeta(syncMeta)
                 // Loader (NeoForge/Fabric) — только после полной установки файлов сборки.
                 beginClientUpdate(ClientUpdatePhase.Client, "Установка NeoForge / лоадера…", 0.05f)
-                ensurePackLoader(launchPack) { msg, frac ->
+                val loaderId = ensurePackLoader(launchPack) { msg, frac ->
                     reportLaunchProgress(msg, frac, phaseOverride = ClientUpdatePhase.Client)
+                }
+                if (!loaderId.isNullOrBlank()) {
+                    beginClientUpdate(ClientUpdatePhase.Client, "Подготовка клиента…", 0.40f)
+                    ensurePackClient(loaderId) { msg, frac ->
+                        reportLaunchProgress(msg, frac, phaseOverride = ClientUpdatePhase.Client)
+                    }
                 }
                 launchPack
             }
@@ -884,21 +896,28 @@ class LauncherViewModel(
         )
     }
 
-    /** Install Fabric / NeoForge after pack files are already on disk. */
+    /** Install Fabric / NeoForge profile only (libraries come later via ensureVersion / launch). */
     private suspend fun ensurePackLoader(
         pack: ModpackDto,
         onProgress: (String, Float?) -> Unit,
-    ) {
+    ): String? {
         val mcVersion = pack.mcVersion?.trim()?.ifBlank { null }
             ?: configState.minecraftVersionId.trim().ifBlank { null }
-            ?: return
+            ?: return null
         val loader = pack.loader?.lowercase()?.ifBlank { null } ?: "vanilla"
         val loaderVersion = pack.loaderVersion?.trim()?.ifBlank { null }
         val launcher = MinecraftLauncher(configState)
-        val versionId = launcher.resolveLaunchVersionId(mcVersion, loader, loaderVersion) { msg, frac ->
+        return launcher.resolveLaunchVersionId(mcVersion, loader, loaderVersion) { msg, frac ->
             onProgress(msg, frac)
         }
-        launcher.ensureVersion(versionId) { msg, frac ->
+    }
+
+    /** After loader profile exists — download libraries / assets / client jar. */
+    private suspend fun ensurePackClient(
+        versionId: String,
+        onProgress: (String, Float?) -> Unit,
+    ) {
+        MinecraftLauncher(configState).ensureVersion(versionId) { msg, frac ->
             onProgress(msg, frac)
         }.getOrElse { throw it }
     }
@@ -1166,20 +1185,27 @@ class LauncherViewModel(
                 // NeoForge/Fabric — строго после файлов сборки (отдельный этап).
                 beginClientUpdate(ClientUpdatePhase.Client, "Установка NeoForge / лоадера…", 0.05f)
                 yield()
-                val loaderOk = runCatching {
+                val loaderId = runCatching {
                     ensurePackLoader(launchPack) { msg, frac ->
                         reportLaunchProgress(msg, frac, phaseOverride = ClientUpdatePhase.Client)
                     }
                 }
-                if (loaderOk.isFailure) {
-                    errorMessage = loaderOk.exceptionOrNull()?.message ?: "Не удалось установить лоадер"
+                if (loaderId.isFailure) {
+                    errorMessage = loaderId.exceptionOrNull()?.message ?: "Не удалось установить лоадер"
                     clearLaunchProgress()
                     downloadPaused = false
                     isLoading = false
                     return@launch
                 }
+                val installedLoaderId = loaderId.getOrNull()?.trim()?.ifBlank { null }
+                if (!installedLoaderId.isNullOrBlank()) {
+                    resolvedVersionId = installedLoaderId
+                    // Avoid re-running NeoForge installer inside launch().
+                    loader = "vanilla"
+                    loaderVersion = null
+                }
             }
-            beginClientUpdate(ClientUpdatePhase.Client, "Подготовка клиента…", 0.55f)
+            beginClientUpdate(ClientUpdatePhase.Client, "Подготовка клиента…", 0.40f)
             yield()
             val result = withContext(Dispatchers.IO) {
                 mc = MinecraftLauncher(configState)

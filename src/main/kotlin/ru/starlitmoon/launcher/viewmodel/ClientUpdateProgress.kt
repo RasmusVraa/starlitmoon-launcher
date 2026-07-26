@@ -47,6 +47,9 @@ object ClientUpdateLabels {
     }
 
     fun statusFor(phase: ClientUpdatePhase, message: String): String = when {
+        message.contains("NeoForge", ignoreCase = true) ||
+            message.contains("Fabric", ignoreCase = true) ||
+            message.contains("Установщик", ignoreCase = true) -> "Лоадер"
         message.contains("Скачивание", ignoreCase = true) -> "Скачивание"
         message.contains("Распаковка", ignoreCase = true) -> "Распаковка"
         message.contains("Проверка", ignoreCase = true) -> "Проверка"

@@ -102,7 +102,7 @@ class ModLoaderInstaller(
         onProgress("Определение NeoForge…", 0.02f)
         val nfVer = try {
             loaderVersion ?: withTimeout(45_000) {
-                onProgress("Список версий NeoForge…", 0.025f)
+                onProgress("Список версий NeoForge…", 0.04f)
                 resolveLatestNeoForge(mcVersion)
             }
         } catch (e: Exception) {
@@ -112,18 +112,18 @@ class ModLoaderInstaller(
                 e,
             )
         }
-        onProgress("NeoForge $nfVer", 0.03f)
+        onProgress("NeoForge $nfVer", 0.06f)
         val id = "neoforge-$nfVer"
         val profileFile = config.versionsDir.resolve(id).resolve("$id.json")
         if (profileFile.exists()) {
-            onProgress("NeoForge уже установлен ($id)", 0.05f)
+            onProgress("NeoForge уже установлен ($id)", 0.95f)
             return id
         }
 
         val cacheDir = config.dataDir.resolve("cache").apply { createDirectories() }
         val installer = cacheDir.resolve("neoforge-$nfVer-installer.jar")
         if (!installer.exists() || installer.fileSize() < 10_000L) {
-            onProgress("Скачивание установщика NeoForge $nfVer…", 0.03f)
+            onProgress("Скачивание установщика NeoForge $nfVer…", 0.08f)
             val url =
                 "https://maven.neoforged.net/releases/net/neoforged/neoforge/$nfVer/neoforge-$nfVer-installer.jar"
             val tmp = installer.resolveSibling("${installer.fileName}.part")
@@ -131,20 +131,23 @@ class ModLoaderInstaller(
             downloadFile(url, tmp) { read, total ->
                 if (total != null && total > 0L) {
                     val pct = ((read * 100) / total).toInt().coerceIn(0, 99)
-                    onProgress("Установщик NeoForge $pct%", 0.03f + 0.01f * read.toFloat() / total)
+                    onProgress(
+                        "Установщик NeoForge $pct% (${formatBytes(read)} / ${formatBytes(total)})",
+                        0.08f + 0.25f * read.toFloat() / total,
+                    )
                 } else if (read > 0L) {
-                    onProgress("Установщик NeoForge (${formatBytes(read)})…", 0.035f)
+                    onProgress("Установщик NeoForge (${formatBytes(read)})…", 0.15f)
                 }
             }
             Files.move(tmp, installer, StandardCopyOption.REPLACE_EXISTING)
         }
 
-        onProgress("Подготовка Java для установщика…", 0.04f)
+        onProgress("Подготовка Java для установщика…", 0.36f)
         val javaBin = resolveJava(17) { msg, frac ->
-            onProgress(msg, if (frac != null) 0.04f + frac * 0.01f else 0.04f)
+            onProgress(msg, if (frac != null) 0.36f + frac * 0.08f else 0.36f)
         }
 
-        onProgress("Установка NeoForge $nfVer в клиент…", 0.045f)
+        onProgress("Установка NeoForge $nfVer в клиент…", 0.45f)
         config.gameDir.createDirectories()
         // Official installer refuses --installClient unless a vanilla launcher profile exists.
         ensureMinecraftLauncherProfiles(config.gameDir)
@@ -166,13 +169,21 @@ class ModLoaderInstaller(
         val code = withContext(Dispatchers.IO) {
             val process = pb.start()
             runCatching { process.outputStream.close() }
-            val finished = process.waitFor(12, TimeUnit.MINUTES)
-            if (!finished) {
-                process.destroyForcibly()
-                process.waitFor(15, TimeUnit.SECONDS)
-                error(
-                    "Установка NeoForge $nfVer зависла (>12 мин). См. ${logFile.toAbsolutePath()}",
-                )
+            val deadline = System.nanoTime() + TimeUnit.MINUTES.toNanos(12)
+            var pulse = 0
+            while (process.isAlive) {
+                if (System.nanoTime() >= deadline) {
+                    process.destroyForcibly()
+                    process.waitFor(15, TimeUnit.SECONDS)
+                    error(
+                        "Установка NeoForge $nfVer зависла (>12 мин). См. ${logFile.toAbsolutePath()}",
+                    )
+                }
+                // Keep UI alive — installer can run several minutes with no stdout.
+                val frac = (0.45f + (pulse % 40) * 0.01f).coerceAtMost(0.88f)
+                onProgress("Установка NeoForge $nfVer… (${pulse * 2} с)", frac)
+                pulse++
+                process.waitFor(2, TimeUnit.SECONDS)
             }
             process.exitValue()
         }
@@ -191,7 +202,7 @@ class ModLoaderInstaller(
             }.getOrNull().orEmpty()
             error("Установка NeoForge $nfVer не удалась (код $code). $tip")
         }
-        onProgress("NeoForge установлен ($id)", 0.05f)
+        onProgress("NeoForge установлен ($id)", 0.95f)
         return id
     }
 
