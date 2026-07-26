@@ -4,10 +4,15 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import ru.starlitmoon.launcher.LauncherConfig
+import java.awt.Graphics2D
+import java.awt.image.BufferedImage
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.util.UUID
+import javax.imageio.ImageIO
 import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
 import kotlin.io.path.readText
@@ -102,10 +107,10 @@ class SkinLibrary(private val config: LauncherConfig) {
         // remove old cape file
         entry.capeFileName?.let { runCatching { Files.deleteIfExists(libraryDir.resolve(it)) } }
         val capeName = if (capeSource != null && capeSource.exists()) {
-            val bytes = Files.readAllBytes(capeSource)
-            validateCape(bytes)?.let { error(it) }
+            val raw = Files.readAllBytes(capeSource)
+            val normalized = normalizeCapePng(raw)
             val name = "${entry.id}_cape.png"
-            libraryDir.resolve(name).writeBytes(bytes)
+            libraryDir.resolve(name).writeBytes(normalized)
             name
         } else {
             null
@@ -113,6 +118,18 @@ class SkinLibrary(private val config: LauncherConfig) {
         val next = entry.copy(capeFileName = capeName)
         val skins = data.skins.toMutableList().also { it[idx] = next }
         write(data.copy(skins = skins))
+        // Keep active_cape.png in sync when this skin is selected.
+        if (data.activeId == entryId) {
+            if (capeName != null) {
+                Files.copy(
+                    libraryDir.resolve(capeName),
+                    config.skinsDir.resolve("active_cape.png"),
+                    StandardCopyOption.REPLACE_EXISTING,
+                )
+            } else {
+                runCatching { Files.deleteIfExists(config.skinsDir.resolve("active_cape.png")) }
+            }
+        }
     }
 
     fun rename(entryId: String, name: String) {
@@ -168,18 +185,46 @@ class SkinLibrary(private val config: LauncherConfig) {
     }
 
     companion object {
-        fun validateCape(bytes: ByteArray): String? {
-            val img = runCatching {
-                javax.imageio.ImageIO.read(java.io.ByteArrayInputStream(bytes))
-            }.getOrNull() ?: return "Не удалось прочитать PNG плаща"
-            val ok = (img.width == 64 && img.height == 32) || (img.width == 64 && img.height == 64)
-            if (!ok) return "Плащ: PNG 64×32 (или 64×64), сейчас ${img.width}×${img.height}"
-            return null
+        fun validateCape(bytes: ByteArray): String? =
+            runCatching { normalizeCapePng(bytes); null }.exceptionOrNull()?.message
+
+        /**
+         * Decode cape PNG and rewrite as TYPE_INT_ARGB so transparent backgrounds are kept.
+         * Accepts 64×32 and 64×64 (standard Minecraft cape atlases).
+         */
+        fun normalizeCapePng(bytes: ByteArray): ByteArray {
+            if (bytes.size < 24 ||
+                bytes[0] != 0x89.toByte() || bytes[1] != 0x50.toByte() ||
+                bytes[2] != 0x4E.toByte() || bytes[3] != 0x47.toByte()
+            ) {
+                error("Нужен файл PNG плаща")
+            }
+            if (bytes.size > 1_000_000) error("Плащ не больше 1 МБ")
+            val src = ImageIO.read(ByteArrayInputStream(bytes))
+                ?: error("Не удалось прочитать PNG плаща")
+            val w = src.width
+            val h = src.height
+            val ok = (w == 64 && h == 32) || (w == 64 && h == 64)
+            if (!ok) error("Плащ: PNG 64×32 (или 64×64), сейчас ${w}×${h}")
+            // Preserve alpha — do not composite onto opaque white.
+            val argb = BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB)
+            val g: Graphics2D = argb.createGraphics()
+            try {
+                g.composite = java.awt.AlphaComposite.Src
+                g.drawImage(src, 0, 0, null)
+            } finally {
+                g.dispose()
+            }
+            val out = ByteArrayOutputStream()
+            if (!ImageIO.write(argb, "png", out)) {
+                error("Не удалось сохранить PNG плаща")
+            }
+            return out.toByteArray()
         }
 
         fun detectSlim(bytes: ByteArray): Boolean {
             val img = runCatching {
-                javax.imageio.ImageIO.read(java.io.ByteArrayInputStream(bytes))
+                ImageIO.read(ByteArrayInputStream(bytes))
             }.getOrNull() ?: return false
             // Classic: arm overlay pixel (54,20) often opaque for classic; slim uses thinner arms.
             if (img.width < 64 || img.height < 32) return false

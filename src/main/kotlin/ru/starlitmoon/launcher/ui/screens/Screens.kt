@@ -359,7 +359,6 @@ fun BuildsScreen(vm: LauncherViewModel) {
                                     vm.packUiRevision
                                     vm.isPackInstalled(pack)
                                 },
-                                preferGithub = vm.configState.preferGithubModpacks,
                                 onSelect = { vm.selectModpack(pack) },
                                 onOpenFolder = { vm.openPackFolder(pack) },
                                 onReinstall = { reinstallTarget = pack },
@@ -432,7 +431,6 @@ private fun ModpackCard(
     selected: Boolean,
     needsUpdate: Boolean,
     installed: Boolean,
-    preferGithub: Boolean,
     onSelect: () -> Unit,
     onOpenFolder: () -> Unit,
     onReinstall: () -> Unit,
@@ -590,13 +588,13 @@ private fun ModpackCard(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                if (pack.hasArchive || installed || preferGithub) {
+                if (pack.hasArchive || installed) {
                     Spacer(Modifier.height(8.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        if (pack.hasArchive || preferGithub) {
+                        if (pack.hasArchive) {
                             StarlitSecondaryButton(
                                 text = when {
                                     !installed -> "Скачать"
@@ -902,25 +900,6 @@ fun SettingsScreen(vm: LauncherViewModel) {
                     icon = { Icon(Icons.Default.VideogameAsset, null, tint = StarlitColors.Gold) },
                 ) {
                     StarlitToggle(checked = keepLauncherOpen, onCheckedChange = { keepLauncherOpen = it })
-                }
-
-                HorizontalDivider(color = StarlitColors.Border)
-
-                SettingsRow(
-                    title = "Сборки с GitHub",
-                    subtitle = if (base.preferGithubModpacks) {
-                        "${base.modpackGithubOwner}/${base.modpackGithubRepo} · ${base.modpackGithubRef}"
-                    } else {
-                        "Выключено — только ZIP с сайта"
-                    },
-                    icon = { Icon(Icons.Default.FolderOpen, null, tint = StarlitColors.Gold) },
-                ) {
-                    StarlitToggle(
-                        checked = base.preferGithubModpacks,
-                        onCheckedChange = {
-                            vm.saveSettings(base.copy(preferGithubModpacks = it), notify = false)
-                        },
-                    )
                 }
 
                 HorizontalDivider(color = StarlitColors.Border)

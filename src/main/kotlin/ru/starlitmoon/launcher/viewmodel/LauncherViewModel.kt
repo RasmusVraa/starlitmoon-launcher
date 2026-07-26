@@ -394,36 +394,12 @@ class LauncherViewModel(
     }
 
     private fun packGithubSource(pack: ModpackDto): GithubModpackSync.GithubSource? {
-        if (!configState.preferGithubModpacks) return null
-        val owner = pack.githubOwner?.trim()?.ifBlank { null } ?: configState.modpackGithubOwner
-        val repo = pack.githubRepo?.trim()?.ifBlank { null } ?: configState.modpackGithubRepo
-        val ref = pack.githubRef?.trim()?.ifBlank { null } ?: configState.modpackGithubRef
-        if (owner.isBlank() || repo.isBlank()) return null
-        return GithubModpackSync.GithubSource(owner, repo, ref)
+        // Site ZIP only — GitHub per-file sync is disabled.
+        return null
     }
 
     private fun refreshGithubUpdateMarkers(packs: List<ModpackDto>) {
-        if (!configState.preferGithubModpacks) {
-            if (githubRemoteHashes.isNotEmpty()) githubRemoteHashes = emptyMap()
-            return
-        }
-        scope.launch(Dispatchers.IO) {
-            val next = linkedMapOf<String, String>()
-            for (pack in packs) {
-                val source = packGithubSource(pack) ?: continue
-                val slug = pack.slug?.trim()?.ifBlank { null }
-                    ?: pack.id?.trim()?.ifBlank { null }
-                    ?: continue
-                val safe = slug.replace(Regex("[^a-zA-Z0-9._-]"), "_")
-                runCatching { GithubModpackSync.fetchRemoteHash(source, safe) }
-                    .onSuccess { next[safe] = it }
-                    .onFailure {
-                        LauncherLog.warn("GitHub hash for $safe: ${it.message}")
-                    }
-            }
-            githubRemoteHashes = next
-            packUiRevision++
-        }
+        if (githubRemoteHashes.isNotEmpty()) githubRemoteHashes = emptyMap()
     }
 
     fun selectModpack(pack: ModpackDto, persistOnly: Boolean = false) {
@@ -687,20 +663,57 @@ class LauncherViewModel(
         scope.launch {
             skinBusy = true
             errorMessage = null
+            val clearing = capePath.isNullOrBlank()
             runCatching {
                 withContext(Dispatchers.IO) {
-                    skinLibrary.setCape(skinId, capePath?.takeIf { it.isNotBlank() }?.let { Path.of(it) })
-                    if (skinLibrary.activeId() == skinId) {
-                        // Sync skin+cape to site for 3D in cabinet / public profile
-                        applyLibrarySkin(skinId, upload = true)
-                    } else {
-                        refreshSkinLibraryState()
+                    skinLibrary.setCape(
+                        skinId,
+                        capePath?.takeIf { it.isNotBlank() }?.let { Path.of(it) },
+                    )
+                }
+                // Refresh UI on caller context before any site sync.
+                refreshSkinLibraryState()
+                if (skinLibrary.activeId() == skinId) {
+                    withContext(Dispatchers.IO) {
+                        runCatching {
+                            syncActiveCapeToSite()
+                        }.onFailure { err ->
+                            LauncherLog.warn("Cape/site sync: ${err.message}")
+                            if (!clearing) {
+                                infoMessage =
+                                    "Плащ сохранён локально (сайт: ${err.message?.take(80) ?: "ошибка"})"
+                            }
+                        }
                     }
                 }
             }.onSuccess {
-                infoMessage = "Скин сохранен"
+                if (infoMessage.isNullOrBlank() ||
+                    infoMessage?.startsWith("Плащ сохранён локально") != true
+                ) {
+                    infoMessage = if (clearing) "Плащ убран" else "Плащ сохранён"
+                }
             }.onFailure { handleError(it) }
             skinBusy = false
+        }
+    }
+
+    /** Upload or clear only the active cape on the site (does not re-upload skin). */
+    private suspend fun syncActiveCapeToSite() {
+        if (!isLoggedIn || userName.isBlank()) return
+        val entry = skinLibrary.activeEntry() ?: return
+        val capeFile = skinLibrary.capePath(entry)
+        val capeResult = if (capeFile != null && capeFile.exists()) {
+            val capeBytes = SkinLibrary.normalizeCapePng(Files.readAllBytes(capeFile))
+            val b64 = java.util.Base64.getEncoder().encodeToString(capeBytes)
+            api.uploadCape("data:image/png;base64,$b64")
+        } else {
+            api.clearCape()
+        }
+        if (capeResult.cabinet != null) {
+            meData = meData?.copy(cabinet = capeResult.cabinet)
+        }
+        if (!capeResult.ok && !capeResult.error.isNullOrBlank()) {
+            error(capeResult.error ?: "Ошибка загрузки плаща")
         }
     }
 
@@ -740,11 +753,11 @@ class LauncherViewModel(
                 hash = skinTextureHash
             }
             // Sync cape (or clear) so site 3D cabinet/public profile match the launcher.
-            val capeFile = skinLibrary.capePath(entry)
+            // Re-read cape from disk after select — avoid stale entry clearing a just-added cape.
+            val capeFile = skinLibrary.activeCapePath()
             runCatching {
                 val capeResult = if (capeFile != null && capeFile.exists()) {
-                    val capeBytes = Files.readAllBytes(capeFile)
-                    SkinLibrary.validateCape(capeBytes)?.let { error(it) }
+                    val capeBytes = SkinLibrary.normalizeCapePng(Files.readAllBytes(capeFile))
                     val b64 = java.util.Base64.getEncoder().encodeToString(capeBytes)
                     api.uploadCape("data:image/png;base64,$b64")
                 } else {
@@ -753,7 +766,12 @@ class LauncherViewModel(
                 if (capeResult.cabinet != null) {
                     meData = meData?.copy(cabinet = capeResult.cabinet)
                 }
-            }.onFailure { /* скин уже залит; плащ — тихо */ }
+                if (!capeResult.ok && !capeResult.error.isNullOrBlank()) {
+                    LauncherLog.warn("uploadCape: ${capeResult.error}")
+                }
+            }.onFailure { e ->
+                LauncherLog.warn("uploadCape: ${e.message}")
+            }
             infoMessage = "Скин сохранен"
         }
         configState = configState.copy(
@@ -931,7 +949,8 @@ class LauncherViewModel(
         val repo = pack.githubRepo?.trim()?.ifBlank { null } ?: configState.modpackGithubRepo
         val ref = pack.githubRef?.trim()?.ifBlank { null } ?: configState.modpackGithubRef
         val slug = pack.slug?.trim()?.ifBlank { null } ?: pack.id?.trim()?.ifBlank { null }
-        val preferGh = configState.preferGithubModpacks && owner.isNotBlank() && repo.isNotBlank() && !slug.isNullOrBlank()
+        // Always download pack ZIP from the site — GitHub sync is retired.
+        val preferGh = false
 
         if (preferGh) {
             try {
@@ -1126,8 +1145,8 @@ class LauncherViewModel(
     }
 
     /**
-     * Admin: publish pack ZIP into local starlitmoon-modpacks clone (manifest + git commit/push).
-     * This is the primary update channel when preferGithubModpacks is on.
+     * Admin helper (unused by UI): publish pack ZIP into local starlitmoon-modpacks clone.
+     * Players always download site ZIPs; keep for optional scripting only.
      */
     fun publishModpackToGithub(
         pack: ModpackDto,

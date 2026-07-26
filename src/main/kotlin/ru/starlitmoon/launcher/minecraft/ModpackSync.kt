@@ -98,10 +98,8 @@ object ModpackSync {
     }
 
     /**
-     * Site ZIP archive path only. When [LauncherConfig.preferGithubModpacks] is on,
-     * use [GithubModpackSync.needsUpdate] with the GitHub manifest hash instead —
-     * comparing a GitHub install marker to the site ZIP sha causes a perpetual
-     * «Требуется обновление» badge.
+     * Site ZIP archive path only. Packs always download from the site —
+     * do not compare against GitHub install markers.
      */
     fun needsUpdate(dataDir: Path, pack: ModpackDto): Boolean {
         if (pack.hasArchive) {

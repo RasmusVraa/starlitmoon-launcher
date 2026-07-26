@@ -27,6 +27,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.jetbrains.skia.Image as SkiaImage
 import ru.starlitmoon.launcher.ui.theme.StarlitColors
+import java.awt.AlphaComposite
 import java.awt.RenderingHints
 import java.awt.image.BufferedImage
 import java.io.ByteArrayOutputStream
@@ -63,7 +64,9 @@ fun SkinPreview3D(
             runCatching {
                 val atlas = normalizeSkin(ImageIO.read(Files.newInputStream(skin))) ?: return@runCatching null
                 val cape = capePath?.takeIf { it.exists() }?.let {
-                    runCatching { ImageIO.read(Files.newInputStream(it)) }.getOrNull()
+                    runCatching {
+                        ensureArgb(ImageIO.read(Files.newInputStream(it)) ?: return@runCatching null)
+                    }.getOrNull()
                 }
                 toBitmap(renderFrontWithCape(atlas, cape, slim, scale = 14))
             }.getOrNull()
@@ -164,8 +167,13 @@ private fun ensureArgb(src: BufferedImage): BufferedImage {
     if (src.type == BufferedImage.TYPE_INT_ARGB) return src
     val out = BufferedImage(src.width, src.height, BufferedImage.TYPE_INT_ARGB)
     val g = out.createGraphics()
-    g.drawImage(src, 0, 0, null)
-    g.dispose()
+    try {
+        // Src (not SrcOver) — keep transparent pixels; avoid opaque white fill.
+        g.composite = AlphaComposite.Src
+        g.drawImage(src, 0, 0, null)
+    } finally {
+        g.dispose()
+    }
     return out
 }
 
@@ -245,6 +253,8 @@ private fun renderFrontWithCape(
 
     if (hasCape) {
         runCatching { cape!!.getSubimage(1, 1, 10, 16) }.getOrNull()?.let { c ->
+            // Preserve cape alpha (transparent backgrounds).
+            g.composite = AlphaComposite.SrcOver
             g.drawImage(c, ox + bodyW + gap, oy + 8, capeW, capeH, null)
         }
     }

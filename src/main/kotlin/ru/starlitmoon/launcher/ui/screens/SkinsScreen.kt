@@ -102,6 +102,7 @@ fun SkinsScreen(vm: LauncherViewModel) {
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
+                    enabled = !vm.skinBusy,
                 )
             }
 
@@ -120,6 +121,9 @@ fun SkinsScreen(vm: LauncherViewModel) {
                     vm.skinLibraryEntries.forEach { entry ->
                         val selected = entry.id == vm.activeSkinId
                         val hasCape = entry.capeFileName != null
+                        // Do NOT wrap action buttons in the same clickable as select —
+                        // nested clickable + WinForms file dialog click-through races
+                        // selectLibrarySkin with setLibraryCape and can clear the cape.
                         Column(
                             modifier = Modifier
                                 .width(180.dp)
@@ -130,27 +134,38 @@ fun SkinsScreen(vm: LauncherViewModel) {
                                     if (selected) StarlitColors.Gold else Color(0x28788CDC),
                                     RoundedCornerShape(14.dp),
                                 )
-                                .clickable { vm.selectLibrarySkin(entry.id) }
                                 .padding(12.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            LocalSkinFace(
-                                skinPath = vm.librarySkinPath(entry),
-                                fallbackName = entry.name,
-                                size = 72.dp,
-                                revision = vm.avatarRevision,
-                            )
-                            Text(
-                                entry.name,
-                                color = if (selected) StarlitColors.Gold else StarlitColors.Text,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            if (selected) {
-                                Text("Активный", color = StarlitColors.Gold, fontSize = 11.sp)
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .clickable(enabled = !vm.skinBusy) {
+                                        vm.selectLibrarySkin(entry.id)
+                                    }
+                                    .padding(vertical = 4.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                LocalSkinFace(
+                                    skinPath = vm.librarySkinPath(entry),
+                                    fallbackName = entry.name,
+                                    size = 72.dp,
+                                    revision = vm.avatarRevision,
+                                )
+                                Text(
+                                    entry.name,
+                                    color = if (selected) StarlitColors.Gold else StarlitColors.Text,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                if (selected) {
+                                    Text("Активный", color = StarlitColors.Gold, fontSize = 11.sp)
+                                }
                             }
                             StarlitSecondaryButton(
                                 text = if (hasCape) "Сменить плащ" else "Добавить плащ",
@@ -161,6 +176,7 @@ fun SkinsScreen(vm: LauncherViewModel) {
                                 },
                                 modifier = Modifier.fillMaxWidth(),
                                 compact = true,
+                                enabled = !vm.skinBusy,
                             )
                             if (hasCape) {
                                 StarlitSecondaryButton(
@@ -168,6 +184,7 @@ fun SkinsScreen(vm: LauncherViewModel) {
                                     onClick = { vm.setLibraryCape(entry.id, null) },
                                     modifier = Modifier.fillMaxWidth(),
                                     compact = true,
+                                    enabled = !vm.skinBusy,
                                 )
                             }
                             StarlitPrimaryButton(
@@ -176,6 +193,7 @@ fun SkinsScreen(vm: LauncherViewModel) {
                                 modifier = Modifier.fillMaxWidth(),
                                 compact = true,
                                 danger = true,
+                                enabled = !vm.skinBusy,
                             )
                         }
                     }
