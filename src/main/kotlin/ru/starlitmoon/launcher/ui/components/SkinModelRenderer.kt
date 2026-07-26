@@ -194,7 +194,7 @@ internal object SkinModelRenderer {
             val nx = e1y * e2z - e1z * e2y
             val ny = e1z * e2x - e1x * e2z
             val nz = e1x * e2y - e1y * e2x
-            if (!q.doubleSided && nz >= 0f) continue
+            if (!q.doubleSided && nz <= 0f) continue
 
             // Soft key light from upper-left/front.
             val nLen = max(1e-4f, kotlin.math.sqrt(nx * nx + ny * ny + nz * nz))
@@ -241,29 +241,26 @@ internal object SkinModelRenderer {
     )
 
     /**
-     * Apply skinview3d joint transform into [ox]/[oy]/[oz] (4 verts).
+     * Apply joint transform into [ox]/[oy]/[oz] (4 verts).
      *
-     * Cape verts are stored in CapeObject-local space (mesh at y=-8,z=0.5, before group rot);
-     * limbs/head are stored in rest-pose world space and rotated around pivots.
+     * Limbs/head: rest-pose world space, rotated around shoulder/hip/neck pivots.
+     * Cape: world-space hang (v1.9.3), optional subtle sway around attach.
      */
     private fun applyPartTransform(q: Quad, pose: WalkPose, ox: FloatArray, oy: FloatArray, oz: FloatArray) {
         when (q.part) {
             Part.CAPE -> {
-                // R = Ry(π) * Rx(capeRx), then translate to (0, 24, -2) — matches PlayerObject cape.
-                val c = cos(pose.capeRx)
-                val s = sin(pose.capeRx)
-                fun one(i: Int, x: Float, y: Float, z: Float) {
-                    val y1 = y * c - z * s
-                    val z1 = y * s + z * c
-                    // Ry(π): (−x, y, −z)
-                    ox[i] = -x
-                    oy[i] = y1 + 24f
-                    oz[i] = -z1 - 2f
+                // World-space cape (hang baked in buildCape). Identity keeps UVs/winding correct.
+                // Subtle walk sway: rotate around shoulder attach without Ry(pi).
+                val baseHang = (Math.PI * 0.06).toFloat()
+                val sway = pose.capeRx - baseHang
+                if (kotlin.math.abs(sway) < 1e-5f) {
+                    ox[0] = q.x0; oy[0] = q.y0; oz[0] = q.z0
+                    ox[1] = q.x1; oy[1] = q.y1; oz[1] = q.z1
+                    ox[2] = q.x2; oy[2] = q.y2; oz[2] = q.z2
+                    ox[3] = q.x3; oy[3] = q.y3; oz[3] = q.z3
+                } else {
+                    rotatePivot(q, 0f, 24f, -2f, sway, 0f, 0f, ox, oy, oz)
                 }
-                one(0, q.x0, q.y0, q.z0)
-                one(1, q.x1, q.y1, q.z1)
-                one(2, q.x2, q.y2, q.z2)
-                one(3, q.x3, q.y3, q.z3)
             }
             Part.HEAD -> rotatePivot(q, 0f, 24f, 0f, pose.headRx, pose.headRy, 0f, ox, oy, oz)
             Part.RIGHT_ARM -> rotatePivot(q, -5f, 22f, 0f, pose.rightArmRx, 0f, pose.rightArmRz, ox, oy, oz)
@@ -325,7 +322,7 @@ internal object SkinModelRenderer {
         val armW = if (slim) 3f else 4f
         // Feet at y=0; head top at y=32. Matches skinview3d proportions (+0.5 overlay inflate).
         box(out, skin, 0f, 24f, 0f, 8f, 8f, 8f, 0, 0, uvW = 8, uvH = 8, uvD = 8, opaqueOnly = true, part = Part.HEAD)
-        box(out, skin, 0f, 24f - 0.25f, 0f, 9f, 9f, 9f, 32, 0, uvW = 8, uvH = 8, uvD = 8, opaqueOnly = false, part = Part.HEAD)
+        box(out, skin, 0f, 24f - 0.5f, 0f, 9f, 9f, 9f, 32, 0, uvW = 8, uvH = 8, uvD = 8, opaqueOnly = false, part = Part.HEAD)
 
         box(out, skin, 0f, 12f, 0f, 8f, 12f, 4f, 16, 16, uvW = 8, uvH = 12, uvD = 4, opaqueOnly = true, part = Part.BODY)
         box(out, skin, 0f, 12f - 0.25f, 0f, 8.5f, 12.5f, 4.5f, 16, 32, uvW = 8, uvH = 12, uvD = 4, opaqueOnly = false, part = Part.BODY)
@@ -355,20 +352,49 @@ internal object SkinModelRenderer {
     }
 
     /**
-     * CapeObject local mesh: BoxGeometry(10,16,1) at (0,−8,0.5), setCapeUVs(0,0,10,16,1).
-     * Group pose (Ry π, Rx hang, pos y=24 z=−2) applied at render — matches skinview3d.
+     * Standard Minecraft cape in world space (matches v1.9.3).
+     * Designed art at front (1,1)-(11,17); hang ~10.8deg behind torso.
+     * Do NOT apply Ry(pi) on a local box - that broke winding / placement in 1.9.4.
      */
     private fun buildCape(cape: Atlas, out: MutableList<Quad>) {
-        // Box centered at (0, −8, 0.5) → yBottom = −16, cz = 0.5
-        box(
-            out, cape,
-            cx = 0f, yBottom = -16f, cz = 0.5f,
-            width = 10f, height = 16f, depth = 1f,
-            u = 0, v = 0, uvW = 10, uvH = 16, uvD = 1,
-            opaqueOnly = false,
-            // DoubleSide like skinview3d MeshStandardMaterial — avoids pink-strip culling bugs.
-            doubleSided = true,
-            part = Part.CAPE,
+        val w = 10f
+        val h = 16f
+        val d = 1f
+        val tilt = Math.toRadians(10.8).toFloat()
+        val cosT = cos(tilt)
+        val sinT = sin(tilt)
+        val topY = 24f
+        val attachZ = -2f
+
+        fun capePoint(lx: Float, lyFromTop: Float, lzOut: Float): FloatArray {
+            // lyFromTop: 0 = shoulders, h = bottom hem.
+            // lzOut: 0 = outside (-Z), d = inside (toward body / +Z).
+            val y = topY - lyFromTop * cosT - lzOut * sinT
+            val z = attachZ - lyFromTop * sinT + lzOut * cosT
+            return floatArrayOf(lx, y, z)
+        }
+
+        val x0 = -w / 2f
+        val x1 = w / 2f
+        // Outside (-Z): front UV. Winding matches body back face.
+        val o00 = capePoint(x0, h, 0f)
+        val o10 = capePoint(x1, h, 0f)
+        val o11 = capePoint(x1, 0f, 0f)
+        val o01 = capePoint(x0, 0f, 0f)
+        out += quad(
+            o10[0], o10[1], o10[2], o00[0], o00[1], o00[2], o01[0], o01[1], o01[2], o11[0], o11[1], o11[2],
+            1f, 17f, 11f, 17f, 11f, 1f, 1f, 1f,
+            cape, opaqueOnly = false, doubleSided = false, part = Part.CAPE,
+        )
+        // Inside (+Z): back UV (12,1)-(22,17)
+        val i00 = capePoint(x0, h, d)
+        val i10 = capePoint(x1, h, d)
+        val i11 = capePoint(x1, 0f, d)
+        val i01 = capePoint(x0, 0f, d)
+        out += quad(
+            i00[0], i00[1], i00[2], i10[0], i10[1], i10[2], i11[0], i11[1], i11[2], i01[0], i01[1], i01[2],
+            12f, 17f, 22f, 17f, 22f, 1f, 12f, 1f,
+            cape, opaqueOnly = false, doubleSided = false, part = Part.CAPE,
         )
     }
 
