@@ -223,52 +223,43 @@ internal object SkinModelRenderer {
     }
 
     private fun buildCape(cape: Atlas, out: MutableList<Quad>) {
-        // Behind torso (−Z): 10×16×1, slight hang below shoulders, ~11° tilt like skinview3d.
-        val w = 10f
-        val h = 16f
-        val d = 1f
-        val tilt = Math.toRadians(11.0).toFloat()
-        val cosT = cos(tilt)
-        val sinT = sin(tilt)
-        // Top edge near shoulders (y≈24), center of cape after tilt.
-        val topY = 24f
-        val attachZ = -2f
+        // Match skinview3d CapeObject + PlayerObject:
+        // Box 10x16x1 with setCapeUVs(0,0,10,16,1); Euler XYZ Rx(10.8deg) then Ry(PI);
+        // group at (0, 8, -2) in skinview = our feet-at-0 coords (0, 24, -2);
+        // mesh local offset (0, -8, 0.5) -> bottom y=-16, cz=0.5.
+        // After Ry(PI), atlas front (1,1)-(11,17) faces world -Z (outside / visible art).
+        val local = ArrayList<Quad>(6)
+        box(
+            local, cape,
+            cx = 0f, yBottom = -16f, cz = 0.5f,
+            width = 10f, height = 16f, depth = 1f,
+            u = 0, v = 0, uvW = 10, uvH = 16, uvD = 1,
+            opaqueOnly = false,
+        )
+        if (local.isEmpty()) return
 
-        fun capePoint(lx: Float, ly: Float, lz: Float): FloatArray {
-            // Local: x horizontal, y down from top, z thickness (front of cape = toward back of player).
-            val y = topY - ly * cosT - lz * sinT
-            val z = attachZ - ly * sinT + lz * cosT
-            return floatArrayOf(lx, y, z)
+        val tilt = Math.toRadians(10.8).toFloat()
+        val cosX = cos(tilt)
+        val sinX = sin(tilt)
+
+        fun xform(x: Float, y: Float, z: Float): FloatArray {
+            val y1 = y * cosX - z * sinX
+            val z1 = y * sinX + z * cosX
+            return floatArrayOf(-x, y1 + 24f, -z1 - 2f)
         }
 
-        val x0 = -w / 2f
-        val x1 = w / 2f
-        // Front of cape (faces +Z toward body — inside)
-        val f00 = capePoint(x0, h, 0f)
-        val f10 = capePoint(x1, h, 0f)
-        val f11 = capePoint(x1, 0f, 0f)
-        val f01 = capePoint(x0, 0f, 0f)
-        // Back of cape (faces −Z — outside, visible from behind)
-        val b00 = capePoint(x0, h, -d)
-        val b10 = capePoint(x1, h, -d)
-        val b11 = capePoint(x1, 0f, -d)
-        val b01 = capePoint(x0, 0f, -d)
-
-        // Cape UV layout (64×32 atlas): front (1,1)-(11,17), back (12,1)-(22,17)
-        // Outside (−Z) uses the "back" region of the cape texture (visible art).
-        out += quad(
-            b10[0], b10[1], b10[2], b00[0], b00[1], b00[2], b01[0], b01[1], b01[2], b11[0], b11[1], b11[2],
-            12f, 17f, 22f, 17f, 22f, 1f, 12f, 1f,
-            cape, opaqueOnly = false, doubleSided = false,
-        )
-        // Inside (+Z)
-        out += quad(
-            f00[0], f00[1], f00[2], f10[0], f10[1], f10[2], f11[0], f11[1], f11[2], f01[0], f01[1], f01[2],
-            1f, 17f, 11f, 17f, 11f, 1f, 1f, 1f,
-            cape, opaqueOnly = false, doubleSided = false,
-        )
+        for (q in local) {
+            val p0 = xform(q.x0, q.y0, q.z0)
+            val p1 = xform(q.x1, q.y1, q.z1)
+            val p2 = xform(q.x2, q.y2, q.z2)
+            val p3 = xform(q.x3, q.y3, q.z3)
+            out += quad(
+                p0[0], p0[1], p0[2], p1[0], p1[1], p1[2], p2[0], p2[1], p2[2], p3[0], p3[1], p3[2],
+                q.u0, q.v0, q.u1, q.v1, q.u2, q.v2, q.u3, q.v3,
+                q.atlas, q.opaqueOnly, q.doubleSided,
+            )
+        }
     }
-
     /**
      * Minecraft-style box: origin is bottom-center of the box in XZ; y is bottom.
      * UV unwrap matches skinview3d setSkinUVs(u, v, width, height, depth).

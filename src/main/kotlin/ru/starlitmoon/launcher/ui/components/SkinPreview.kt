@@ -173,7 +173,8 @@ fun SkinPreview3D(
                                 if (abs(totalX) >= abs(totalY) * 1.15f) {
                                     rotating = true
                                     change.consume()
-                                    yaw += totalX * 0.55f
+                                    // Invert yaw so drag matches skinview3d / natural orbit feel.
+                                    yaw -= totalX * 0.55f
                                     pitch = (pitch - totalY * 0.28f).coerceIn(-35f, 35f)
                                 } else {
                                     // Vertical scroll wins — stop claiming this gesture.
@@ -182,7 +183,7 @@ fun SkinPreview3D(
                             }
                         } else {
                             change.consume()
-                            yaw += delta.x * 0.55f
+                            yaw -= delta.x * 0.55f
                             pitch = (pitch - delta.y * 0.28f).coerceIn(-35f, 35f)
                         }
                     }
