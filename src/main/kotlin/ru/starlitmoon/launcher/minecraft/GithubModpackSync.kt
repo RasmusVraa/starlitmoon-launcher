@@ -58,7 +58,8 @@ object GithubModpackSync {
 
     fun fileUrl(source: GithubSource, slug: String, relativePath: String): String {
         val clean = relativePath.trim().trimStart('/')
-        return "https://raw.githubusercontent.com/${source.owner}/${source.repo}/${source.ref}/packs/$slug/$clean"
+        // media.githubusercontent.com serves Git LFS blobs; raw.githubusercontent.com only returns pointers.
+        return "https://media.githubusercontent.com/media/${source.owner}/${source.repo}/${source.ref}/packs/$slug/$clean"
     }
 
     fun fetchManifest(source: GithubSource, slug: String, control: DownloadControl): Manifest {
