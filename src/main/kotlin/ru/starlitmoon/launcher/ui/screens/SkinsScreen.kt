@@ -88,21 +88,21 @@ fun SkinsScreen(vm: LauncherViewModel) {
             horizontalArrangement = Arrangement.spacedBy(24.dp),
         ) {
             Column(
-                modifier = Modifier.width(300.dp),
+                modifier = Modifier.width(400.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(360.dp),
+                        .height(460.dp),
                     contentAlignment = Alignment.Center,
                 ) {
                     SkinPreview3D(
                         skinPath = vm.activeSkinPath,
                         capePath = vm.activeCapePath,
                         slim = vm.activeSkinSlim,
-                        previewSize = 340.dp,
+                        previewSize = 440.dp,
                         revision = vm.avatarRevision,
                     )
                 }

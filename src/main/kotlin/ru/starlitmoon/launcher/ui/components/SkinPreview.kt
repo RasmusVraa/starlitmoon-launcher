@@ -132,7 +132,7 @@ fun SkinPreview3D(
             return@LaunchedEffect
         }
         // Sensible software-raster res: sharp enough, cheap enough for ~30fps walk + drag.
-        val outW = (previewSize.value * 0.85f).roundToInt().coerceIn(140, 280)
+        val outW = (previewSize.value * 0.85f).roundToInt().coerceIn(140, 420)
         val outH = (outW * 1.22f).roundToInt()
         val buffers = SkinModelRenderer.Buffers(outW, outH)
         val bgra = ByteArray(outW * outH * 4)

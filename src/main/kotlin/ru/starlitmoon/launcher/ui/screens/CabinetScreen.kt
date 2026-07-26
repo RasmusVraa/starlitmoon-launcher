@@ -118,7 +118,7 @@ fun CabinetScreen(vm: LauncherViewModel) {
                 // —— left column ——
                 Column(
                     modifier = Modifier
-                        .width(300.dp)
+                        .width(360.dp)
                         .clip(RoundedCornerShape(16.dp))
                         .background(StarlitColors.Surface)
                         .border(1.dp, StarlitColors.Border, RoundedCornerShape(16.dp)),
@@ -126,7 +126,7 @@ fun CabinetScreen(vm: LauncherViewModel) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(280.dp)
+                            .height(360.dp)
                             .padding(16.dp),
                         contentAlignment = Alignment.Center,
                     ) {
@@ -134,7 +134,7 @@ fun CabinetScreen(vm: LauncherViewModel) {
                             skinPath = vm.activeSkinPath,
                             capePath = vm.activeCapePath,
                             slim = vm.activeSkinSlim,
-                            previewSize = 248.dp,
+                            previewSize = 320.dp,
                             modifier = Modifier.fillMaxWidth(),
                             revision = vm.avatarRevision,
                         )

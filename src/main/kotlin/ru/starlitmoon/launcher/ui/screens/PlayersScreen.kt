@@ -358,7 +358,7 @@ private fun ProfileHero(vm: LauncherViewModel, player: PublicProfilePlayerDto) {
                 SkinPreview3D(
                     skinPath = skinPath,
                     capePath = capePath,
-                    previewSize = 200.dp,
+                    previewSize = 280.dp,
                     username = name,
                     showHint = true,
                 )
