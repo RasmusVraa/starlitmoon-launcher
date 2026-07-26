@@ -11,8 +11,9 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
+import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.Executors
-import java.util.concurrent.Future
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
@@ -35,8 +36,9 @@ object GithubModpackSync {
     private const val MARKER = ".starlit-archive.sha256"
     private const val CONNECT_TIMEOUT_MS = 30_000
     private const val READ_TIMEOUT_MS = 90_000
-    /** Parallel file downloads (GitHub rate-limits gently; 8 is a good balance). */
-    private const val PARALLELISM = 8
+    private const val PARALLEL_MIN = 2
+    private const val PARALLEL_MAX = 16
+    private const val PARALLEL_START = 4
     private val LFS_POINTER_PREFIX =
         "version https://git-lfs.github.com/spec/v1".toByteArray(StandardCharsets.US_ASCII)
 
@@ -169,13 +171,18 @@ object GithubModpackSync {
         }
             .filter { it.path.isNotBlank() && !it.path.contains("..") && !it.path.contains('\u0000') }
         val totalBytes = files.sumOf { it.size?.coerceAtLeast(0) ?: 0L }.takeIf { it > 0 }
-        val doneBytes = AtomicLong(0L)
+        // Completed pack content only (not LFS pointers / retries).
+        val completedBytes = AtomicLong(0L)
+        // Bytes of in-flight final downloads (excludes discarded LFS pointers).
+        val inFlightBytes = AtomicLong(0L)
         val filesDone = AtomicInteger(0)
         val filesTotal = files.size
         val progressLock = Any()
         val firstError = AtomicReference<Throwable?>(null)
         val speedTracker = SpeedTracker()
         val lastProgressAtNs = AtomicLong(0L)
+        val targetParallel = AtomicInteger(PARALLEL_START.coerceAtMost(filesTotal.coerceAtLeast(1)))
+        val activeWorkers = AtomicInteger(0)
 
         if (files.isEmpty()) {
             marker.writeText(remoteHash.ifBlank { "empty-loader-only" })
@@ -190,6 +197,11 @@ object GithubModpackSync {
             return meta
         }
 
+        fun displayedBytes(): Long {
+            val raw = completedBytes.get() + inFlightBytes.get()
+            return totalBytes?.let { raw.coerceAtMost(it) } ?: raw
+        }
+
         fun emit(
             message: String,
             currentFile: String? = null,
@@ -197,32 +209,58 @@ object GithubModpackSync {
             kind: ProgressEvent.Kind = ProgressEvent.Kind.Download,
         ) {
             val done = filesDone.get()
-            val bytes = doneBytes.get()
             onProgress(
                 ProgressEvent(
                     message = message,
                     fraction = (0.05f + 0.90f * done.toFloat() / filesTotal).coerceIn(0.05f, 0.95f),
-                    bytesDone = bytes,
+                    bytesDone = displayedBytes(),
                     bytesTotal = totalBytes,
                     filesDone = done,
                     filesTotal = filesTotal,
                     currentFile = currentFile,
                     speedBps = speed,
-                    threads = PARALLELISM,
+                    threads = targetParallel.get(),
                     kind = kind,
                 ),
             )
         }
 
-        val pool = Executors.newFixedThreadPool(PARALLELISM.coerceAtMost(filesTotal.coerceAtLeast(1))) {
+        fun adjustParallelism() {
+            val speed = speedTracker.current()
+            if (speed <= 0L) return
+            val cur = targetParallel.get()
+            val next = when {
+                speed >= 2_500_000L && cur < PARALLEL_MAX -> cur + 2 // ≥ ~2.5 МБ/с
+                speed >= 800_000L && cur < PARALLEL_MAX -> cur + 1   // ≥ ~0.8 МБ/с
+                speed <= 80_000L && cur > PARALLEL_MIN -> cur - 1    // ≤ ~80 КБ/с
+                speed <= 200_000L && cur > PARALLEL_MIN + 1 -> cur - 1
+                else -> cur
+            }.coerceIn(PARALLEL_MIN, PARALLEL_MAX.coerceAtMost(filesTotal.coerceAtLeast(1)))
+            targetParallel.set(next)
+        }
+
+        val pending = ConcurrentLinkedQueue(files)
+        val pool = Executors.newFixedThreadPool(PARALLEL_MAX) {
             Thread(it, "gh-modpack-dl").apply { isDaemon = true }
         }
-        val futures = ArrayList<Future<*>>(files.size)
-        try {
-            for (file in files) {
-                futures += pool.submit {
-                    if (firstError.get() != null) return@submit
+
+        fun pump() {
+            while (firstError.get() == null) {
+                while (true) {
+                    val active = activeWorkers.get()
+                    val target = targetParallel.get()
+                    if (active >= target) return
+                    if (activeWorkers.compareAndSet(active, active + 1)) break
+                }
+                val file = pending.poll()
+                if (file == null) {
+                    activeWorkers.decrementAndGet()
+                    return
+                }
+                pool.execute {
+                    var fileInFlight = 0L
                     try {
+                        if (firstError.get() != null) return@execute
                         control.checkpoint()
                         val dest = dir.resolve(file.path).normalize()
                         if (!dest.startsWith(dir)) error("Некорректный путь в манифесте: ${file.path}")
@@ -233,43 +271,45 @@ object GithubModpackSync {
                             (expectedSize == null || dest.fileSize() == expectedSize)
                         ) {
                             filesDone.incrementAndGet()
-                            doneBytes.addAndGet(expectedSize ?: dest.fileSize())
+                            completedBytes.addAndGet(expectedSize ?: dest.fileSize())
                             synchronized(progressLock) {
                                 emit("Файл ${filesDone.get()}/$filesTotal", file.path, speedTracker.current())
                             }
-                            return@submit
+                            return@execute
                         }
 
                         val customUrl = file.url?.trim()?.ifBlank { null }
-                        val rawUrl = fileUrlRaw(source, safeSlug, file.path)
-                        val lfsUrl = fileUrlLfs(source, safeSlug, file.path)
                         downloadGithubFile(
-                            primaryUrl = customUrl ?: rawUrl,
-                            lfsUrl = if (customUrl == null) lfsUrl else null,
+                            primaryUrl = customUrl ?: fileUrlRaw(source, safeSlug, file.path),
+                            lfsUrl = if (customUrl == null) fileUrlLfs(source, safeSlug, file.path) else null,
                             dest = dest,
                             expectedSize = expectedSize,
                             control = control,
                             onChunk = { n, _, _ ->
-                                doneBytes.addAndGet(n.toLong())
-                                val speed = speedTracker.onBytes(n)
+                                speedTracker.onBytes(n)
+                            },
+                            onProgressBytes = { delta ->
+                                if (delta != 0L) {
+                                    fileInFlight += delta
+                                    inFlightBytes.addAndGet(delta)
+                                }
+                                val speed = speedTracker.current()
                                 val now = System.nanoTime()
                                 val prev = lastProgressAtNs.get()
-                                val shouldEmit = now - prev >= 200_000_000L &&
-                                    lastProgressAtNs.compareAndSet(prev, now)
-                                if (shouldEmit) {
+                                if (now - prev >= 200_000_000L && lastProgressAtNs.compareAndSet(prev, now)) {
                                     synchronized(progressLock) {
                                         onProgress(
                                             ProgressEvent(
                                                 message = "Скачивание ${file.path}",
                                                 fraction = (0.05f + 0.90f * filesDone.get().toFloat() / filesTotal)
                                                     .coerceIn(0.05f, 0.95f),
-                                                bytesDone = doneBytes.get(),
+                                                bytesDone = displayedBytes(),
                                                 bytesTotal = totalBytes,
                                                 filesDone = filesDone.get(),
                                                 filesTotal = filesTotal,
                                                 currentFile = file.path,
-                                                speedBps = speed,
-                                                threads = PARALLELISM,
+                                                speedBps = speed.takeIf { it > 0 },
+                                                threads = targetParallel.get(),
                                                 kind = ProgressEvent.Kind.Download,
                                             ),
                                         )
@@ -277,7 +317,14 @@ object GithubModpackSync {
                                 }
                             },
                         )
+                        // Commit: replace in-flight with manifest/actual size.
+                        if (fileInFlight != 0L) {
+                            inFlightBytes.addAndGet(-fileInFlight)
+                            fileInFlight = 0L
+                        }
+                        completedBytes.addAndGet(expectedSize ?: dest.fileSize())
                         filesDone.incrementAndGet()
+                        adjustParallelism()
                         synchronized(progressLock) {
                             emit("Файл ${filesDone.get()}/$filesTotal", file.path, speedTracker.current())
                         }
@@ -285,20 +332,46 @@ object GithubModpackSync {
                         firstError.compareAndSet(null, e)
                     } catch (e: Exception) {
                         firstError.compareAndSet(null, e)
+                    } finally {
+                        if (fileInFlight != 0L) {
+                            inFlightBytes.addAndGet(-fileInFlight)
+                            fileInFlight = 0L
+                        }
+                        activeWorkers.decrementAndGet()
+                        pump()
                     }
                 }
             }
-            for (f in futures) {
-                runCatching { f.get() }
+        }
+
+        try {
+            repeat(PARALLEL_START.coerceAtMost(filesTotal)) { pump() }
+            while (filesDone.get() < filesTotal && firstError.get() == null) {
+                pump()
+                Thread.sleep(50)
+            }
+            // Drain stragglers
+            while (activeWorkers.get() > 0 && firstError.get() == null) {
+                Thread.sleep(50)
             }
         } finally {
             pool.shutdownNow()
+            pool.awaitTermination(30, TimeUnit.SECONDS)
         }
 
         firstError.get()?.let { throw it }
 
         marker.writeText(remoteHash)
-        onProgress(ProgressEvent("Сборка готова", 1f, filesDone = filesTotal, filesTotal = filesTotal))
+        onProgress(
+            ProgressEvent(
+                "Сборка готова",
+                1f,
+                bytesDone = totalBytes ?: completedBytes.get(),
+                bytesTotal = totalBytes,
+                filesDone = filesTotal,
+                filesTotal = filesTotal,
+            ),
+        )
         return meta
     }
 
@@ -313,8 +386,8 @@ object GithubModpackSync {
     }
 
     /**
-     * Download from [primaryUrl] (usually raw.githubusercontent.com). If the body is a Git LFS
-     * pointer, re-fetch the real blob from [lfsUrl] (media.githubusercontent.com).
+     * Download from [primaryUrl]. If body is a Git LFS pointer, re-fetch from [lfsUrl].
+     * [onProgressBytes] receives byte deltas for UI size (negative when pointer bytes are discarded).
      */
     private fun downloadGithubFile(
         primaryUrl: String,
@@ -323,12 +396,25 @@ object GithubModpackSync {
         expectedSize: Long?,
         control: DownloadControl,
         onChunk: (n: Int, fileDone: Long, fileTotal: Long?) -> Unit,
+        onProgressBytes: (delta: Long) -> Unit,
     ) {
-        downloadToPart(primaryUrl, dest, control, onChunk)
+        var counted = 0L
+        downloadToPart(primaryUrl, dest, control) { n, done, total ->
+            counted += n
+            onProgressBytes(n.toLong())
+            onChunk(n, done, total)
+        }
         val part = dest.resolveSibling(dest.name + ".part")
         if (lfsUrl != null && isGitLfsPointer(part)) {
+            // Discard pointer bytes from the size counter, then download the real blob.
+            if (counted != 0L) onProgressBytes(-counted)
+            counted = 0L
             Files.deleteIfExists(part)
-            downloadToPart(lfsUrl, dest, control, onChunk)
+            downloadToPart(lfsUrl, dest, control) { n, done, total ->
+                counted += n
+                onProgressBytes(n.toLong())
+                onChunk(n, done, total)
+            }
         }
         if (expectedSize != null && part.exists()) {
             val size = part.fileSize()
@@ -377,7 +463,6 @@ object GithubModpackSync {
         if (!path.exists()) return false
         val size = path.fileSize()
         if (size <= 0L || size > 1024L) return false
-        // Do not use Files.readString — small binaries throw MalformedInputException ("Input length = 1").
         val bytes = Files.readAllBytes(path)
         val prefix = LFS_POINTER_PREFIX
         if (bytes.size < prefix.size) return false
@@ -421,6 +506,6 @@ object GithubModpackSync {
             ema.toLong().coerceAtLeast(0L)
         }
 
-        fun current(): Long = synchronized(this) { ema.toLong().coerceAtLeast(0L).takeIf { it > 0 } ?: 0L }
+        fun current(): Long = synchronized(this) { ema.toLong().coerceAtLeast(0L) }
     }
 }
