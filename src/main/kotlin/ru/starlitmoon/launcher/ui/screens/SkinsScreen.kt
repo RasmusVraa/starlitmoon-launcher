@@ -118,8 +118,10 @@ fun SkinsScreen(vm: LauncherViewModel) {
                 StarlitPrimaryButton(
                     text = "Добавить скин",
                     onClick = {
-                        val file = NativeFilePicker.pickOpenFile("Скин PNG", "PNG", "png")
+                        // Disable actions BEFORE the dialog so WinForms click-through cannot
+                        // hit another button when the dialog closes.
                         pickerCooldown = true
+                        val file = NativeFilePicker.pickOpenFile("Скин PNG", "PNG", "png")
                         file?.let { vm.addSkinToLibrary(it.absolutePath) }
                     },
                     modifier = Modifier.fillMaxWidth(),
@@ -194,9 +196,12 @@ fun SkinsScreen(vm: LauncherViewModel) {
                             StarlitSecondaryButton(
                                 text = if (hasCape) "Сменить плащ" else "Добавить плащ",
                                 onClick = {
-                                    val file = NativeFilePicker.pickOpenFile("Плащ PNG", "PNG", "png")
+                                    // Disable before dialog — click-through must not clear/remove.
                                     pickerCooldown = true
-                                    file?.let { vm.setLibraryCape(entry.id, it.absolutePath) }
+                                    val file = NativeFilePicker.pickOpenFile("Плащ PNG", "PNG", "png")
+                                    if (file != null) {
+                                        vm.setLibraryCape(entry.id, file.absolutePath)
+                                    }
                                 },
                                 modifier = Modifier.fillMaxWidth(),
                                 compact = true,

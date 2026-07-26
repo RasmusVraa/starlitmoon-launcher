@@ -3,7 +3,7 @@ package ru.starlitmoon.launcher
 import java.awt.FileDialog
 import java.awt.Frame
 import java.io.File
-import java.nio.charset.StandardCharsets
+import java.nio.file.Files
 import java.util.Base64
 import java.util.concurrent.atomic.AtomicReference
 import javax.swing.JFileChooser
@@ -11,7 +11,15 @@ import javax.swing.SwingUtilities
 import javax.swing.UIManager
 import javax.swing.filechooser.FileNameExtensionFilter
 
-/** Нативный выбор файла: Windows OpenFileDialog (без второго Swing-диалога при отмене). */
+/**
+ * Native file open dialog.
+ *
+ * On Windows we use WinForms OpenFileDialog via a short PowerShell process so Cancel does not
+ * open a second Swing dialog. The selected path is written to a UTF-8 temp file — never read from
+ * PowerShell stdout — because `redirectErrorStream(true)` (and even clean stdout) can be polluted
+ * by CLIXML progress records (`#< CLIXML...`), making `File(out).isFile` fail and the picker
+ * silently return null (cape/skin never added).
+ */
 object NativeFilePicker {
 
     fun pickOpenFile(
@@ -21,7 +29,6 @@ object NativeFilePicker {
     ): File? {
         val exts = extensions.map { it.trim().lowercase().removePrefix(".") }.filter { it.isNotEmpty() }
         if (WindowsShell.isWindows()) {
-            // Отмена или выбор — только этот диалог. Не открываем Swing/AWT поверх.
             return pickWindowsForms(title, filterLabel, exts)
         }
         return pickAwtOrSwing(title, filterLabel, exts)
@@ -42,6 +49,11 @@ object NativeFilePicker {
         } else {
             "$filterLabel ($patterns)|$patterns|Все файлы (*.*)|*.*"
         }
+        val resultFile = Files.createTempFile("starlit-picker-", ".path").toFile().apply {
+            deleteOnExit()
+            writeText("", Charsets.UTF_8)
+        }
+        val resultPathLiteral = resultFile.absolutePath.replace("'", "''")
         val script = """
             Add-Type -AssemblyName System.Windows.Forms
             ${'$'}d = New-Object System.Windows.Forms.OpenFileDialog
@@ -54,8 +66,11 @@ object NativeFilePicker {
             ${'$'}d.Multiselect = ${'$'}false
             ${'$'}d.CheckFileExists = ${'$'}true
             if (${'$'}d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
-              [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-              [Console]::Write(${'$'}d.FileName)
+              [IO.File]::WriteAllText(
+                '$resultPathLiteral',
+                ${'$'}d.FileName,
+                (New-Object System.Text.UTF8Encoding ${'$'}false)
+              )
             }
         """.trimIndent()
 
@@ -69,12 +84,24 @@ object NativeFilePicker {
                 "-ExecutionPolicy", "Bypass",
                 "-EncodedCommand", encoded,
             )
-            pb.redirectErrorStream(true)
+            // Keep stderr separate — CLIXML progress must not touch the result channel.
+            pb.redirectErrorStream(false)
+            pb.redirectOutput(ProcessBuilder.Redirect.DISCARD)
+            pb.redirectError(ProcessBuilder.Redirect.DISCARD)
             val proc = pb.start()
-            val out = proc.inputStream.readBytes().toString(StandardCharsets.UTF_8).trim()
             proc.waitFor()
-            if (out.isBlank()) null else File(out).takeIf { it.isFile }
-        }.getOrNull()
+            val path = resultFile.readText(Charsets.UTF_8).trim()
+                .trimStart('\uFEFF')
+                .lineSequence()
+                .map { it.trim() }
+                .firstOrNull { it.isNotEmpty() }
+                .orEmpty()
+            resultFile.delete()
+            if (path.isBlank()) null else File(path).takeIf { it.isFile }
+        }.getOrElse {
+            runCatching { resultFile.delete() }
+            null
+        }
     }
 
     private fun pickAwtOrSwing(
