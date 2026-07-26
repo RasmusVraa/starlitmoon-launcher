@@ -17,6 +17,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -171,6 +172,12 @@ fun AdminConsoleSection(vm: LauncherViewModel) {
         if (!vm.adminConsoleError.isNullOrBlank()) {
             Text(vm.adminConsoleError!!, color = StarlitColors.Offline, fontSize = 12.sp)
         }
+        val consoleScroll = rememberScrollState()
+        LaunchedEffect(vm.adminConsoleOutput, consoleScroll.maxValue) {
+            if (consoleScroll.maxValue > 0) {
+                consoleScroll.scrollTo(consoleScroll.maxValue)
+            }
+        }
         Text(
             vm.adminConsoleOutput.ifBlank { "Лог пуст" },
             color = StarlitColors.TextMuted,
@@ -182,7 +189,7 @@ fun AdminConsoleSection(vm: LauncherViewModel) {
                 .clip(RoundedCornerShape(10.dp))
                 .background(Color(0xFF080A12))
                 .padding(10.dp)
-                .verticalScroll(rememberScrollState()),
+                .verticalScroll(consoleScroll),
         )
     }
 }

@@ -34,16 +34,23 @@ import ru.starlitmoon.launcher.viewmodel.LauncherViewModel
 fun LogsScreen(vm: LauncherViewModel) {
     LaunchedEffect(Unit) { vm.refreshLogs() }
 
+    // Keep both launcher and game logs fresh while the screen is open.
     LaunchedEffect(vm.logsSubTab) {
-        if (vm.logsSubTab != 1) return@LaunchedEffect
         while (true) {
-            delay(3_000)
+            delay(2_000)
             vm.refreshLogs()
         }
     }
 
     val logText = if (vm.logsSubTab == 0) vm.launcherLogText else vm.gameLogText
     val scroll = rememberScrollState()
+
+    // Always stick to the bottom as new lines append.
+    LaunchedEffect(logText, scroll.maxValue) {
+        if (scroll.maxValue > 0) {
+            scroll.scrollTo(scroll.maxValue)
+        }
+    }
 
     Column(
         modifier = Modifier
