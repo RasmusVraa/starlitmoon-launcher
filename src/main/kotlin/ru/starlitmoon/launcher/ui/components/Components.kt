@@ -1,7 +1,10 @@
 package ru.starlitmoon.launcher.ui.components
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.TooltipArea
+import androidx.compose.foundation.TooltipPlacement
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -24,6 +27,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -72,12 +76,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.jetbrains.skia.Font
 import org.jetbrains.skia.FontMgr
+import ru.starlitmoon.launcher.api.BadgeDto
 import ru.starlitmoon.launcher.util.ImageDiskCache
 import org.jetbrains.skia.FontStyle
 import org.jetbrains.skia.Paint as SkiaPaint
@@ -1475,6 +1481,74 @@ fun NetworkAvatar(
                 fontSize = (size.value * 0.32f).sp,
                 textAlign = TextAlign.Center,
             )
+        }
+    }
+}
+
+/**
+ * Site-parity custom badge chip: emoji icon with hover tooltip (title + description).
+ * Matches website `.player-custom-badge--icon` / `.player-custom-badge-tip`.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun PlayerBadgeIcon(
+    badge: BadgeDto,
+    modifier: Modifier = Modifier,
+    size: Dp = 22.dp,
+) {
+    val emoji = badge.emoji.orEmpty().ifBlank { "🏷️" }
+    val title = badge.name.orEmpty().trim()
+    val description = badge.description.orEmpty().trim()
+    val tipShape = RoundedCornerShape(10.dp)
+
+    val chipModifier = modifier
+        .size(size)
+        .clip(CircleShape)
+        .background(StarlitColors.Gold.copy(alpha = 0.14f))
+        .border(1.dp, StarlitColors.Gold.copy(alpha = 0.45f), CircleShape)
+
+    if (title.isEmpty() && description.isEmpty()) {
+        Box(modifier = chipModifier, contentAlignment = Alignment.Center) {
+            Text(emoji, fontSize = (size.value * 0.55f).sp, lineHeight = (size.value * 0.55f).sp)
+        }
+        return
+    }
+
+    TooltipArea(
+        tooltip = {
+            Column(
+                modifier = Modifier
+                    .widthIn(max = 260.dp)
+                    .clip(tipShape)
+                    .background(Color(0xF50A0E1C))
+                    .border(1.dp, StarlitColors.Gold.copy(alpha = 0.45f), tipShape)
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(3.dp),
+            ) {
+                if (title.isNotEmpty()) {
+                    Text(
+                        title,
+                        color = Color(0xFFFDE68A),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        lineHeight = 15.sp,
+                    )
+                }
+                if (description.isNotEmpty()) {
+                    Text(
+                        description,
+                        color = Color(0xFFD1D9EB),
+                        fontSize = 11.sp,
+                        lineHeight = 14.sp,
+                    )
+                }
+            }
+        },
+        delayMillis = 180,
+        tooltipPlacement = TooltipPlacement.CursorPoint(offset = DpOffset(0.dp, 12.dp)),
+    ) {
+        Box(modifier = chipModifier, contentAlignment = Alignment.Center) {
+            Text(emoji, fontSize = (size.value * 0.55f).sp, lineHeight = (size.value * 0.55f).sp)
         }
     }
 }

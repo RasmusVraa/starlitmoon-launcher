@@ -52,6 +52,7 @@ import ru.starlitmoon.launcher.api.ProfileViewerDto
 import ru.starlitmoon.launcher.api.PublicPlayerDto
 import ru.starlitmoon.launcher.api.PublicProfilePlayerDto
 import ru.starlitmoon.launcher.ui.components.NetworkAvatar
+import ru.starlitmoon.launcher.ui.components.PlayerBadgeIcon
 import ru.starlitmoon.launcher.ui.components.SkinPreview3D
 import ru.starlitmoon.launcher.ui.components.StarlitPrimaryButton
 import ru.starlitmoon.launcher.ui.components.StarlitSecondaryButton
@@ -66,6 +67,9 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+
+/** Fixed card height: pad 20 + avatar 68 + gaps 12 + 2-line name 32 + rank row 18. */
+private val PlayerCardHeight = 150.dp
 
 @Composable
 fun PlayersScreen(vm: LauncherViewModel) {
@@ -170,17 +174,18 @@ private fun PublicPlayersList(vm: LauncherViewModel) {
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun PlayerCard(vm: LauncherViewModel, player: PublicPlayerDto) {
     val name = player.name.orEmpty()
     val avatar = vm.playerAvatarUrl(name, player.uuid, player.skinTextureHash, player.skinUrl, 72)
     val ranks = PlayerRanks.normalize(player.ranks)
     val online = player.online && !player.banned
+    val showBadge = player.badgeVisible != false && player.activeBadge != null
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .height(PlayerCardHeight)
             .clip(RoundedCornerShape(StarlitDimens.Radius))
             .background(StarlitColors.Surface)
             .border(
@@ -195,7 +200,6 @@ private fun PlayerCard(vm: LauncherViewModel, player: PublicPlayerDto) {
             .clickable { vm.openPublicPlayer(name) }
             .padding(horizontal = 10.dp, vertical = 10.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Box {
             NetworkAvatar(url = avatar, fallbackName = name, size = 68.dp)
@@ -210,8 +214,11 @@ private fun PlayerCard(vm: LauncherViewModel, player: PublicPlayerDto) {
                 )
             }
         }
+        Spacer(Modifier.height(6.dp))
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(32.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center,
         ) {
@@ -226,22 +233,24 @@ private fun PlayerCard(vm: LauncherViewModel, player: PublicPlayerDto) {
                 textAlign = TextAlign.Center,
                 modifier = Modifier.weight(1f, fill = false),
             )
-            if (player.badgeVisible != false && player.activeBadge != null) {
-                Text(
-                    player.activeBadge.emoji.orEmpty(),
-                    fontSize = 12.sp,
+            if (showBadge) {
+                PlayerBadgeIcon(
+                    badge = player.activeBadge!!,
                     modifier = Modifier.padding(start = 4.dp),
+                    size = 18.dp,
                 )
             }
         }
-        if (ranks.isNotEmpty()) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                ranks.take(2).forEach { RankPill(it.labelRu, it, compact = true) }
-            }
+        Spacer(Modifier.height(6.dp))
+        // Always reserve one compact rank row so grid cells stay equal height.
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(18.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            ranks.take(2).forEach { RankPill(it.labelRu, it, compact = true) }
         }
     }
 }
@@ -366,12 +375,7 @@ private fun ProfileHero(vm: LauncherViewModel, player: PublicProfilePlayerDto) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(name, color = StarlitColors.Text, fontWeight = FontWeight.ExtraBold, fontSize = 24.sp)
                 if (player.badgeVisible != false && player.activeBadge != null) {
-                    Text(
-                        "${player.activeBadge.emoji.orEmpty()} ${player.activeBadge.name.orEmpty()}".trim(),
-                        color = StarlitColors.Gold,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold,
-                    )
+                    PlayerBadgeIcon(badge = player.activeBadge, size = 24.dp)
                 }
             }
             if (ranks.isNotEmpty()) {

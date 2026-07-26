@@ -42,6 +42,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import ru.starlitmoon.launcher.api.PrivacySectionDto
+import ru.starlitmoon.launcher.ui.components.PlayerBadgeIcon
 import ru.starlitmoon.launcher.ui.components.SkinPreview3D
 import ru.starlitmoon.launcher.ui.components.StarlitPrimaryButton
 import ru.starlitmoon.launcher.ui.theme.starlitAnimateFloat
@@ -216,12 +217,7 @@ fun CabinetScreen(vm: LauncherViewModel) {
                                 fontSize = 24.sp,
                             )
                             if (activeBadge != null && (badges?.badgeVisible != false)) {
-                                Text(
-                                    "${activeBadge.emoji.orEmpty()} ${activeBadge.name.orEmpty()}".trim(),
-                                    color = StarlitColors.Gold,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                )
+                                PlayerBadgeIcon(badge = activeBadge, size = 24.dp)
                             }
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
