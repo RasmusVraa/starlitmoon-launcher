@@ -1,6 +1,6 @@
 #Requires -Version 5
 param(
-  [string]$Version = "1.8.4",
+  [string]$Version = "1.8.5",
   [switch]$Sign
 )
 $ErrorActionPreference = "Stop"
@@ -11,6 +11,52 @@ function Assert-ExitCode([string]$Step) {
   if ($null -eq $LASTEXITCODE) { return }
   if ($LASTEXITCODE -ne 0) {
     throw "$Step failed with exit code $LASTEXITCODE"
+  }
+}
+
+# Compress-Archive on Windows stores entry names with `\`, which breaks the
+# 1.8.3+ self-updater ZIP check (expects app/StarlitMoonLauncher.cfg).
+function New-ForwardSlashZip([string]$SourceDir, [string]$ZipPath) {
+  Add-Type -AssemblyName System.IO.Compression
+  Add-Type -AssemblyName System.IO.Compression.FileSystem
+  $absZip = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($ZipPath)
+  $zipDir = Split-Path -Parent $absZip
+  if (-not (Test-Path $zipDir)) { New-Item -ItemType Directory -Force -Path $zipDir | Out-Null }
+  if (Test-Path $absZip) { Remove-Item $absZip -Force }
+  $zip = [System.IO.Compression.ZipFile]::Open($absZip, [System.IO.Compression.ZipArchiveMode]::Create)
+  try {
+    $root = (Resolve-Path $SourceDir).Path.TrimEnd('\', '/')
+    Get-ChildItem -LiteralPath $root -Recurse -File | ForEach-Object {
+      $rel = $_.FullName.Substring($root.Length + 1).Replace('\', '/')
+      [void][System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+        $zip,
+        $_.FullName,
+        $rel,
+        [System.IO.Compression.CompressionLevel]::Optimal
+      )
+    }
+  } finally {
+    $zip.Dispose()
+  }
+}
+
+function Assert-ZipHasForwardSlashCfg([string]$ZipPath, [string]$ExpectedVersion) {
+  Add-Type -AssemblyName System.IO.Compression.FileSystem
+  $z = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path $ZipPath).Path)
+  try {
+    $cfg = $z.GetEntry("app/StarlitMoonLauncher.cfg")
+    if ($null -eq $cfg) {
+      $names = ($z.Entries | ForEach-Object { $_.FullName } | Where-Object { $_ -match 'StarlitMoonLauncher\.cfg' }) -join ', '
+      throw "ZIP missing forward-slash entry app/StarlitMoonLauncher.cfg (found: $names). Refusing to ship."
+    }
+    $sr = New-Object System.IO.StreamReader($cfg.Open())
+    try { $text = $sr.ReadToEnd() } finally { $sr.Close() }
+    if ($text -notmatch [regex]::Escape("jpackage.app-version=$ExpectedVersion")) {
+      throw "ZIP cfg version mismatch: expected jpackage.app-version=$ExpectedVersion"
+    }
+    Write-Host "OK: ZIP entry app/StarlitMoonLauncher.cfg has jpackage.app-version=$ExpectedVersion"
+  } finally {
+    $z.Dispose()
   }
 }
 
@@ -40,9 +86,8 @@ Write-Host "OK: packaged app is $Version ($($jar.Name))"
 
 New-Item -ItemType Directory -Force -Path "dist\v$Version" | Out-Null
 $zipPath = "dist\v$Version\StarlitMoonLauncher-$Version-windows.zip"
-if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
-# Compress contents of app folder to ZIP root (needed for in-launcher updates).
-Compress-Archive -Path (Join-Path $appDir "*") -DestinationPath $zipPath -CompressionLevel Optimal
+New-ForwardSlashZip -SourceDir $appDir -ZipPath $zipPath
+Assert-ZipHasForwardSlashCfg -ZipPath $zipPath -ExpectedVersion $Version
 Write-Host "OK: $zipPath"
 
 $iscc = Join-Path $env:LOCALAPPDATA "Programs\Inno Setup 6\ISCC.exe"

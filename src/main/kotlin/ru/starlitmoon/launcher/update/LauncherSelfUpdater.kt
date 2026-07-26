@@ -118,6 +118,9 @@ object LauncherSelfUpdater {
     /**
      * Ensures a downloaded ZIP actually contains the expected app version.
      * Catches mislabeled releases (Setup/ZIP named X.Y.Z but packaging older binaries).
+     *
+     * Note: PowerShell Compress-Archive may store entry names with `\`; ZIP tools
+     * and Java often use `/`. Always normalize before matching.
      */
     fun verifyPackageVersion(packagePath: Path, expectedVersion: String, kind: UpdatePackageKind) {
         val expected = expectedVersion.trim().removePrefix("v").removePrefix("V")
@@ -125,18 +128,15 @@ object LauncherSelfUpdater {
         when (kind) {
             UpdatePackageKind.ZIP -> {
                 require(packagePath.exists()) { "Архив обновления не найден" }
-                val cfg = readZipEntryText(packagePath) { name ->
-                    name.equals("app/StarlitMoonLauncher.cfg", ignoreCase = true) ||
-                        name.equals("StarlitMoonLauncher.cfg", ignoreCase = true) ||
-                        name.endsWith("/StarlitMoonLauncher.cfg", ignoreCase = true)
-                } ?: error("В архиве нет StarlitMoonLauncher.cfg — пакет повреждён")
-                val ok = cfg.contains("jpackage.app-version=$expected") ||
-                    cfg.contains("starlitmoon-launcher-$expected-")
+                val versionText = readZipVersionEvidence(packagePath)
+                    ?: error("В архиве нет StarlitMoonLauncher.cfg — пакет повреждён")
+                val ok = versionText.contains("jpackage.app-version=$expected") ||
+                    versionText.contains("starlitmoon-launcher-$expected-")
                 if (!ok) {
                     val found = Regex("""jpackage\.app-version=([^\s\r\n]+)""")
-                        .find(cfg)?.groupValues?.getOrNull(1)
+                        .find(versionText)?.groupValues?.getOrNull(1)
                         ?: Regex("""starlitmoon-launcher-(\d+(?:\.\d+)*)-""")
-                            .find(cfg)?.groupValues?.getOrNull(1)
+                            .find(versionText)?.groupValues?.getOrNull(1)
                         ?: "?"
                     error(
                         "Релиз v$expected содержит старую сборку ($found). " +
@@ -156,10 +156,46 @@ object LauncherSelfUpdater {
         }
     }
 
-    private fun readZipEntryText(zipPath: Path, match: (String) -> Boolean): String? {
+    /** ZIP entry names may use `/` or `\` depending on how the archive was built. */
+    private fun normalizeZipEntryName(name: String): String =
+        name.replace('\\', '/').trimStart('/')
+
+    /**
+     * Prefer `StarlitMoonLauncher.cfg`, then versioned main jar name, then `.jpackage.xml`.
+     */
+    private fun readZipVersionEvidence(zipPath: Path): String? {
         ZipFile(zipPath.toFile()).use { zip ->
-            val entry = zip.entries().asSequence().firstOrNull { !it.isDirectory && match(it.name) } ?: return null
-            return zip.getInputStream(entry).bufferedReader(StandardCharsets.UTF_8).use { it.readText() }
+            val entries = zip.entries().asSequence().filter { !it.isDirectory }.toList()
+            fun find(pred: (String) -> Boolean) =
+                entries.firstOrNull { pred(normalizeZipEntryName(it.name)) }
+
+            val cfgEntry = find { n ->
+                n.equals("app/StarlitMoonLauncher.cfg", ignoreCase = true) ||
+                    n.equals("StarlitMoonLauncher.cfg", ignoreCase = true) ||
+                    n.endsWith("/StarlitMoonLauncher.cfg", ignoreCase = true)
+            }
+            if (cfgEntry != null) {
+                return zip.getInputStream(cfgEntry).bufferedReader(StandardCharsets.UTF_8).use { it.readText() }
+            }
+
+            // Fallback: main jar filename embeds the app version.
+            val jarEntry = find { n ->
+                val base = n.substringAfterLast('/')
+                base.startsWith("starlitmoon-launcher-", ignoreCase = true) &&
+                    base.endsWith(".jar", ignoreCase = true)
+            }
+            if (jarEntry != null) {
+                return normalizeZipEntryName(jarEntry.name)
+            }
+
+            val xmlEntry = find { n ->
+                n.equals("app/.jpackage.xml", ignoreCase = true) ||
+                    n.endsWith("/.jpackage.xml", ignoreCase = true)
+            }
+            if (xmlEntry != null) {
+                return zip.getInputStream(xmlEntry).bufferedReader(StandardCharsets.UTF_8).use { it.readText() }
+            }
+            return null
         }
     }
 
