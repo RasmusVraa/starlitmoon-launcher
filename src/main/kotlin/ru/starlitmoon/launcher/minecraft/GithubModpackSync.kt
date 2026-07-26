@@ -153,6 +153,18 @@ object GithubModpackSync {
     }
 
     /**
+     * True only when a local marker exists and matches [remoteHash].
+     * Missing install must NOT be treated as up-to-date — [needsUpdate] returns false for that
+     * case (UI), so sync must not use `!needsUpdate` as a skip condition.
+     */
+    fun isUpToDate(dataDir: Path, pack: ModpackDto, remoteHash: String?): Boolean {
+        val remote = remoteHash?.trim()?.lowercase().orEmpty()
+        if (remote.isBlank()) return false
+        val local = ModpackSync.localArchiveSha(dataDir, pack) ?: return false
+        return local == remote
+    }
+
+    /**
      * Sync pack files from GitHub. Empty [Manifest.files] is allowed (loader-only / bare pack).
      * Downloads up to [PARALLELISM] files at once. SHA-256 is not verified (size used to skip
      * already-present files).
@@ -185,7 +197,8 @@ object GithubModpackSync {
         dir.createDirectories()
         val marker = dir.resolve(MARKER)
 
-        if (!force && !needsUpdate(dataDir, pack, remoteHash)) {
+        // Require an existing matching marker — !needsUpdate is true for missing installs too.
+        if (!force && isUpToDate(dataDir, pack, remoteHash)) {
             onProgress(ProgressEvent("Сборка уже актуальна", 1f))
             return meta
         }
