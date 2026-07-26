@@ -81,6 +81,9 @@ private data class BadgeBody(val activeBadgeId: String? = null, val visible: Boo
 private data class CommentsEnabledBody(val enabled: Boolean)
 
 @Serializable
+private data class ProfileCommentBody(val text: String)
+
+@Serializable
 private data class PlayerPatchBody(
     val banned: Boolean? = null,
     val banReason: String? = null,
@@ -755,6 +758,79 @@ class StarlitApiClient(
         val response = client.get("$baseUrl/api/players")
         if (!response.status.isSuccess()) return PlayersResponse()
         return response.body()
+    }
+
+    /** Public players directory (same payload as [fetchOnlinePlayers]). */
+    suspend fun fetchPlayersList(): PlayersResponse = fetchOnlinePlayers()
+
+    suspend fun fetchPlayerProfile(id: String): PublicProfileResponse {
+        val key = id.trim()
+        require(key.isNotEmpty()) { "Не указан игрок" }
+        val response = client.get("$baseUrl/api/players/${encodePath(key)}/profile") {
+            sessionCookie()?.let { header("Cookie", cookieHeader(it)) }
+        }
+        if (!response.status.isSuccess()) throw parseError(response)
+        return response.body()
+    }
+
+    suspend fun fetchPlayerComments(id: String): ProfileCommentsResponse {
+        val key = id.trim()
+        require(key.isNotEmpty()) { "Не указан игрок" }
+        val response = client.get("$baseUrl/api/players/${encodePath(key)}/comments") {
+            sessionCookie()?.let { header("Cookie", cookieHeader(it)) }
+        }
+        if (!response.status.isSuccess()) throw parseError(response)
+        return response.body()
+    }
+
+    suspend fun postPlayerComment(id: String, text: String): ProfileCommentCreateResponse {
+        val cookie = needCookie()
+        val key = id.trim()
+        val response = client.post("$baseUrl/api/players/${encodePath(key)}/comments") {
+            header("Cookie", cookieHeader(cookie))
+            contentType(ContentType.Application.Json)
+            setBody(ProfileCommentBody(text.trim()))
+        }
+        if (!response.status.isSuccess()) throw parseError(response)
+        return response.body()
+    }
+
+    suspend fun deletePlayerComment(id: String, commentId: String) {
+        val cookie = needCookie()
+        val response = client.delete(
+            "$baseUrl/api/players/${encodePath(id.trim())}/comments/${encodePath(commentId.trim())}",
+        ) {
+            header("Cookie", cookieHeader(cookie))
+        }
+        if (!response.status.isSuccess()) throw parseError(response)
+    }
+
+    fun skinProxyUrl(
+        player: String,
+        uuid: String? = null,
+        hash: String? = null,
+        skinUrl: String? = null,
+    ): String {
+        val p = java.net.URLEncoder.encode(player, Charsets.UTF_8)
+        val parts = mutableListOf("player=$p")
+        if (!uuid.isNullOrBlank()) parts += "uuid=${java.net.URLEncoder.encode(uuid, Charsets.UTF_8)}"
+        if (!hash.isNullOrBlank()) parts += "hash=${java.net.URLEncoder.encode(hash, Charsets.UTF_8)}"
+        if (!skinUrl.isNullOrBlank()) parts += "url=${java.net.URLEncoder.encode(skinUrl, Charsets.UTF_8)}"
+        return "$baseUrl/api/skin?${parts.joinToString("&")}"
+    }
+
+    fun capeProxyUrl(
+        player: String,
+        uuid: String? = null,
+        capeUrl: String? = null,
+        capeTexture: String? = null,
+    ): String {
+        val p = java.net.URLEncoder.encode(player, Charsets.UTF_8)
+        val parts = mutableListOf("player=$p")
+        if (!uuid.isNullOrBlank()) parts += "uuid=${java.net.URLEncoder.encode(uuid, Charsets.UTF_8)}"
+        if (!capeUrl.isNullOrBlank()) parts += "url=${java.net.URLEncoder.encode(capeUrl, Charsets.UTF_8)}"
+        if (!capeTexture.isNullOrBlank()) parts += "texture=${java.net.URLEncoder.encode(capeTexture, Charsets.UTF_8)}"
+        return "$baseUrl/api/cape?${parts.joinToString("&")}"
     }
 
     suspend fun listModpacks(): List<ModpackDto> {

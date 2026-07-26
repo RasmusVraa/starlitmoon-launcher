@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.Checkroom
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Person
@@ -418,13 +419,16 @@ fun StarlitTextField(
     modifier: Modifier = Modifier.fillMaxWidth(),
     isPassword: Boolean = false,
     readOnly: Boolean = false,
+    singleLine: Boolean = true,
+    minLines: Int = 1,
 ) {
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
         label = { Text(label) },
         modifier = modifier,
-        singleLine = true,
+        singleLine = singleLine,
+        minLines = if (singleLine) 1 else minLines.coerceAtLeast(1),
         readOnly = readOnly,
         visualTransformation = if (isPassword) {
             androidx.compose.ui.text.input.PasswordVisualTransformation()
@@ -748,6 +752,14 @@ fun SidebarNav(vm: LauncherViewModel) {
                 expanded = expanded,
                 selected = !vm.clientUpdateVisible && vm.currentTab == LauncherTab.Builds,
                 onClick = { go(LauncherTab.Builds) },
+            )
+            Spacer(Modifier.height(8.dp))
+            SidebarEntry(
+                icon = Icons.Default.Groups,
+                label = "Игроки",
+                expanded = expanded,
+                selected = !vm.clientUpdateVisible && vm.currentTab == LauncherTab.Players,
+                onClick = { go(LauncherTab.Players) },
             )
             Spacer(Modifier.height(8.dp))
             SidebarEntry(

@@ -70,7 +70,7 @@ import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
 import kotlin.io.path.writeBytes
 
-enum class LauncherTab { Home, Builds, Cabinet, Bank, Skins, Logs, Settings, Admin }
+enum class LauncherTab { Home, Builds, Players, Cabinet, Bank, Skins, Logs, Settings, Admin }
 
 class LauncherViewModel(
     private val scope: CoroutineScope,
@@ -203,6 +203,9 @@ class LauncherViewModel(
             clientUpdateVisible = false
         }
         currentTab = tab
+        if (tab == LauncherTab.Players && selectedPublicPlayer == null) {
+            refreshPublicPlayers()
+        }
     }
 
     /** One pack install / play-prep at a time — avoids NeoForge starting while another sync still runs. */
@@ -237,6 +240,24 @@ class LauncherViewModel(
     private var gameStopRequested: Boolean = false
     private var activeSkinBridge: OfflineSkinBridge? = null
     var onlinePlayers by mutableStateOf<List<String>>(emptyList())
+    var publicPlayers by mutableStateOf<List<ru.starlitmoon.launcher.api.PublicPlayerDto>>(emptyList())
+    var publicPlayersOnlineCount by mutableStateOf(0)
+    var publicPlayersTotal by mutableStateOf(0)
+    var publicPlayersUpdatedAt by mutableStateOf<String?>(null)
+    var publicPlayersDemo by mutableStateOf(false)
+    var publicPlayersLoading by mutableStateOf(false)
+    var publicPlayersError by mutableStateOf<String?>(null)
+    var publicPlayersQuery by mutableStateOf("")
+    var selectedPublicPlayer by mutableStateOf<String?>(null)
+    var publicProfile by mutableStateOf<ru.starlitmoon.launcher.api.PublicProfilePlayerDto?>(null)
+    var publicProfileViewer by mutableStateOf<ru.starlitmoon.launcher.api.ProfileViewerDto?>(null)
+    var publicProfileLoading by mutableStateOf(false)
+    var publicProfileError by mutableStateOf<String?>(null)
+    var publicComments by mutableStateOf<List<ru.starlitmoon.launcher.api.ProfileCommentDto>>(emptyList())
+    var publicCommentsEnabled by mutableStateOf(true)
+    var publicCommentsLoading by mutableStateOf(false)
+    var commentDraft by mutableStateOf("")
+    var commentBusy by mutableStateOf(false)
     var adminSearch by mutableStateOf("")
     var accountSearch by mutableStateOf("")
     var adminConsoleServerId by mutableStateOf("")
@@ -1719,9 +1740,145 @@ class LauncherViewModel(
     fun openPublicProfile() {
         val name = userName.trim()
         if (name.isBlank()) return
-        val url = siteUrl("/player?player=${java.net.URLEncoder.encode(name, Charsets.UTF_8)}")
-        runCatching { java.awt.Desktop.getDesktop().browse(java.net.URI(url)) }
+        openPublicPlayer(name)
     }
+
+    fun openPublicPlayer(name: String) {
+        val key = name.trim()
+        if (key.isBlank()) return
+        selectedPublicPlayer = key
+        currentTab = LauncherTab.Players
+        clientUpdateVisible = false
+        loadPublicProfile(key)
+    }
+
+    fun closePublicPlayer() {
+        selectedPublicPlayer = null
+        publicProfile = null
+        publicProfileViewer = null
+        publicProfileError = null
+        publicComments = emptyList()
+        commentDraft = ""
+        if (publicPlayers.isEmpty()) refreshPublicPlayers()
+    }
+
+    fun refreshPublicPlayers() {
+        scope.launch {
+            publicPlayersLoading = true
+            publicPlayersError = null
+            runCatching {
+                withContext(Dispatchers.IO) { api.fetchPlayersList() }
+            }.onSuccess { data ->
+                publicPlayers = data.players
+                publicPlayersOnlineCount = data.onlineCount.takeIf { it > 0 }
+                    ?: data.players.count { it.online }
+                publicPlayersTotal = data.total.takeIf { it > 0 } ?: data.players.size
+                publicPlayersUpdatedAt = data.updatedAt
+                publicPlayersDemo = data.demo
+                onlinePlayers = when {
+                    data.online.isNotEmpty() -> data.online.map { it.name }
+                    else -> data.players.filter { it.online }.mapNotNull { it.name }
+                }
+            }.onFailure {
+                publicPlayersError = it.message ?: "Не удалось загрузить список игроков"
+            }
+            publicPlayersLoading = false
+        }
+    }
+
+    fun loadPublicProfile(name: String = selectedPublicPlayer.orEmpty()) {
+        val key = name.trim()
+        if (key.isBlank()) return
+        selectedPublicPlayer = key
+        scope.launch {
+            publicProfileLoading = true
+            publicProfileError = null
+            publicCommentsLoading = true
+            runCatching {
+                withContext(Dispatchers.IO) { api.fetchPlayerProfile(key) }
+            }.onSuccess { data ->
+                publicProfile = data.player
+                publicProfileViewer = data.viewer
+                publicCommentsEnabled = data.player?.commentsEnabled != false
+                val owner = data.player?.name ?: key
+                if (publicCommentsEnabled) {
+                    runCatching {
+                        withContext(Dispatchers.IO) { api.fetchPlayerComments(owner) }
+                    }.onSuccess { comments ->
+                        publicCommentsEnabled = comments.enabled
+                        publicComments = comments.comments
+                    }.onFailure { err ->
+                        publicComments = emptyList()
+                        if (publicProfileError == null) {
+                            infoMessage = err.message
+                        }
+                    }
+                } else {
+                    publicComments = emptyList()
+                }
+            }.onFailure {
+                publicProfile = null
+                publicProfileViewer = null
+                publicComments = emptyList()
+                publicProfileError = it.message ?: "Не удалось загрузить профиль"
+            }
+            publicProfileLoading = false
+            publicCommentsLoading = false
+        }
+    }
+
+    fun postPublicComment() {
+        val owner = publicProfile?.name ?: selectedPublicPlayer ?: return
+        val text = commentDraft.trim()
+        if (text.isBlank() || commentBusy) return
+        scope.launch {
+            commentBusy = true
+            runCatching {
+                withContext(Dispatchers.IO) { api.postPlayerComment(owner, text) }
+            }.onSuccess {
+                commentDraft = ""
+                loadPublicProfile(owner)
+            }.onFailure { handleError(it) }
+            commentBusy = false
+        }
+    }
+
+    fun deletePublicComment(commentId: String) {
+        val owner = publicProfile?.name ?: selectedPublicPlayer ?: return
+        val id = commentId.trim()
+        if (id.isBlank() || commentBusy) return
+        scope.launch {
+            commentBusy = true
+            runCatching {
+                withContext(Dispatchers.IO) { api.deletePlayerComment(owner, id) }
+            }.onSuccess {
+                publicComments = publicComments.filter { it.id != id }
+            }.onFailure { handleError(it) }
+            commentBusy = false
+        }
+    }
+
+    fun playerAvatarUrl(
+        player: String,
+        uuid: String? = null,
+        hash: String? = null,
+        skinUrl: String? = null,
+        size: Int = 80,
+    ): String = api.avatarUrl(player, uuid, hash, skinUrl, size)
+
+    fun playerSkinProxyUrl(
+        player: String,
+        uuid: String? = null,
+        hash: String? = null,
+        skinUrl: String? = null,
+    ): String = api.skinProxyUrl(player, uuid, hash, skinUrl)
+
+    fun playerCapeProxyUrl(
+        player: String,
+        uuid: String? = null,
+        capeUrl: String? = null,
+        capeTexture: String? = null,
+    ): String = api.capeProxyUrl(player, uuid, capeUrl, capeTexture)
 
     fun openSitePath(path: String) {
         runCatching { java.awt.Desktop.getDesktop().browse(java.net.URI(siteUrl(path))) }
@@ -2288,11 +2445,16 @@ class LauncherViewModel(
                 val v = async(Dispatchers.IO) { runCatching { api.serverVersion() }.getOrDefault(configState.defaultMcVersion) }
                 val s = async(Dispatchers.IO) { api.fetchServerStatus() }
                 val p = async(Dispatchers.IO) {
-                    runCatching { api.fetchOnlinePlayers().online.map { it.name } }.getOrDefault(emptyList())
+                    runCatching { api.fetchOnlinePlayers() }.getOrNull()
                 }
                 serverVersion = v.await()
                 serverStatus = s.await()
-                onlinePlayers = p.await()
+                val playersPayload = p.await()
+                onlinePlayers = when {
+                    playersPayload == null -> emptyList()
+                    playersPayload.online.isNotEmpty() -> playersPayload.online.map { it.name }
+                    else -> playersPayload.players.filter { it.online }.mapNotNull { it.name }
+                }
             }
         } finally {
             isRefreshingStatus = false

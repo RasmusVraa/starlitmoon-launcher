@@ -38,6 +38,7 @@ import ru.starlitmoon.launcher.ui.screens.ClientUpdateScreen
 import ru.starlitmoon.launcher.ui.screens.HomeScreen
 import ru.starlitmoon.launcher.ui.screens.LoginScreen
 import ru.starlitmoon.launcher.ui.screens.LogsScreen
+import ru.starlitmoon.launcher.ui.screens.PlayersScreen
 import ru.starlitmoon.launcher.ui.screens.SettingsScreen
 import ru.starlitmoon.launcher.ui.screens.SkinsScreen
 import ru.starlitmoon.launcher.ui.theme.LocalStarlitMotion
@@ -152,6 +153,7 @@ fun FrameWindowScope.LauncherApp(
                                                     when (tab) {
                                                         LauncherTab.Home -> HomeScreen(vm)
                                                         LauncherTab.Builds -> BuildsScreen(vm)
+                                                        LauncherTab.Players -> PlayersScreen(vm)
                                                         LauncherTab.Cabinet -> CabinetScreen(vm)
                                                         LauncherTab.Bank -> BankScreen(vm)
                                                         LauncherTab.Skins -> SkinsScreen(vm)

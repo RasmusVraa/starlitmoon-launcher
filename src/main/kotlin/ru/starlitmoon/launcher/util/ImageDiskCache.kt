@@ -31,6 +31,13 @@ object ImageDiskCache {
         return bytes
     }
 
+    /** Ensures [url] is cached on disk and returns the local path (for skin/cape preview). */
+    fun cachedPath(url: String): Path? {
+        loadOrFetch(url) ?: return null
+        val file = root.resolve(keyFor(url) + extensionFor(url))
+        return file.takeIf { it.exists() && Files.size(it) > 32 }
+    }
+
     private fun keyFor(url: String): String {
         val digest = MessageDigest.getInstance("SHA-256").digest(url.toByteArray(Charsets.UTF_8))
         return digest.joinToString("") { "%02x".format(it) }.take(40)

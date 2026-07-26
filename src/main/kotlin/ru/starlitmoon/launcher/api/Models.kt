@@ -105,7 +105,16 @@ data class PlayerStatsDto(
     val playerKills: Int? = null,
     val blocksMined: Long? = null,
     val blocksPlaced: Long? = null,
+    val distanceKm: Double? = null,
+    val jumps: Long? = null,
+    val damageDealt: Double? = null,
+    val fishCaught: Int? = null,
     val level: Int? = null,
+    val world: String? = null,
+    val gamemode: String? = null,
+    val ping: Int? = null,
+    val health: Double? = null,
+    val food: Int? = null,
     val firstJoin: String? = null,
     val lastJoin: String? = null,
 )
@@ -147,10 +156,106 @@ data class PermissionDefDto(
 data class ServerVersionResponse(val version: String)
 
 @Serializable
-data class PlayersResponse(val online: List<PlayerOnlineDto> = emptyList(), val count: Int = 0)
+data class PlayersResponse(
+    val online: List<PlayerOnlineDto> = emptyList(),
+    val count: Int = 0,
+    val players: List<PublicPlayerDto> = emptyList(),
+    val onlineCount: Int = 0,
+    val total: Int = 0,
+    val updatedAt: String? = null,
+    val demo: Boolean = false,
+)
 
 @Serializable
 data class PlayerOnlineDto(val name: String, val uuid: String? = null)
+
+/** Public directory entry from GET /api/players. */
+@Serializable
+data class PublicPlayerDto(
+    val name: String? = null,
+    val uuid: String? = null,
+    val online: Boolean = false,
+    val banned: Boolean = false,
+    val banReason: String? = null,
+    val ranks: List<String> = emptyList(),
+    val profileStatus: String? = null,
+    val skinUrl: String? = null,
+    val skinTextureHash: String? = null,
+    val badgeVisible: Boolean? = null,
+    val activeBadgeId: String? = null,
+    val activeBadge: BadgeDto? = null,
+    val lastSeen: String? = null,
+)
+
+@Serializable
+data class PublicProfileResponse(
+    val demo: Boolean = false,
+    val updatedAt: String? = null,
+    val player: PublicProfilePlayerDto? = null,
+    val viewer: ProfileViewerDto? = null,
+)
+
+@Serializable
+data class ProfileViewerDto(
+    val loggedIn: Boolean = false,
+    val name: String? = null,
+    val canManageComments: Boolean = false,
+    val canWriteComments: Boolean = false,
+)
+
+@Serializable
+data class PublicProfilePlayerDto(
+    val name: String? = null,
+    val uuid: String? = null,
+    val online: Boolean = false,
+    val banned: Boolean = false,
+    val banReason: String? = null,
+    val warnCount: Int? = null,
+    val ranks: List<String> = emptyList(),
+    val profileStatus: String? = null,
+    val stats: PlayerStatsDto? = null,
+    val discord: SocialLinkDto? = null,
+    val telegram: SocialLinkDto? = null,
+    val skinUrl: String? = null,
+    val skinTextureHash: String? = null,
+    val capeUrl: String? = null,
+    val capeTexture: String? = null,
+    val capeElytra: Boolean? = null,
+    val badgesOwned: List<String> = emptyList(),
+    val activeBadgeId: String? = null,
+    val badgeVisible: Boolean? = null,
+    val activeBadge: BadgeDto? = null,
+    val commentsEnabled: Boolean? = null,
+    val privacy: PrivacyDto? = null,
+    val lastSeen: String? = null,
+)
+
+@Serializable
+data class ProfileCommentsResponse(
+    val ok: Boolean = false,
+    val enabled: Boolean = true,
+    val player: String? = null,
+    val profileName: String? = null,
+    val comments: List<ProfileCommentDto> = emptyList(),
+    val total: Int = 0,
+    val updatedAt: String? = null,
+)
+
+@Serializable
+data class ProfileCommentDto(
+    val id: String? = null,
+    val profileName: String? = null,
+    val authorName: String? = null,
+    val text: String? = null,
+    val createdAt: String? = null,
+)
+
+@Serializable
+data class ProfileCommentCreateResponse(
+    val ok: Boolean = false,
+    val comment: ProfileCommentDto? = null,
+    val error: String? = null,
+)
 
 @Serializable
 data class AdminStatsResponse(
