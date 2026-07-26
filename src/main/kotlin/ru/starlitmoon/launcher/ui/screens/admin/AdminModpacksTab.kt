@@ -43,7 +43,7 @@ import ru.starlitmoon.launcher.ui.components.StarlitConfirmDialog
 import ru.starlitmoon.launcher.ui.theme.StarlitColors
 import ru.starlitmoon.launcher.viewmodel.LauncherViewModel
 
-private val LOADERS = listOf("vanilla", "fabric", "neoforge")
+private val LOADERS = listOf("vanilla", "fabric", "neoforge", "forge")
 
 @Composable
 fun AdminModpacksSection(vm: LauncherViewModel) {

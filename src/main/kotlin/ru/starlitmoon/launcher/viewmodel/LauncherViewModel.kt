@@ -763,13 +763,6 @@ class LauncherViewModel(
     }
 
     fun reinstallModpack(pack: ModpackDto) {
-        val canGithub = configState.preferGithubModpacks &&
-            configState.modpackGithubRepo.isNotBlank() &&
-            !(pack.slug ?: pack.id).isNullOrBlank()
-        if (!canGithub && (!pack.hasArchive || pack.archive?.url.isNullOrBlank())) {
-            errorMessage = "У сборки нет источника файлов (GitHub / ZIP)"
-            return
-        }
         scope.launch {
             isLoading = true
             beginClientUpdate(ClientUpdatePhase.Download, "Обновление сборки…", 0.12f)
@@ -778,7 +771,7 @@ class LauncherViewModel(
                 runCatching { api.getModpack(pack.id ?: pack.slug.orEmpty()) }.getOrNull()
             } ?: pack
             val result = runCatching {
-                withContext(Dispatchers.IO) {
+                val syncMeta = withContext(Dispatchers.IO) {
                     syncModpackFiles(detail, force = true) { event ->
                         val phase = when (event.kind) {
                             ProgressEvent.Kind.Verify -> ClientUpdatePhase.Verify
@@ -792,9 +785,16 @@ class LauncherViewModel(
                         )
                     }
                 }
+                val launchPack = detail.withGithubMeta(syncMeta)
+                beginClientUpdate(ClientUpdatePhase.Client, "Установка лоадера…", 0.85f)
+                ensurePackLoader(launchPack) { msg, frac ->
+                    reportLaunchProgress(msg, frac, phaseOverride = ClientUpdatePhase.Client)
+                }
+                launchPack
             }
             if (result.isSuccess) {
-                infoMessage = "Сборка «${detail.name ?: detail.slug}» обновлена"
+                val updated = result.getOrThrow()
+                infoMessage = "Сборка «${updated.name ?: updated.slug}» обновлена"
                 packUiRevision++
                 fetchModpacks(force = true)
             } else {
@@ -812,12 +812,13 @@ class LauncherViewModel(
 
     /**
      * Prefer GitHub per-file manifest; fall back to Starlit API ZIP archive.
+     * Packs without files still succeed (bare Minecraft + configured loader).
      */
     private fun syncModpackFiles(
         pack: ModpackDto,
         force: Boolean = false,
         onProgress: (ProgressEvent) -> Unit,
-    ): Boolean {
+    ): GithubModpackSync.SyncResult {
         downloadControl.reset()
         downloadPaused = false
         downloadControl.speedLimitBps =
@@ -855,15 +856,53 @@ class LauncherViewModel(
         }
 
         if (!pack.hasArchive || pack.archive?.url.isNullOrBlank()) {
-            error("Нет ZIP-архива и нет GitHub-манифеста для сборки")
+            ModpackSync.packDir(configState.dataDir, pack).createDirectories()
+            onProgress(
+                ProgressEvent(
+                    "Сборка без модов — только Minecraft / лоадер",
+                    1f,
+                    kind = ProgressEvent.Kind.Download,
+                ),
+            )
+            return GithubModpackSync.SyncResult(applied = true)
         }
-        return ModpackSync.syncArchive(
+        val ok = ModpackSync.syncArchive(
             dataDir = configState.dataDir,
             pack = pack,
             force = force,
             control = downloadControl,
             onProgress = onProgress,
         )
+        return GithubModpackSync.SyncResult(applied = ok)
+    }
+
+    private fun ModpackDto.withGithubMeta(meta: GithubModpackSync.SyncResult): ModpackDto {
+        if (!meta.applied) return this
+        return copy(
+            name = meta.name ?: name,
+            loader = meta.loader ?: loader,
+            mcVersion = meta.mcVersion ?: mcVersion,
+            loaderVersion = meta.loaderVersion ?: loaderVersion,
+        )
+    }
+
+    /** Install Fabric / NeoForge / vanilla client assets during pack download. */
+    private suspend fun ensurePackLoader(
+        pack: ModpackDto,
+        onProgress: (String, Float?) -> Unit,
+    ) {
+        val mcVersion = pack.mcVersion?.trim()?.ifBlank { null }
+            ?: configState.minecraftVersionId.trim().ifBlank { null }
+            ?: return
+        val loader = pack.loader?.lowercase()?.ifBlank { null } ?: "vanilla"
+        val loaderVersion = pack.loaderVersion?.trim()?.ifBlank { null }
+        val launcher = MinecraftLauncher(configState)
+        val versionId = launcher.resolveLaunchVersionId(mcVersion, loader, loaderVersion) { msg, frac ->
+            onProgress(msg, if (frac != null) 0.85f + frac * 0.08f else null)
+        }
+        launcher.ensureVersion(versionId) { msg, frac ->
+            onProgress(msg, if (frac != null) 0.93f + frac * 0.07f else null)
+        }.getOrElse { throw it }
     }
 
     fun deleteLocalModpack(pack: ModpackDto) {
@@ -1078,61 +1117,71 @@ class LauncherViewModel(
             }
             val versionId = detail?.mcVersion?.trim()?.ifBlank { null }
                 ?: configState.minecraftVersionId
-            val loader = detail?.loader?.lowercase()?.ifBlank { null } ?: "vanilla"
-            val loaderVersion = detail?.loaderVersion?.trim()?.ifBlank { null }
+            var loader = detail?.loader?.lowercase()?.ifBlank { null } ?: "vanilla"
+            var loaderVersion = detail?.loaderVersion?.trim()?.ifBlank { null }
+            var resolvedVersionId = versionId
             var instanceDir: Path? = null
             if (detail != null) {
                 instanceDir = ModpackSync.packDir(configState.dataDir, detail).also { it.createDirectories() }
-                val canGithub = configState.preferGithubModpacks &&
-                    configState.modpackGithubRepo.isNotBlank()
-                val canZip = detail.hasArchive && !detail.archive?.url.isNullOrBlank()
-                if (canGithub || canZip) {
-                    beginClientUpdate(ClientUpdatePhase.Download, "Загрузка файлов сборки…", 0.12f)
-                    yield()
-                    val synced = runCatching {
-                        withContext(Dispatchers.IO) {
-                            syncModpackFiles(detail, force = false) { event ->
-                                val phase = when (event.kind) {
-                                    ProgressEvent.Kind.Verify -> ClientUpdatePhase.Verify
-                                    else -> ClientUpdatePhase.Download
-                                }
-                                reportLaunchProgress(
-                                    event.message,
-                                    event.fraction,
-                                    event = event,
-                                    phaseOverride = phase,
-                                )
+                beginClientUpdate(ClientUpdatePhase.Download, "Загрузка файлов сборки…", 0.12f)
+                yield()
+                val synced = runCatching {
+                    withContext(Dispatchers.IO) {
+                        syncModpackFiles(detail, force = false) { event ->
+                            val phase = when (event.kind) {
+                                ProgressEvent.Kind.Verify -> ClientUpdatePhase.Verify
+                                else -> ClientUpdatePhase.Download
                             }
+                            reportLaunchProgress(
+                                event.message,
+                                event.fraction,
+                                event = event,
+                                phaseOverride = phase,
+                            )
                         }
                     }
-                    if (synced.isFailure) {
-                        val err = synced.exceptionOrNull()
-                        errorMessage = when (err) {
-                            is DownloadCancelledException -> "Скачивание отменено"
-                            else -> err?.message ?: "Не удалось скачать сборку"
-                        }
-                        clearLaunchProgress()
-                        downloadPaused = false
-                        isLoading = false
-                        return@launch
+                }
+                if (synced.isFailure) {
+                    val err = synced.exceptionOrNull()
+                    errorMessage = when (err) {
+                        is DownloadCancelledException -> "Скачивание отменено"
+                        else -> err?.message ?: "Не удалось скачать сборку"
                     }
-                } else if (loader != "vanilla") {
-                    reportLaunchProgress("Загрузка модов сборки…", 0.2f, phaseOverride = ClientUpdatePhase.Download)
-                    yield()
-                    val synced = withContext(Dispatchers.IO) { syncLegacyModJars(detail, instanceDir!!) }
-                    if (!synced) {
-                        infoMessage = "Для «${detail.name}» ещё нет ZIP-архива. Запуск через $loader."
+                    clearLaunchProgress()
+                    downloadPaused = false
+                    isLoading = false
+                    return@launch
+                }
+                val meta = synced.getOrThrow()
+                val launchPack = detail.withGithubMeta(meta)
+                resolvedVersionId = launchPack.mcVersion?.trim()?.ifBlank { null }
+                    ?: configState.minecraftVersionId
+                loader = launchPack.loader?.lowercase()?.ifBlank { null } ?: "vanilla"
+                loaderVersion = launchPack.loaderVersion?.trim()?.ifBlank { null }
+                // Install NeoForge / Fabric / vanilla client as part of pack download.
+                beginClientUpdate(ClientUpdatePhase.Client, "Установка лоадера…", 0.82f)
+                yield()
+                val loaderOk = runCatching {
+                    ensurePackLoader(launchPack) { msg, frac ->
+                        reportLaunchProgress(msg, frac, phaseOverride = ClientUpdatePhase.Client)
                     }
+                }
+                if (loaderOk.isFailure) {
+                    errorMessage = loaderOk.exceptionOrNull()?.message ?: "Не удалось установить лоадер"
+                    clearLaunchProgress()
+                    downloadPaused = false
+                    isLoading = false
+                    return@launch
                 }
                 // Pack ZIPs often ship versions/<mc>/<mc>.jar; with NeoForge that jar becomes
                 // automatic module `_1._21._1` and fights module `minecraft`.
                 if (loader == "neoforge" || loader == "forge") {
                     withContext(Dispatchers.IO) {
-                        scrubPackVanillaClientJar(instanceDir!!, versionId)
+                        scrubPackVanillaClientJar(instanceDir!!, resolvedVersionId)
                     }
                 }
             }
-            beginClientUpdate(ClientUpdatePhase.Client, "Подготовка клиента…", 0.60f)
+            beginClientUpdate(ClientUpdatePhase.Client, "Подготовка клиента…", 0.90f)
             yield()
             val result = withContext(Dispatchers.IO) {
                 mc = MinecraftLauncher(configState)
@@ -1142,7 +1191,7 @@ class LauncherViewModel(
                     ?: configState.skinsDir.resolve("${userName.trim().lowercase()}.png")
                 mc.launch(
                     username = userName,
-                    preferredVersion = versionId,
+                    preferredVersion = resolvedVersionId,
                     instanceDir = instanceDir,
                     loader = loader,
                     loaderVersion = loaderVersion,

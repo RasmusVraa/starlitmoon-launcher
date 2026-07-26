@@ -49,8 +49,9 @@ class ModLoaderInstaller(
         return when (loader.trim().lowercase()) {
             "", "vanilla" -> mc
             "fabric" -> ensureFabric(mc, loaderVersion?.trim()?.ifBlank { null }, onProgress)
-            "neoforge" -> ensureNeoForge(mc, loaderVersion?.trim()?.ifBlank { null }, onProgress)
-            else -> error("Неизвестный loader: $loader (поддерживаются vanilla, fabric, neoforge)")
+            // Classic Forge installer is not wired; NeoForge covers modern Forge-line packs (1.20.5+).
+            "neoforge", "forge" -> ensureNeoForge(mc, loaderVersion?.trim()?.ifBlank { null }, onProgress)
+            else -> error("Неизвестный loader: $loader (поддерживаются vanilla, fabric, neoforge, forge)")
         }
     }
 

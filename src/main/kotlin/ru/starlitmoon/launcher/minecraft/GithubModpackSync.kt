@@ -36,7 +36,20 @@ object GithubModpackSync {
     data class Manifest(
         val sha256: String? = null,
         val version: String? = null,
+        val name: String? = null,
+        /** vanilla / fabric / neoforge / forge — for bare or GitHub-only packs. */
+        val loader: String? = null,
+        val mcVersion: String? = null,
+        val loaderVersion: String? = null,
         val files: List<ManifestFile> = emptyList(),
+    )
+
+    data class SyncResult(
+        val applied: Boolean,
+        val loader: String? = null,
+        val mcVersion: String? = null,
+        val loaderVersion: String? = null,
+        val name: String? = null,
     )
 
     @Serializable
@@ -72,16 +85,14 @@ object GithubModpackSync {
                 error("Манифест GitHub недоступен (HTTP $code): $url")
             }
             val body = conn.inputStream.bufferedReader().use { it.readText() }
-            val manifest = json.decodeFromString<Manifest>(body)
-            if (manifest.files.isEmpty()) error("Манифест сборки пуст: $url")
-            return manifest
+            return json.decodeFromString<Manifest>(body)
         } finally {
             conn.disconnect()
         }
     }
 
     /**
-     * @return true if GitHub sync applied (or already up to date).
+     * Sync pack files from GitHub. Empty [Manifest.files] is allowed (loader-only / bare pack).
      */
     fun sync(
         dataDir: Path,
@@ -90,14 +101,21 @@ object GithubModpackSync {
         force: Boolean = false,
         control: DownloadControl = DownloadControl(),
         onProgress: (ProgressEvent) -> Unit = {},
-    ): Boolean {
+    ): SyncResult {
         val slug = pack.slug?.trim()?.ifBlank { null }
             ?: pack.id?.trim()?.ifBlank { null }
-            ?: return false
+            ?: return SyncResult(false)
         val safeSlug = slug.replace(Regex("[^a-zA-Z0-9._-]"), "_")
 
         onProgress(ProgressEvent("Загрузка манифеста GitHub…", 0.02f, kind = ProgressEvent.Kind.Download))
         val manifest = fetchManifest(source, safeSlug, control)
+        val meta = SyncResult(
+            applied = true,
+            loader = manifest.loader?.trim()?.ifBlank { null },
+            mcVersion = manifest.mcVersion?.trim()?.ifBlank { null },
+            loaderVersion = manifest.loaderVersion?.trim()?.ifBlank { null },
+            name = manifest.name?.trim()?.ifBlank { null },
+        )
         val remoteHash = manifest.sha256?.trim()?.lowercase().orEmpty()
             .ifBlank { contentFingerprint(manifest) }
 
@@ -109,7 +127,7 @@ object GithubModpackSync {
             Files.readString(marker).trim().lowercase() == remoteHash
         ) {
             onProgress(ProgressEvent("Сборка уже актуальна", 1f))
-            return true
+            return meta
         }
 
         val files = manifest.files.map { it.copy(path = it.path.trim().trimStart('/')) }
@@ -118,6 +136,19 @@ object GithubModpackSync {
         var doneBytes = 0L
         var filesDone = 0
         val filesTotal = files.size
+
+        if (files.isEmpty()) {
+            marker.writeText(remoteHash.ifBlank { "empty-loader-only" })
+            onProgress(
+                ProgressEvent(
+                    "Файлов сборки нет — только Minecraft / лоадер",
+                    1f,
+                    filesDone = 0,
+                    filesTotal = 0,
+                ),
+            )
+            return meta
+        }
 
         for (file in files) {
             control.checkpoint()
@@ -218,7 +249,7 @@ object GithubModpackSync {
 
         marker.writeText(remoteHash)
         onProgress(ProgressEvent("Сборка готова", 1f, filesDone = filesTotal, filesTotal = filesTotal))
-        return true
+        return meta
     }
 
     private fun contentFingerprint(manifest: Manifest): String {
