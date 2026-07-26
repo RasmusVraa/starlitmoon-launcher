@@ -80,8 +80,13 @@ object ModpackSync {
             .orEmpty().trim().lowercase().takeIf { it.isNotBlank() }
     }
 
+    /**
+     * Site ZIP archive path only. When [LauncherConfig.preferGithubModpacks] is on,
+     * use [GithubModpackSync.needsUpdate] with the GitHub manifest hash instead —
+     * comparing a GitHub install marker to the site ZIP sha causes a perpetual
+     * «Требуется обновление» badge.
+     */
     fun needsUpdate(dataDir: Path, pack: ModpackDto): Boolean {
-        // ZIP archive path (Starlit API).
         if (pack.hasArchive) {
             val remote = pack.archive?.sha256?.trim()?.lowercase().orEmpty()
             if (remote.isNotBlank()) {

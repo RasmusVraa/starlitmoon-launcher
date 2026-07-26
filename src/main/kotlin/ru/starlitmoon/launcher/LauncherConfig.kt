@@ -41,6 +41,11 @@ data class LauncherConfig(
     val modpackGithubRef: String = "main",
     /** Prefer GitHub per-file sync when repo is set; fall back to API ZIP. */
     val preferGithubModpacks: Boolean = true,
+    /**
+     * Local clone of starlitmoon-modpacks for admin «Опубликовать в GitHub».
+     * Empty = auto-detect sibling `../starlitmoon-modpacks` or env `STARLIT_MODPACKS_REPO`.
+     */
+    val modpackLocalRepoPath: String = "",
     /** 0 = без лимита. КБ/с для скачивания сборок. */
     val downloadSpeedLimitKBps: Int = 0,
     val sidebarExpanded: Boolean = false,

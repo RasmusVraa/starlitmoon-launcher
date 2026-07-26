@@ -103,6 +103,9 @@ class LauncherViewModel(
     var currentTab by mutableStateOf(LauncherTab.Home)
     var adminSubTab by mutableStateOf(0)
     var modpacks by mutableStateOf<List<ModpackDto>>(emptyList())
+    /** GitHub manifest content hashes keyed by slug — drives «Требуется обновление». */
+    var githubRemoteHashes by mutableStateOf<Map<String, String>>(emptyMap())
+        private set
     var isLoadingModpacks by mutableStateOf(false)
     var selectedModpack by mutableStateOf<ModpackDto?>(null)
     var packUiRevision by mutableStateOf(0)
@@ -372,6 +375,7 @@ class LauncherViewModel(
             return
         }
         modpacks = packs
+        refreshGithubUpdateMarkers(packs)
         val selectedId = configState.selectedModpackId
         selectedModpack = packs.firstOrNull { it.id == selectedId || it.slug == selectedId }
             ?: selectedModpack?.let { prev -> packs.firstOrNull { it.id == prev.id || it.slug == prev.slug } }
@@ -386,6 +390,39 @@ class LauncherViewModel(
         packUiRevision++
         if (notify && !quiet) {
             infoMessage = "Список сборок обновлён (${packs.size})"
+        }
+    }
+
+    private fun packGithubSource(pack: ModpackDto): GithubModpackSync.GithubSource? {
+        if (!configState.preferGithubModpacks) return null
+        val owner = pack.githubOwner?.trim()?.ifBlank { null } ?: configState.modpackGithubOwner
+        val repo = pack.githubRepo?.trim()?.ifBlank { null } ?: configState.modpackGithubRepo
+        val ref = pack.githubRef?.trim()?.ifBlank { null } ?: configState.modpackGithubRef
+        if (owner.isBlank() || repo.isBlank()) return null
+        return GithubModpackSync.GithubSource(owner, repo, ref)
+    }
+
+    private fun refreshGithubUpdateMarkers(packs: List<ModpackDto>) {
+        if (!configState.preferGithubModpacks) {
+            if (githubRemoteHashes.isNotEmpty()) githubRemoteHashes = emptyMap()
+            return
+        }
+        scope.launch(Dispatchers.IO) {
+            val next = linkedMapOf<String, String>()
+            for (pack in packs) {
+                val source = packGithubSource(pack) ?: continue
+                val slug = pack.slug?.trim()?.ifBlank { null }
+                    ?: pack.id?.trim()?.ifBlank { null }
+                    ?: continue
+                val safe = slug.replace(Regex("[^a-zA-Z0-9._-]"), "_")
+                runCatching { GithubModpackSync.fetchRemoteHash(source, safe) }
+                    .onSuccess { next[safe] = it }
+                    .onFailure {
+                        LauncherLog.warn("GitHub hash for $safe: ${it.message}")
+                    }
+            }
+            githubRemoteHashes = next
+            packUiRevision++
         }
     }
 
@@ -583,6 +620,11 @@ class LauncherViewModel(
     fun saveSettings(newConfig: LauncherConfig, notify: Boolean = true) {
         if (newConfig == configState) return
         val rpcChanged = newConfig.discordRpcEnabled != configState.discordRpcEnabled
+        val githubPrefChanged = newConfig.preferGithubModpacks != configState.preferGithubModpacks ||
+            newConfig.modpackGithubOwner != configState.modpackGithubOwner ||
+            newConfig.modpackGithubRepo != configState.modpackGithubRepo ||
+            newConfig.modpackGithubRef != configState.modpackGithubRef ||
+            newConfig.modpackLocalRepoPath != configState.modpackLocalRepoPath
         LauncherConfig.save(newConfig)
         configState = newConfig
         mc.close()
@@ -592,6 +634,10 @@ class LauncherViewModel(
         if (rpcChanged) {
             discordPresence.setEnabled(newConfig.discordRpcEnabled)
             if (newConfig.discordRpcEnabled) refreshDiscordPresence()
+        }
+        if (githubPrefChanged) {
+            refreshGithubUpdateMarkers(modpacks)
+            packUiRevision++
         }
         if (notify) infoMessage = "Настройки сохранены"
     }
@@ -780,6 +826,18 @@ class LauncherViewModel(
     fun packNeedsUpdate(pack: ModpackDto): Boolean {
         @Suppress("UNUSED_VARIABLE")
         val tick = packUiRevision
+        val source = packGithubSource(pack)
+        if (source != null) {
+            val slug = pack.slug?.trim()?.ifBlank { null }
+                ?: pack.id?.trim()?.ifBlank { null }
+                ?: return false
+            val safe = slug.replace(Regex("[^a-zA-Z0-9._-]"), "_")
+            val remote = githubRemoteHashes[safe]
+            // Until the GitHub hash is fetched, do not fall back to site ZIP sha —
+            // that falsely nags when the pack was installed from GitHub.
+            if (remote.isNullOrBlank()) return false
+            return GithubModpackSync.needsUpdate(configState.dataDir, pack, remote)
+        }
         return ModpackSync.needsUpdate(configState.dataDir, pack)
     }
 
@@ -1028,6 +1086,143 @@ class LauncherViewModel(
                 packUiRevision++
                 fetchModpacks(force = true)
                 refreshAdmin()
+            }.onFailure { handleError(it) }
+            clearLaunchProgress()
+            uploadingModpackId = null
+            uploadingModpackName = null
+            isLoading = false
+        }
+    }
+
+    /** Resolve local clone of starlitmoon-modpacks for admin GitHub publish. */
+    fun resolveModpacksRepoDir(): Path? {
+        val configured = configState.modpackLocalRepoPath.trim()
+        if (configured.isNotBlank()) {
+            val p = Path.of(configured)
+            if (Files.isDirectory(p.resolve("packs"))) return p.toAbsolutePath().normalize()
+        }
+        System.getenv("STARLIT_MODPACKS_REPO")?.trim()?.takeIf { it.isNotBlank() }?.let { env ->
+            val p = Path.of(env)
+            if (Files.isDirectory(p.resolve("packs"))) return p.toAbsolutePath().normalize()
+        }
+        val candidates = listOf(
+            Path.of(System.getProperty("user.dir"), "..", "starlitmoon-modpacks"),
+            Path.of(System.getProperty("user.home"), "Projects", "Projects", "starlitmoon-modpacks"),
+            Path.of("F:", "Projects", "Projects", "starlitmoon-modpacks"),
+        )
+        return candidates
+            .map { it.toAbsolutePath().normalize() }
+            .firstOrNull { Files.isDirectory(it.resolve("packs")) }
+    }
+
+    private fun resolvePublishModpackScript(): Path? {
+        val candidates = listOf(
+            Path.of(System.getProperty("user.dir"), "scripts", "publish-modpack.ps1"),
+            Path.of("F:", "Projects", "Projects", "starlitmoon-launcher", "scripts", "publish-modpack.ps1"),
+        )
+        return candidates
+            .map { it.toAbsolutePath().normalize() }
+            .firstOrNull { Files.isRegularFile(it) }
+    }
+
+    /**
+     * Admin: publish pack ZIP into local starlitmoon-modpacks clone (manifest + git commit/push).
+     * This is the primary update channel when preferGithubModpacks is on.
+     */
+    fun publishModpackToGithub(
+        pack: ModpackDto,
+        zipPath: String,
+        version: String = "",
+        push: Boolean = true,
+    ) {
+        if (!isAdmin) {
+            errorMessage = "Нужны права администратора"
+            return
+        }
+        if (uploadingModpackId != null) {
+            errorMessage = "Уже идёт загрузка другой сборки"
+            return
+        }
+        val slug = pack.slug?.trim()?.ifBlank { null } ?: pack.id?.trim()?.ifBlank { null }
+        if (slug.isNullOrBlank()) {
+            errorMessage = "У сборки нет slug"
+            return
+        }
+        val repo = resolveModpacksRepoDir()
+        if (repo == null) {
+            errorMessage =
+                "Не найден клон starlitmoon-modpacks. Укажите путь в настройках (modpackLocalRepoPath) или STARLIT_MODPACKS_REPO."
+            return
+        }
+        val script = resolvePublishModpackScript()
+        if (script == null) {
+            errorMessage = "Не найден scripts/publish-modpack.ps1"
+            return
+        }
+        val zip = Path.of(zipPath)
+        if (!Files.isRegularFile(zip)) {
+            errorMessage = "ZIP не найден"
+            return
+        }
+        val packName = pack.name ?: slug
+        val uploadKey = "gh:$slug"
+        scope.launch {
+            isLoading = true
+            uploadingModpackId = uploadKey
+            uploadingModpackName = "$packName → GitHub"
+            beginClientUpdate(ClientUpdatePhase.Download, "Публикация «$packName» в GitHub…", 0.05f)
+            errorMessage = null
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    val args = mutableListOf(
+                        "powershell.exe",
+                        "-NoProfile",
+                        "-ExecutionPolicy", "Bypass",
+                        "-File", script.toString(),
+                        "-Slug", slug,
+                        "-ZipPath", zip.toAbsolutePath().toString(),
+                        "-RepoDir", repo.toString(),
+                        "-Name", packName,
+                        "-Loader", pack.loader?.trim().orEmpty().ifBlank { "neoforge" },
+                    )
+                    pack.mcVersion?.trim()?.takeIf { it.isNotEmpty() }?.let {
+                        args += listOf("-McVersion", it)
+                    }
+                    pack.loaderVersion?.trim()?.takeIf { it.isNotEmpty() }?.let {
+                        args += listOf("-LoaderVersion", it)
+                    }
+                    version.trim().takeIf { it.isNotEmpty() }?.let {
+                        args += listOf("-Version", it)
+                    }
+                    if (push) args += "-Push"
+                    reportLaunchProgress("Запуск publish-modpack.ps1…", 0.1f, phaseOverride = ClientUpdatePhase.Download)
+                    val pb = ProcessBuilder(args)
+                    pb.redirectErrorStream(true)
+                    pb.directory(repo.toFile())
+                    val proc = pb.start()
+                    val log = StringBuilder()
+                    proc.inputStream.bufferedReader().use { reader ->
+                        var line: String?
+                        while (reader.readLine().also { line = it } != null) {
+                            val text = line ?: continue
+                            log.appendLine(text)
+                            LauncherLog.info(text)
+                            reportLaunchProgress(
+                                text.removePrefix("[publish-modpack] ").take(120),
+                                0.4f,
+                                phaseOverride = ClientUpdatePhase.Download,
+                            )
+                        }
+                    }
+                    val code = proc.waitFor()
+                    if (code != 0) {
+                        error("publish-modpack завершился с кодом $code\n${log.takeLast(800)}")
+                    }
+                }
+            }.onSuccess {
+                infoMessage = "Сборка «$packName» опубликована в GitHub ($slug)"
+                refreshGithubUpdateMarkers(modpacks)
+                packUiRevision++
             }.onFailure { handleError(it) }
             clearLaunchProgress()
             uploadingModpackId = null

@@ -117,7 +117,7 @@ object GithubModpackSync {
     fun fileUrl(source: GithubSource, slug: String, relativePath: String): String =
         fileUrlLfs(source, slug, relativePath)
 
-    fun fetchManifest(source: GithubSource, slug: String, control: DownloadControl): Manifest {
+    fun fetchManifest(source: GithubSource, slug: String, control: DownloadControl = DownloadControl()): Manifest {
         control.checkpoint()
         val url = manifestUrlFresh(source, slug)
         val conn = openGet(url)
@@ -131,6 +131,25 @@ object GithubModpackSync {
         } finally {
             conn.disconnect()
         }
+    }
+
+    /** Stable content hash used for local markers and update checks. */
+    fun remoteContentHash(manifest: Manifest): String =
+        manifest.sha256?.trim()?.lowercase().orEmpty()
+            .ifBlank { contentFingerprint(manifest) }
+
+    fun fetchRemoteHash(source: GithubSource, slug: String): String =
+        remoteContentHash(fetchManifest(source, slug))
+
+    /**
+     * True when the pack is installed locally and the marker differs from [remoteHash].
+     * Missing local install → false (show «Скачать», not «Требуется обновление»).
+     */
+    fun needsUpdate(dataDir: Path, pack: ModpackDto, remoteHash: String?): Boolean {
+        val remote = remoteHash?.trim()?.lowercase().orEmpty()
+        if (remote.isBlank()) return false
+        val local = ModpackSync.localArchiveSha(dataDir, pack) ?: return false
+        return local != remote
     }
 
     /**
@@ -160,16 +179,13 @@ object GithubModpackSync {
             loaderVersion = manifest.loaderVersion?.trim()?.ifBlank { null },
             name = manifest.name?.trim()?.ifBlank { null },
         )
-        val remoteHash = manifest.sha256?.trim()?.lowercase().orEmpty()
-            .ifBlank { contentFingerprint(manifest) }
+        val remoteHash = remoteContentHash(manifest)
 
         val dir = ModpackSync.packDir(dataDir, pack)
         dir.createDirectories()
         val marker = dir.resolve(MARKER)
 
-        if (!force && remoteHash.isNotBlank() && marker.exists() &&
-            Files.readString(marker).trim().lowercase() == remoteHash
-        ) {
+        if (!force && !needsUpdate(dataDir, pack, remoteHash)) {
             onProgress(ProgressEvent("Сборка уже актуальна", 1f))
             return meta
         }

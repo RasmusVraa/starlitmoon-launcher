@@ -46,7 +46,10 @@ class UpdateChecker(
         val release = response.body<GitHubRelease>()
         val latest = normalizeVersion(release.tagName)
         val current = normalizeVersion(currentVersion)
-        if (!isNewer(latest, current)) return@runCatching null
+        // Equal or newer local → no update. Only prompt when remote is strictly newer.
+        if (!isNewer(latest, current)) {
+            return@runCatching null
+        }
 
         val pkg = pickPackage(release.assets)
             ?: return@runCatching UpdateInfo(

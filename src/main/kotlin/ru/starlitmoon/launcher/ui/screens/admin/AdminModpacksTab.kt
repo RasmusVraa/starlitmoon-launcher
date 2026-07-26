@@ -51,98 +51,163 @@ fun AdminModpacksSection(vm: LauncherViewModel) {
     var editing by remember { mutableStateOf<ModpackDto?>(null) }
     var deletePack by remember { mutableStateOf<ModpackDto?>(null) }
     var deleteArchivePack by remember { mutableStateOf<ModpackDto?>(null) }
+    var githubPublishPack by remember { mutableStateOf<ModpackDto?>(null) }
 
     val packs = if (vm.adminModpacks.isNotEmpty()) vm.adminModpacks else vm.modpacks
     val uploading = vm.uploadingModpackId != null
+    val preferGh = vm.configState.preferGithubModpacks
+    val repoDir = remember(vm.configState.modpackLocalRepoPath, vm.configState.preferGithubModpacks) {
+        vm.resolveModpacksRepoDir()?.toString()
+    }
 
     Box(modifier = Modifier.fillMaxWidth()) {
-        AdminSectionCard(
-            "Сборки лаунчера",
-            "Официальные сборки. Загрузка ZIP включает у игроков «Требуется обновление».",
-            trailing = {
-                StarlitPrimaryButton(
-                    text = "Создать",
-                    onClick = { creating = true },
-                    compact = true,
-                    modifier = Modifier.width(110.dp),
-                    enabled = !uploading,
+        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            AdminSectionCard(
+                "Загрузка сборок",
+                if (preferGh) {
+                    "Основной канал: GitHub (${vm.configState.modpackGithubOwner}/${vm.configState.modpackGithubRepo}). " +
+                        "ZIP публикуется в packs/{slug}/ + manifest — у игроков появляется «Требуется обновление»."
+                } else {
+                    "Сейчас включён ZIP с сайта. Для GitHub включите «Сборки с GitHub» в настройках."
+                },
+            ) {
+                Text(
+                    "Локальный клон: ${repoDir ?: "не найден — укажите путь ниже или STARLIT_MODPACKS_REPO"}",
+                    color = if (repoDir != null) StarlitColors.TextMuted else StarlitColors.Offline,
+                    fontSize = 12.sp,
                 )
-            },
-        ) {
-            if (packs.isEmpty()) AdminEmpty("Сборок нет")
-            packs.forEach { pack ->
-                val thisUploading = uploading && pack.id == vm.uploadingModpackId
-                Column(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                var repoPath by remember(vm.configState.modpackLocalRepoPath) {
+                    mutableStateOf(vm.configState.modpackLocalRepoPath)
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    StarlitTextField(
+                        value = repoPath,
+                        onValueChange = { repoPath = it },
+                        label = "Путь к клону starlitmoon-modpacks",
+                        modifier = Modifier.weight(1f),
+                    )
+                    StarlitSecondaryButton(
+                        text = "Сохранить путь",
+                        onClick = {
+                            vm.saveSettings(
+                                vm.configState.copy(modpackLocalRepoPath = repoPath.trim()),
+                                notify = true,
+                            )
+                        },
+                        compact = true,
+                        modifier = Modifier.width(140.dp),
+                        enabled = !uploading,
+                    )
+                }
+            }
+
+            AdminSectionCard(
+                "Сборки лаунчера",
+                "Карточки на сайте + публикация файлов. GitHub — для игроков; ZIP на сайт — резерв.",
+                trailing = {
+                    StarlitPrimaryButton(
+                        text = "Создать",
+                        onClick = { creating = true },
+                        compact = true,
+                        modifier = Modifier.width(110.dp),
+                        enabled = !uploading,
+                    )
+                },
+            ) {
+                if (packs.isEmpty()) AdminEmpty("Сборок нет")
+                packs.forEach { pack ->
+                    val thisUploading = uploading && (
+                        pack.id == vm.uploadingModpackId ||
+                            vm.uploadingModpackId == "gh:${pack.slug}" ||
+                            vm.uploadingModpackId == "gh:${pack.id}"
+                        )
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                pack.name ?: pack.slug ?: "—",
-                                color = StarlitColors.Text,
-                                fontWeight = FontWeight.SemiBold,
-                            )
-                            Text(
-                                listOfNotNull(
-                                    pack.loader,
-                                    pack.mcVersion?.let { "MC $it" },
-                                    if (pack.hasArchive) "ZIP есть" else "без ZIP",
-                                    if (!pack.enabled) "выключена" else null,
-                                    if (thisUploading) "загрузка…" else null,
-                                ).joinToString(" · "),
-                                color = if (thisUploading) StarlitColors.Gold else StarlitColors.TextMuted,
-                                fontSize = 11.sp,
-                            )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    pack.name ?: pack.slug ?: "—",
+                                    color = StarlitColors.Text,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                                Text(
+                                    listOfNotNull(
+                                        pack.slug,
+                                        pack.loader,
+                                        pack.mcVersion?.let { "MC $it" },
+                                        if (pack.hasArchive) "ZIP на сайте" else "без ZIP сайта",
+                                        if (!pack.enabled) "выключена" else null,
+                                        if (thisUploading) "загрузка…" else null,
+                                    ).joinToString(" · "),
+                                    color = if (thisUploading) StarlitColors.Gold else StarlitColors.TextMuted,
+                                    fontSize = 11.sp,
+                                )
+                            }
+                            AdminCheckbox(pack.enabled, "вкл", { on ->
+                                if (!uploading) pack.id?.let { vm.updateModpackMeta(it, enabled = on) }
+                            })
                         }
-                        AdminCheckbox(pack.enabled, "вкл", { on ->
-                            if (!uploading) pack.id?.let { vm.updateModpackMeta(it, enabled = on) }
-                        })
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        StarlitPrimaryButton(
-                            text = when {
-                                thisUploading -> "Загрузка…"
-                                pack.hasArchive -> "Обновить ZIP"
-                                else -> "Загрузить ZIP"
-                            },
-                            onClick = {
-                                NativeFilePicker.pickOpenFile("ZIP сборки", "ZIP", "zip")?.let {
-                                    vm.uploadModpackUpdate(pack, it.absolutePath)
-                                }
-                            },
-                            compact = true,
-                            enabled = !uploading && !pack.id.isNullOrBlank(),
-                            loading = thisUploading,
-                            modifier = Modifier.width(150.dp),
-                        )
-                        StarlitSecondaryButton(
-                            text = "Изменить",
-                            onClick = { editing = pack },
-                            compact = true,
-                            modifier = Modifier.width(110.dp),
-                            enabled = !uploading,
-                        )
-                        if (pack.hasArchive) {
-                            StarlitSecondaryButton(
-                                text = "Убрать ZIP",
-                                onClick = { deleteArchivePack = pack },
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            StarlitPrimaryButton(
+                                text = when {
+                                    thisUploading && vm.uploadingModpackId?.startsWith("gh:") == true -> "GitHub…"
+                                    else -> "В GitHub"
+                                },
+                                onClick = { githubPublishPack = pack },
                                 compact = true,
+                                enabled = !uploading && !pack.slug.isNullOrBlank(),
+                                loading = thisUploading && vm.uploadingModpackId?.startsWith("gh:") == true,
                                 modifier = Modifier.width(120.dp),
+                            )
+                            StarlitSecondaryButton(
+                                text = when {
+                                    thisUploading && vm.uploadingModpackId?.startsWith("gh:") != true -> "Сайт…"
+                                    pack.hasArchive -> "ZIP → сайт"
+                                    else -> "ZIP → сайт"
+                                },
+                                onClick = {
+                                    NativeFilePicker.pickOpenFile("ZIP сборки", "ZIP", "zip")?.let {
+                                        vm.uploadModpackUpdate(pack, it.absolutePath)
+                                    }
+                                },
+                                compact = true,
+                                enabled = !uploading && !pack.id.isNullOrBlank(),
+                                modifier = Modifier.width(120.dp),
+                            )
+                            StarlitSecondaryButton(
+                                text = "Изменить",
+                                onClick = { editing = pack },
+                                compact = true,
+                                modifier = Modifier.width(110.dp),
+                                enabled = !uploading,
+                            )
+                            if (pack.hasArchive) {
+                                StarlitSecondaryButton(
+                                    text = "Убрать ZIP",
+                                    onClick = { deleteArchivePack = pack },
+                                    compact = true,
+                                    modifier = Modifier.width(120.dp),
+                                    enabled = !uploading,
+                                )
+                            }
+                            StarlitPrimaryButton(
+                                text = "Удалить",
+                                onClick = { deletePack = pack },
+                                compact = true,
+                                danger = true,
+                                modifier = Modifier.width(100.dp),
                                 enabled = !uploading,
                             )
                         }
-                        StarlitPrimaryButton(
-                            text = "Удалить",
-                            onClick = { deletePack = pack },
-                            compact = true,
-                            danger = true,
-                            modifier = Modifier.width(100.dp),
-                            enabled = !uploading,
-                        )
                     }
                 }
             }
@@ -166,7 +231,11 @@ fun AdminModpacksSection(vm: LauncherViewModel) {
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         Text(
-                            "Загрузка ZIP на сайт",
+                            if (vm.uploadingModpackId?.startsWith("gh:") == true) {
+                                "Публикация в GitHub"
+                            } else {
+                                "Загрузка ZIP на сайт"
+                            },
                             color = StarlitColors.Gold,
                             fontWeight = FontWeight.Bold,
                             fontSize = 18.sp,
@@ -194,10 +263,20 @@ fun AdminModpacksSection(vm: LauncherViewModel) {
 
     if (creating) ModpackEditorDialog(vm, null) { creating = false }
     editing?.let { ModpackEditorDialog(vm, it) { editing = null } }
+    githubPublishPack?.let { pack ->
+        GithubPublishDialog(
+            pack = pack,
+            onDismiss = { githubPublishPack = null },
+            onPublish = { zip, version, push ->
+                vm.publishModpackToGithub(pack, zip, version, push)
+                githubPublishPack = null
+            },
+        )
+    }
     deletePack?.let { p ->
         StarlitConfirmDialog(
             title = "Удалить сборку?",
-            message = "Сборка «${p.name}» будет удалена вместе с архивом.",
+            message = "Сборка «${p.name}» будет удалена вместе с архивом на сайте (GitHub не трогаем).",
             danger = true,
             onConfirm = { p.id?.let { vm.deleteModpack(it) }; deletePack = null },
             onDismiss = { deletePack = null },
@@ -206,11 +285,102 @@ fun AdminModpacksSection(vm: LauncherViewModel) {
     deleteArchivePack?.let { p ->
         StarlitConfirmDialog(
             title = "Удалить ZIP?",
-            message = "Архив сборки «${p.name}» будет удалён.",
+            message = "Архив сборки «${p.name}» будет удалён с сайта.",
             danger = true,
             onConfirm = { p.id?.let { vm.deleteModpackArchive(it) }; deleteArchivePack = null },
             onDismiss = { deleteArchivePack = null },
         )
+    }
+}
+
+@Composable
+private fun GithubPublishDialog(
+    pack: ModpackDto,
+    onDismiss: () -> Unit,
+    onPublish: (zipPath: String, version: String, push: Boolean) -> Unit,
+) {
+    var version by remember { mutableStateOf("") }
+    var zipPath by remember { mutableStateOf("") }
+    var push by remember { mutableStateOf(true) }
+
+    Popup(
+        alignment = Alignment.Center,
+        onDismissRequest = onDismiss,
+        properties = PopupProperties(focusable = true, dismissOnBackPress = true, dismissOnClickOutside = true),
+    ) {
+        Box(
+            modifier = Modifier.fillMaxSize().background(StarlitColors.OverlayScrim),
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(
+                modifier = Modifier
+                    .widthIn(min = 440.dp, max = 560.dp)
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(Brush.verticalGradient(listOf(Color(0xFF161C2B), Color(0xFF0E121C))))
+                    .border(1.dp, StarlitColors.BorderStrong, RoundedCornerShape(18.dp))
+                    .padding(22.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(
+                    "Публикация в GitHub",
+                    color = StarlitColors.Text,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp,
+                )
+                Text(
+                    "«${pack.name ?: pack.slug}» → packs/${pack.slug}/ + manifest.json",
+                    color = StarlitColors.TextMuted,
+                    fontSize = 13.sp,
+                )
+                StarlitTextField(
+                    value = version,
+                    onValueChange = { version = it },
+                    label = "Версия (пусто = дата)",
+                )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        zipPath.ifBlank { "ZIP не выбран" },
+                        color = StarlitColors.TextMuted,
+                        fontSize = 12.sp,
+                        modifier = Modifier.weight(1f),
+                        maxLines = 2,
+                    )
+                    StarlitSecondaryButton(
+                        text = "Выбрать ZIP",
+                        onClick = {
+                            NativeFilePicker.pickOpenFile("ZIP сборки", "ZIP", "zip")?.let {
+                                zipPath = it.absolutePath
+                            }
+                        },
+                        compact = true,
+                        modifier = Modifier.width(130.dp),
+                    )
+                }
+                AdminCheckbox(push, "Сразу git push", { push = it })
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                    StarlitPrimaryButton(
+                        text = "Опубликовать",
+                        onClick = {
+                            if (zipPath.isNotBlank()) onPublish(zipPath, version, push)
+                        },
+                        modifier = Modifier.weight(1f),
+                        compact = true,
+                        enabled = zipPath.isNotBlank(),
+                    )
+                    StarlitSecondaryButton(
+                        text = "Отмена",
+                        onClick = onDismiss,
+                        modifier = Modifier.weight(1f),
+                        compact = true,
+                    )
+                }
+            }
+        }
     }
 }
 
