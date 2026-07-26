@@ -131,11 +131,35 @@ fun SkinPreview3D(
             frame = null
             return@LaunchedEffect
         }
-        // Sensible software-raster res: sharp enough, cheap enough for ~30fps walk + drag.
-        val outW = (previewSize.value * 0.85f).roundToInt().coerceIn(140, 420)
-        val outH = (outW * 1.22f).roundToInt()
+        // Display buffer size; rasterize at 1.5× then bilinear-downscale for mild edge AA
+        // without turning Minecraft texels to mush.
+        val displayW = (previewSize.value * 0.85f).roundToInt().coerceIn(140, 420)
+        val displayH = (displayW * 1.22f).roundToInt()
+        val outW = displayW * 3 / 2
+        val outH = displayH * 3 / 2
         val buffers = SkinModelRenderer.Buffers(outW, outH)
-        val bgra = ByteArray(outW * outH * 4)
+        val bgra = ByteArray(displayW * displayH * 4)
+        val downPixels = IntArray(displayW * displayH)
+        val hiImg = BufferedImage(outW, outH, BufferedImage.TYPE_INT_ARGB)
+        val loImg = BufferedImage(displayW, displayH, BufferedImage.TYPE_INT_ARGB)
+
+        fun rasterToBitmap(
+            yawDeg: Float,
+            pitchDeg: Float,
+            pose: SkinModelRenderer.WalkPose,
+        ): ImageBitmap {
+            val pixels = SkinModelRenderer.render(
+                mesh = data.mesh,
+                yawDeg = yawDeg,
+                pitchDeg = pitchDeg,
+                outW = outW,
+                outH = outH,
+                buffers = buffers,
+                pose = pose,
+            )
+            downscaleBilinear(pixels, outW, outH, displayW, displayH, hiImg, loImg, downPixels)
+            return argbPixelsToBitmap(downPixels, displayW, displayH, bgra)
+        }
 
         if (animated) {
             snapshotFlow { Triple(yaw, pitch, animProgress) }
@@ -143,17 +167,7 @@ fun SkinPreview3D(
                 .collect { (y, p, progress) ->
                     val bmp = withContext(Dispatchers.Default) {
                         runCatching {
-                            val pose = SkinModelRenderer.WalkPose.fromProgress(progress)
-                            val pixels = SkinModelRenderer.render(
-                                mesh = data.mesh,
-                                yawDeg = y,
-                                pitchDeg = p,
-                                outW = outW,
-                                outH = outH,
-                                buffers = buffers,
-                                pose = pose,
-                            )
-                            argbPixelsToBitmap(pixels, outW, outH, bgra)
+                            rasterToBitmap(y, p, SkinModelRenderer.WalkPose.fromProgress(progress))
                         }.getOrNull()
                     }
                     if (bmp != null) frame = bmp
@@ -165,16 +179,7 @@ fun SkinPreview3D(
                 .collect { (y, p) ->
                     val bmp = withContext(Dispatchers.Default) {
                         runCatching {
-                            val pixels = SkinModelRenderer.render(
-                                mesh = data.mesh,
-                                yawDeg = y,
-                                pitchDeg = p,
-                                outW = outW,
-                                outH = outH,
-                                buffers = buffers,
-                                pose = SkinModelRenderer.WalkPose(),
-                            )
-                            argbPixelsToBitmap(pixels, outW, outH, bgra)
+                            rasterToBitmap(y, p, SkinModelRenderer.WalkPose())
                         }.getOrNull()
                     }
                     if (bmp != null) frame = bmp
@@ -252,7 +257,8 @@ fun SkinPreview3D(
                 bitmap = bmp,
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize().padding(6.dp),
-                filterQuality = FilterQuality.None,
+                // Mild bilinear when fitting into the box (AA already applied via supersample).
+                filterQuality = FilterQuality.Low,
                 contentScale = ContentScale.Fit,
             )
         } else {
@@ -371,6 +377,30 @@ private fun hasVisiblePixels(img: BufferedImage): Boolean {
         if (((img.getRGB(x, y) ushr 24) and 0xFF) > 10) return true
     }
     return false
+}
+
+/** Bilinear downsample of a software-raster frame (reuses [hi]/[lo]/[dst] buffers). */
+private fun downscaleBilinear(
+    src: IntArray,
+    sw: Int,
+    sh: Int,
+    dw: Int,
+    dh: Int,
+    hi: BufferedImage,
+    lo: BufferedImage,
+    dst: IntArray,
+) {
+    hi.setRGB(0, 0, sw, sh, src, 0, sw)
+    val g = lo.createGraphics()
+    try {
+        g.composite = AlphaComposite.Src
+        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR)
+        g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY)
+        g.drawImage(hi, 0, 0, dw, dh, null)
+    } finally {
+        g.dispose()
+    }
+    lo.getRGB(0, 0, dw, dh, dst, 0, dw)
 }
 
 /** Fast ARGB int[] → Compose ImageBitmap via Skia (no PNG encode/decode). */
