@@ -95,10 +95,7 @@ fun SkinsScreen(vm: LauncherViewModel) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(360.dp)
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(Color(0x22101828))
-                        .border(1.dp, Color(0x28788CDC), RoundedCornerShape(16.dp)),
+                        .height(360.dp),
                     contentAlignment = Alignment.Center,
                 ) {
                     SkinPreview3D(

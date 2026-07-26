@@ -355,7 +355,13 @@ private fun ProfileHero(vm: LauncherViewModel, player: PublicProfilePlayerDto) {
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (skinPath != null) {
-                SkinPreview3D(skinPath = skinPath, capePath = capePath, previewSize = 200.dp, username = name)
+                SkinPreview3D(
+                    skinPath = skinPath,
+                    capePath = capePath,
+                    previewSize = 200.dp,
+                    username = name,
+                    showHint = true,
+                )
             } else {
                 NetworkAvatar(
                     url = vm.playerAvatarUrl(name, player.uuid, player.skinTextureHash, player.skinUrl, 128),

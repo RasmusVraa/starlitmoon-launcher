@@ -2,28 +2,39 @@ package ru.starlitmoon.launcher.ui.components
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.withContext
 import org.jetbrains.skia.Image as SkiaImage
 import ru.starlitmoon.launcher.ui.theme.StarlitColors
@@ -35,65 +46,148 @@ import java.nio.file.Files
 import java.nio.file.Path
 import javax.imageio.ImageIO
 import kotlin.io.path.exists
+import kotlin.math.roundToInt
 
 /**
- * Static local 2D preview: front body of the skin + cape front beside it.
- * No network / WebGL / animation.
+ * Interactive 3D skin preview: full player body from PNG (classic + slim), optional cape,
+ * drag to rotate. Software-rasterized — no WebGL / native deps.
  */
 @Composable
 fun SkinPreview3D(
     skinPath: Path?,
     capePath: Path? = null,
-    slim: Boolean = false,
+    slim: Boolean? = null,
     modifier: Modifier = Modifier,
     previewSize: Dp = 220.dp,
     @Suppress("UNUSED_PARAMETER") animated: Boolean = false,
     @Suppress("UNUSED_PARAMETER") skinUrl: String? = null,
     @Suppress("UNUSED_PARAMETER") username: String = "Steve",
     revision: Int = 0,
+    showHint: Boolean = true,
 ) {
+    var yaw by remember { mutableFloatStateOf(28f) }
+    var pitch by remember { mutableFloatStateOf(-6f) }
     var frame by remember { mutableStateOf<ImageBitmap?>(null) }
+    var loaded by remember { mutableStateOf<LoadedSkin?>(null) }
 
     LaunchedEffect(skinPath, capePath, slim, revision) {
         val skin = skinPath
         if (skin == null || !skin.exists()) {
+            loaded = null
             frame = null
             return@LaunchedEffect
         }
-        frame = withContext(Dispatchers.IO) {
+        loaded = withContext(Dispatchers.IO) {
             runCatching {
-                val atlas = normalizeSkin(ImageIO.read(Files.newInputStream(skin))) ?: return@runCatching null
-                val cape = capePath?.takeIf { it.exists() }?.let {
+                val atlasImg = normalizeSkin(ImageIO.read(Files.newInputStream(skin))) ?: return@runCatching null
+                val skinAtlas = SkinModelRenderer.toAtlas(atlasImg)
+                val capeAtlas = capePath?.takeIf { it.exists() }?.let {
                     runCatching {
-                        ensureArgb(ImageIO.read(Files.newInputStream(it)) ?: return@runCatching null)
+                        SkinModelRenderer.toAtlas(ensureArgb(ImageIO.read(Files.newInputStream(it)) ?: return@runCatching null))
                     }.getOrNull()
                 }
-                toBitmap(renderFrontWithCape(atlas, cape, slim, scale = 14))
+                val isSlim = slim ?: SkinModelRenderer.detectSlim(skinAtlas)
+                LoadedSkin(skinAtlas, capeAtlas, isSlim)
             }.getOrNull()
         }
+        if (loaded == null) frame = null
+    }
+
+    LaunchedEffect(loaded, previewSize) {
+        val data = loaded ?: run {
+            frame = null
+            return@LaunchedEffect
+        }
+        val px = (previewSize.value * 1.15f).roundToInt().coerceIn(160, 420)
+        val outW = px
+        val outH = (px * 1.25f).roundToInt()
+        snapshotFlow { yaw to pitch }
+            .distinctUntilChanged()
+            .collectLatest { (y, p) ->
+                frame = withContext(Dispatchers.Default) {
+                    runCatching {
+                        val buf = SkinModelRenderer.render(
+                            skin = data.skin,
+                            cape = data.cape,
+                            slim = data.slim,
+                            yawDeg = y,
+                            pitchDeg = p,
+                            outW = outW,
+                            outH = outH,
+                        )
+                        toBitmap(SkinModelRenderer.pixelsToImage(buf, outW, outH))
+                    }.getOrNull()
+                }
+            }
     }
 
     Box(
         modifier = modifier
             .size(previewSize)
             .clip(RoundedCornerShape(16.dp))
-            .background(StarlitColors.Purple.copy(alpha = 0.14f)),
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        Color(0xFF161C30),
+                        Color(0xFF0A0E1C),
+                    ),
+                ),
+            )
+            .border(1.dp, Color(0x33788CDC), RoundedCornerShape(16.dp))
+            .pointerInput(Unit) {
+                detectDragGestures { change, drag ->
+                    change.consume()
+                    yaw += drag.x * 0.45f
+                    pitch = (pitch - drag.y * 0.32f).coerceIn(-32f, 32f)
+                }
+            },
         contentAlignment = Alignment.Center,
     ) {
+        // Soft stage glow (matches website skin stage atmosphere).
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.radialGradient(
+                        colors = listOf(
+                            StarlitColors.Gold.copy(alpha = 0.10f),
+                            StarlitColors.Purple.copy(alpha = 0.06f),
+                            Color.Transparent,
+                        ),
+                    ),
+                ),
+        )
         val bmp = frame
         if (bmp != null) {
             Image(
                 bitmap = bmp,
                 contentDescription = null,
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxSize().padding(8.dp),
                 filterQuality = FilterQuality.None,
                 contentScale = ContentScale.Fit,
             )
         } else {
             Text("Нет скина", color = StarlitColors.TextMuted, fontSize = 12.sp)
         }
+        if (showHint && bmp != null) {
+            Text(
+                "Свайп — поворот",
+                color = StarlitColors.TextMuted.copy(alpha = 0.85f),
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 8.dp),
+            )
+        }
     }
 }
+
+private data class LoadedSkin(
+    val skin: SkinModelRenderer.Atlas,
+    val cape: SkinModelRenderer.Atlas?,
+    val slim: Boolean,
+)
 
 @Composable
 fun LocalSkinFace(
@@ -168,7 +262,6 @@ private fun ensureArgb(src: BufferedImage): BufferedImage {
     val out = BufferedImage(src.width, src.height, BufferedImage.TYPE_INT_ARGB)
     val g = out.createGraphics()
     try {
-        // Src (not SrcOver) — keep transparent pixels; avoid opaque white fill.
         g.composite = AlphaComposite.Src
         g.drawImage(src, 0, 0, null)
     } finally {
@@ -196,77 +289,4 @@ private fun toBitmap(img: BufferedImage): ImageBitmap {
     val baos = ByteArrayOutputStream()
     ImageIO.write(img, "PNG", baos)
     return SkiaImage.makeFromEncoded(baos.toByteArray()).toComposeImageBitmap()
-}
-
-private fun part(skin: BufferedImage, u: Int, v: Int, w: Int, h: Int): BufferedImage? {
-    if (u < 0 || v < 0 || u + w > skin.width || v + h > skin.height) return null
-    val p = skin.getSubimage(u, v, w, h)
-    return if (hasVisiblePixels(p)) p else null
-}
-
-/** Front body (16×32) + optional cape front on the right. */
-private fun renderFrontWithCape(
-    skin: BufferedImage,
-    cape: BufferedImage?,
-    slim: Boolean,
-    scale: Int,
-): BufferedImage {
-    val armW = if (slim) 3 else 4
-    val pad = 2
-    val bodyW = 16
-    val bodyH = 32
-    val capeW = 10
-    val capeH = 16
-    val gap = 4
-    val hasCape = cape != null && cape.width >= 22 && cape.height >= 17
-    val canvasW = pad * 2 + bodyW + if (hasCape) gap + capeW else 0
-    val canvasH = pad * 2 + bodyH
-
-    val base = BufferedImage(canvasW, canvasH, BufferedImage.TYPE_INT_ARGB)
-    val g = base.createGraphics()
-    g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR)
-
-    val ox = pad
-    val oy = pad
-
-    fun draw(img: BufferedImage?, x: Int, y: Int, w: Int = img?.width ?: 0, h: Int = img?.height ?: 0) {
-        if (img == null || w <= 0 || h <= 0) return
-        g.drawImage(img, ox + x, oy + y, w, h, null)
-    }
-
-    // Legs
-    draw(part(skin, 4, 20, 4, 12), 4, 20)
-    draw(part(skin, 20, 52, 4, 12), 8, 20)
-    draw(part(skin, 4, 36, 4, 12), 4, 20)
-    draw(part(skin, 4, 52, 4, 12), 8, 20)
-    // Body
-    draw(part(skin, 20, 20, 8, 12), 4, 8)
-    draw(part(skin, 20, 36, 8, 12), 4, 8)
-    // Arms
-    draw(part(skin, 44, 20, armW, 12), 4 - armW, 8)
-    draw(part(skin, 36, 52, armW, 12), 12, 8)
-    draw(part(skin, 44, 36, armW, 12), 4 - armW, 8)
-    draw(part(skin, 52, 52, armW, 12), 12, 8)
-    // Head + hat
-    draw(part(skin, 8, 8, 8, 8), 4, 0)
-    draw(part(skin, 40, 8, 8, 8), 4, 0)
-
-    if (hasCape) {
-        runCatching { cape!!.getSubimage(1, 1, 10, 16) }.getOrNull()?.let { c ->
-            // Preserve cape alpha (transparent backgrounds).
-            g.composite = AlphaComposite.SrcOver
-            g.drawImage(c, ox + bodyW + gap, oy + 8, capeW, capeH, null)
-        }
-    }
-
-    g.dispose()
-
-    val outW = canvasW * scale
-    val outH = canvasH * scale
-    val out = BufferedImage(outW, outH, BufferedImage.TYPE_INT_ARGB)
-    val og = out.createGraphics()
-    og.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR)
-    og.drawImage(base, 0, 0, outW, outH, null)
-    og.dispose()
-    return out
 }
