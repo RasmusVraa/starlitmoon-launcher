@@ -69,11 +69,20 @@ object GithubModpackSync {
     fun manifestUrl(source: GithubSource, slug: String): String =
         "https://raw.githubusercontent.com/${source.owner}/${source.repo}/${source.ref}/packs/$slug/manifest.json"
 
-    fun fileUrl(source: GithubSource, slug: String, relativePath: String): String {
+    /** Non-LFS files (configs, txt) live on raw; LFS jars need media. */
+    fun fileUrlRaw(source: GithubSource, slug: String, relativePath: String): String {
         val clean = relativePath.trim().trimStart('/')
-        // media.githubusercontent.com serves Git LFS blobs; raw.githubusercontent.com only returns pointers.
+        return "https://raw.githubusercontent.com/${source.owner}/${source.repo}/${source.ref}/packs/$slug/$clean"
+    }
+
+    fun fileUrlLfs(source: GithubSource, slug: String, relativePath: String): String {
+        val clean = relativePath.trim().trimStart('/')
         return "https://media.githubusercontent.com/media/${source.owner}/${source.repo}/${source.ref}/packs/$slug/$clean"
     }
+
+    @Deprecated("Use fileUrlRaw / fileUrlLfs", ReplaceWith("fileUrlLfs(source, slug, relativePath)"))
+    fun fileUrl(source: GithubSource, slug: String, relativePath: String): String =
+        fileUrlLfs(source, slug, relativePath)
 
     fun fetchManifest(source: GithubSource, slug: String, control: DownloadControl): Manifest {
         control.checkpoint()
@@ -178,10 +187,12 @@ object GithubModpackSync {
                 }
             }
 
-            val url = file.url?.trim()?.ifBlank { null }
-                ?: fileUrl(source, safeSlug, file.path)
-            downloadFile(
-                url = url,
+            val customUrl = file.url?.trim()?.ifBlank { null }
+            val rawUrl = fileUrlRaw(source, safeSlug, file.path)
+            val lfsUrl = fileUrlLfs(source, safeSlug, file.path)
+            downloadGithubFile(
+                primaryUrl = customUrl ?: rawUrl,
+                lfsUrl = if (customUrl == null) lfsUrl else null,
                 dest = dest,
                 expectedSha = expected.takeIf { it.isNotBlank() },
                 expectedSize = file.size?.takeIf { it > 0 },
@@ -262,11 +273,46 @@ object GithubModpackSync {
         return digest.digest().joinToString("") { "%02x".format(it) }
     }
 
-    private fun downloadFile(
-        url: String,
+    /**
+     * Download from [primaryUrl] (usually raw.githubusercontent.com). If the body is a Git LFS
+     * pointer, re-fetch the real blob from [lfsUrl] (media.githubusercontent.com).
+     */
+    private fun downloadGithubFile(
+        primaryUrl: String,
+        lfsUrl: String?,
         dest: Path,
         expectedSha: String?,
         expectedSize: Long?,
+        control: DownloadControl,
+        onChunk: (n: Int, fileDone: Long, fileTotal: Long?) -> Unit,
+    ) {
+        downloadToPart(primaryUrl, dest, control, onChunk)
+        val part = dest.resolveSibling(dest.name + ".part")
+        if (lfsUrl != null && isGitLfsPointer(part)) {
+            Files.deleteIfExists(part)
+            downloadToPart(lfsUrl, dest, control, onChunk)
+        }
+        if (expectedSha != null) {
+            val actual = sha256Hex(part)
+            if (actual != expectedSha) {
+                Files.deleteIfExists(part)
+                error("SHA-256 не совпал для ${dest.name}")
+            }
+        }
+        if (expectedSize != null && part.exists() && part.fileSize() != expectedSize) {
+            // Soft check: LFS size in manifest should match; mismatch after pointer resolve is fatal.
+            val size = part.fileSize()
+            if (size < 1024 && expectedSize > 4096) {
+                Files.deleteIfExists(part)
+                error("Скачан LFS-указатель вместо файла: ${dest.name} (нужен media.githubusercontent.com)")
+            }
+        }
+        Files.move(part, dest, StandardCopyOption.REPLACE_EXISTING)
+    }
+
+    private fun downloadToPart(
+        url: String,
+        dest: Path,
         control: DownloadControl,
         onChunk: (n: Int, fileDone: Long, fileTotal: Long?) -> Unit,
     ) {
@@ -276,11 +322,8 @@ object GithubModpackSync {
         try {
             val code = conn.responseCode
             if (code !in 200..299) error("Не удалось скачать $url (HTTP $code)")
-            val total = expectedSize ?: conn.contentLengthLong.takeIf { it > 0 }
+            val total = conn.contentLengthLong.takeIf { it > 0 }
             var done = 0L
-            var speedWindowBytes = 0L
-            var speedWindowAtNs = System.nanoTime()
-            var speedEma = 0.0
             BufferedInputStream(conn.inputStream).use { input ->
                 Files.newOutputStream(part).use { output ->
                     val buf = ByteArray(64 * 1024)
@@ -291,30 +334,21 @@ object GithubModpackSync {
                         output.write(buf, 0, n)
                         done += n
                         control.throttle(n)
-                        val now = System.nanoTime()
-                        speedWindowBytes += n
-                        val dt = (now - speedWindowAtNs) / 1_000_000_000.0
-                        if (dt >= 0.25 && speedWindowBytes >= 32 * 1024) {
-                            val instant = speedWindowBytes / dt
-                            speedEma = if (speedEma <= 0) instant else speedEma * 0.6 + instant * 0.4
-                            speedWindowBytes = 0
-                            speedWindowAtNs = now
-                        }
                         onChunk(n, done, total)
                     }
                 }
             }
-            if (expectedSha != null) {
-                val actual = sha256Hex(part)
-                if (actual != expectedSha) {
-                    Files.deleteIfExists(part)
-                    error("SHA-256 не совпал для ${dest.name}")
-                }
-            }
-            Files.move(part, dest, StandardCopyOption.REPLACE_EXISTING)
         } finally {
             conn.disconnect()
         }
+    }
+
+    private fun isGitLfsPointer(path: Path): Boolean {
+        if (!path.exists()) return false
+        val size = path.fileSize()
+        if (size <= 0L || size > 1024L) return false
+        val head = Files.readString(path).trimStart()
+        return head.startsWith("version https://git-lfs.github.com/spec/v1")
     }
 
     private fun openGet(url: String): HttpURLConnection {

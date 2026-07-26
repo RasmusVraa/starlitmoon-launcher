@@ -843,14 +843,11 @@ class LauncherViewModel(
             } catch (e: DownloadCancelledException) {
                 throw e
             } catch (e: Exception) {
-                // Fall back to ZIP when GitHub is unavailable / has no manifest.
-                if (!pack.hasArchive || pack.archive?.url.isNullOrBlank()) throw e
-                onProgress(
-                    ProgressEvent(
-                        "GitHub недоступен — скачиваем ZIP…",
-                        0.03f,
-                        kind = ProgressEvent.Kind.Download,
-                    ),
+                // Prefer GitHub when enabled — do not silently switch to the site ZIP.
+                LauncherLog.warn("GitHub sync failed for ${pack.slug ?: pack.id}: ${e.message}")
+                throw IllegalStateException(
+                    "Не удалось скачать сборку с GitHub (${owner}/${repo}/packs/${slug}): ${e.message}",
+                    e,
                 )
             }
         }
