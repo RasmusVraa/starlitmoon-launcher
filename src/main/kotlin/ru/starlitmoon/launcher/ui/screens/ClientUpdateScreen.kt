@@ -49,6 +49,7 @@ fun ClientUpdateScreen(
     paused: Boolean = false,
     onPauseToggle: (() -> Unit)? = null,
     onCancel: (() -> Unit)? = null,
+    onMinimize: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -95,12 +96,19 @@ fun ClientUpdateScreen(
 
         Spacer(Modifier.height(20.dp))
 
-        if (onPauseToggle != null || onCancel != null) {
+        if (onPauseToggle != null || onCancel != null || onMinimize != null) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                if (onMinimize != null) {
+                    ru.starlitmoon.launcher.ui.components.StarlitSecondaryButton(
+                        text = "Свернуть",
+                        onClick = onMinimize,
+                        compact = true,
+                    )
+                }
                 if (onPauseToggle != null) {
                     ru.starlitmoon.launcher.ui.components.StarlitSecondaryButton(
                         text = if (paused) "Продолжить" else "Пауза",
@@ -117,9 +125,8 @@ fun ClientUpdateScreen(
                     )
                 }
             }
-            Spacer(Modifier.height(18.dp))
+            Spacer(modifier.height(18.dp))
         }
-
         Text(
             progress.detail,
             color = StarlitColors.TextMuted,

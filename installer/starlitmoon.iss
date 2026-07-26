@@ -2,7 +2,7 @@
 ; Default install: %AppData%\Roaming\StarlitMoonLauncher (user-selectable)
 
 #define AppName "StarlitMoon Launcher"
-#define AppVersion "1.7.15"
+#define AppVersion "1.7.16"
 #define AppPublisher "StarlitMoon"
 #define AppURL "https://starlit-moon.ru"
 #define AppExeName "StarlitMoonLauncher.exe"
@@ -24,8 +24,8 @@ DisableDirPage=no
 AlwaysShowDirOnReadyPage=yes
 UsePreviousAppDir=yes
 AllowNoIcons=yes
-OutputDir=..\dist\v1.7.15
-OutputBaseFilename=StarlitMoonLauncher-Setup-1.7.15
+OutputDir=..\dist\v1.7.16
+OutputBaseFilename=StarlitMoonLauncher-Setup-1.7.16
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=dark

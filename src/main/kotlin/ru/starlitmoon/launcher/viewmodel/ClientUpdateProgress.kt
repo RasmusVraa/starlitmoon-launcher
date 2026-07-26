@@ -47,9 +47,13 @@ object ClientUpdateLabels {
     }
 
     fun statusFor(phase: ClientUpdatePhase, message: String): String = when {
-        message.contains("NeoForge", ignoreCase = true) ||
-            message.contains("Fabric", ignoreCase = true) ||
-            message.contains("Установщик", ignoreCase = true) -> "Лоадер"
+        // Only treat as loader during Client phase — pack jars often contain "neoforge" in the name.
+        phase == ClientUpdatePhase.Client && (
+            message.contains("NeoForge", ignoreCase = true) ||
+                message.contains("Fabric", ignoreCase = true) ||
+                message.contains("лоадер", ignoreCase = true) ||
+                message.contains("Установщик", ignoreCase = true)
+            ) -> "Лоадер"
         message.contains("Скачивание", ignoreCase = true) -> "Скачивание"
         message.contains("Распаковка", ignoreCase = true) -> "Распаковка"
         message.contains("Проверка", ignoreCase = true) -> "Проверка"

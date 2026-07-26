@@ -130,6 +130,7 @@ fun FrameWindowScope.LauncherApp(
                                                 paused = vm.downloadPaused,
                                                 onPauseToggle = if (downloadControls) vm::toggleDownloadPause else null,
                                                 onCancel = if (downloadControls) vm::cancelClientDownload else null,
+                                                onMinimize = vm::dismissClientUpdatePage,
                                             )
                                         } else {
                                             AnimatedContent(

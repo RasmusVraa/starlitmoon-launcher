@@ -156,13 +156,6 @@ class LauncherViewModel(
     val isClientUpdateBusy: Boolean
         get() = clientUpdate != null
 
-    private fun phaseRank(phase: ClientUpdatePhase): Int = when (phase) {
-        ClientUpdatePhase.Prep -> 0
-        ClientUpdatePhase.Download -> 1
-        ClientUpdatePhase.Verify -> 2
-        ClientUpdatePhase.Client -> 3
-    }
-
     var sidebarExpanded by mutableStateOf(initialConfig.sidebarExpanded)
 
     fun toggleSidebarExpanded() {
@@ -197,15 +190,34 @@ class LauncherViewModel(
     }
 
     fun dismissClientUpdatePage() {
+        // Свернуть экран — загрузка/установка продолжается в фоне (чип в шапке).
         clientUpdateVisible = false
     }
 
     fun selectTab(tab: LauncherTab) {
-        // Don't dismiss the update page while install/download is running —
-        // sidebar clicks were kicking users off during NeoForge install.
-        if (clientUpdate != null) return
-        clientUpdateVisible = false
+        // Можно уйти со страницы загрузки: работа не отменяется, вернуться через чип %.
+        if (clientUpdate != null) {
+            clientUpdateVisible = false
+        }
         currentTab = tab
+    }
+
+    /** One pack install / play-prep at a time — avoids NeoForge starting while another sync still runs. */
+    private var packWorkJob: Job? = null
+
+    private fun startPackWork(block: suspend () -> Unit) {
+        if (packWorkJob?.isActive == true) {
+            errorMessage = "Уже идёт установка или подготовка сборки"
+            openClientUpdatePage()
+            return
+        }
+        packWorkJob = scope.launch {
+            try {
+                block()
+            } finally {
+                packWorkJob = null
+            }
+        }
     }
     /** Id сборки, ZIP которой сейчас заливается в админке (для оверлея прогресса). */
     var uploadingModpackId by mutableStateOf<String?>(null)
@@ -778,7 +790,7 @@ class LauncherViewModel(
     }
 
     fun reinstallModpack(pack: ModpackDto) {
-        scope.launch {
+        startPackWork {
             isLoading = true
             beginClientUpdate(ClientUpdatePhase.Download, "Обновление сборки…", 0.12f)
             errorMessage = null
@@ -801,9 +813,12 @@ class LauncherViewModel(
                     }
                 }
                 val launchPack = detail.withGithubMeta(syncMeta)
-                // Loader (NeoForge/Fabric) — только после полной установки файлов сборки.
-                // yield: дать Swing обработать UI до тяжёлой установки (и отбросить поздний «Сборка готова»).
-                beginClientUpdate(ClientUpdatePhase.Client, "Установка NeoForge / лоадера…", 0.05f)
+                // Barrier: pack files fully on disk before any NeoForge/Fabric work.
+                beginClientUpdate(
+                    ClientUpdatePhase.Client,
+                    "Файлы сборки готовы — установка NeoForge / лоадера…",
+                    0.05f,
+                )
                 yield()
                 val loaderId = ensurePackLoader(launchPack) { msg, frac ->
                     reportLaunchProgress(msg, frac, phaseOverride = ClientUpdatePhase.Client)
@@ -832,7 +847,6 @@ class LauncherViewModel(
                     is DownloadCancelledException -> "Скачивание отменено"
                     else -> err?.message ?: "Не удалось обновить сборку"
                 }
-                // Keep the page a moment so the error is readable before dismiss.
                 delay(1_200)
             }
             clearLaunchProgress()
@@ -1051,16 +1065,7 @@ class LauncherViewModel(
         phaseOverride: ClientUpdatePhase? = null,
     ) {
         val epoch = progressEpoch
-        val requested = phaseOverride ?: updatePhase
-        // Never let a late Download callback rewind past Client / Verify.
-        val phase = if (
-            clientUpdate != null &&
-            phaseRank(requested) < phaseRank(updatePhase)
-        ) {
-            updatePhase
-        } else {
-            requested
-        }
+        val phase = phaseOverride ?: updatePhase
         updatePhase = phase
         val apply = {
             if (epoch == progressEpoch) {
@@ -1157,7 +1162,7 @@ class LauncherViewModel(
             errorMessage = "Сначала войдите"
             return
         }
-        scope.launch {
+        startPackWork {
             isLoading = true
             beginClientUpdate(ClientUpdatePhase.Prep, "Подготовка…", 0f)
             errorMessage = null
@@ -1210,7 +1215,7 @@ class LauncherViewModel(
                     clearLaunchProgress()
                     downloadPaused = false
                     isLoading = false
-                    return@launch
+                    return@startPackWork
                 }
                 val meta = synced.getOrThrow()
                 val launchPack = detail.withGithubMeta(meta)
@@ -1225,8 +1230,12 @@ class LauncherViewModel(
                         scrubPackVanillaClientJar(instanceDir!!, resolvedVersionId)
                     }
                 }
-                // NeoForge/Fabric — строго после файлов сборки (отдельный этап).
-                beginClientUpdate(ClientUpdatePhase.Client, "Установка NeoForge / лоадера…", 0.05f)
+                // Barrier: never start NeoForge until pack file sync has returned.
+                beginClientUpdate(
+                    ClientUpdatePhase.Client,
+                    "Файлы сборки готовы — установка NeoForge / лоадера…",
+                    0.05f,
+                )
                 yield()
                 val loaderId = runCatching {
                     ensurePackLoader(launchPack) { msg, frac ->
@@ -1239,7 +1248,7 @@ class LauncherViewModel(
                     clearLaunchProgress()
                     downloadPaused = false
                     isLoading = false
-                    return@launch
+                    return@startPackWork
                 }
                 val installedLoaderId = loaderId.getOrNull()?.trim().orEmpty()
                 if (installedLoaderId.isNotEmpty()) {
