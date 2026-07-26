@@ -359,6 +359,8 @@ fun BuildsScreen(vm: LauncherViewModel) {
                                     vm.packUiRevision
                                     vm.isPackInstalled(pack)
                                 },
+                                // Always GitHub — show download even without site ZIP.
+                                preferGithub = true,
                                 onSelect = { vm.selectModpack(pack) },
                                 onOpenFolder = { vm.openPackFolder(pack) },
                                 onReinstall = { reinstallTarget = pack },
@@ -431,6 +433,7 @@ private fun ModpackCard(
     selected: Boolean,
     needsUpdate: Boolean,
     installed: Boolean,
+    preferGithub: Boolean,
     onSelect: () -> Unit,
     onOpenFolder: () -> Unit,
     onReinstall: () -> Unit,
@@ -588,13 +591,13 @@ private fun ModpackCard(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                if (pack.hasArchive || installed) {
+                if (pack.hasArchive || installed || preferGithub) {
                     Spacer(Modifier.height(8.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        if (pack.hasArchive) {
+                        if (pack.hasArchive || preferGithub) {
                             StarlitSecondaryButton(
                                 text = when {
                                     !installed -> "Скачать"

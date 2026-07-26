@@ -39,8 +39,11 @@ data class LauncherConfig(
     val modpackGithubOwner: String = "RasmusVraa",
     val modpackGithubRepo: String = "starlitmoon-modpacks",
     val modpackGithubRef: String = "main",
-    /** Prefer GitHub per-file sync — disabled; packs always come from the site ZIP. */
-    val preferGithubModpacks: Boolean = false,
+    /**
+     * Legacy config field — always treated as true.
+     * Players always sync packs from GitHub (`modpackGithubOwner`/`modpackGithubRepo`); site ZIP is admin-only.
+     */
+    val preferGithubModpacks: Boolean = true,
     /**
      * Local clone of starlitmoon-modpacks for admin «Опубликовать в GitHub».
      * Empty = auto-detect sibling `../starlitmoon-modpacks` or env `STARLIT_MODPACKS_REPO`.
@@ -127,9 +130,9 @@ data class LauncherConfig(
             if (next.modpackGithubRef.isBlank()) {
                 next = next.copy(modpackGithubRef = "main")
             }
-            // Packs are site ZIP only — force-disable GitHub sync for existing configs.
-            if (next.preferGithubModpacks) {
-                next = next.copy(preferGithubModpacks = false)
+            // Players always pull packs from GitHub — force-enable for existing configs.
+            if (!next.preferGithubModpacks) {
+                next = next.copy(preferGithubModpacks = true)
             }
             if (next != loaded) save(next)
             return next

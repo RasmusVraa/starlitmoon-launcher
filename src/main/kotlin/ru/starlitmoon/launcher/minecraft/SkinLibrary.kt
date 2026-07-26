@@ -104,15 +104,18 @@ class SkinLibrary(private val config: LauncherConfig) {
         val idx = data.skins.indexOfFirst { it.id == entryId }
         if (idx < 0) error("Скин не найден")
         val entry = data.skins[idx]
-        // remove old cape file
-        entry.capeFileName?.let { runCatching { Files.deleteIfExists(libraryDir.resolve(it)) } }
-        val capeName = if (capeSource != null && capeSource.exists()) {
+        // Read + normalize BEFORE deleting the previous cape — source may be the same file
+        // when the user re-picks the library cape path.
+        val capeName = if (capeSource != null) {
+            if (!capeSource.exists()) error("Файл плаща не найден")
             val raw = Files.readAllBytes(capeSource)
             val normalized = normalizeCapePng(raw)
+            entry.capeFileName?.let { runCatching { Files.deleteIfExists(libraryDir.resolve(it)) } }
             val name = "${entry.id}_cape.png"
             libraryDir.resolve(name).writeBytes(normalized)
             name
         } else {
+            entry.capeFileName?.let { runCatching { Files.deleteIfExists(libraryDir.resolve(it)) } }
             null
         }
         val next = entry.copy(capeFileName = capeName)

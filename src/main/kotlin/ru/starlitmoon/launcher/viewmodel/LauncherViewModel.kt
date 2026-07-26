@@ -394,12 +394,32 @@ class LauncherViewModel(
     }
 
     private fun packGithubSource(pack: ModpackDto): GithubModpackSync.GithubSource? {
-        // Site ZIP only — GitHub per-file sync is disabled.
-        return null
+        // Always GitHub for player downloads (preferGithubModpacks is forced true).
+        val owner = pack.githubOwner?.trim()?.ifBlank { null } ?: configState.modpackGithubOwner
+        val repo = pack.githubRepo?.trim()?.ifBlank { null } ?: configState.modpackGithubRepo
+        val ref = pack.githubRef?.trim()?.ifBlank { null } ?: configState.modpackGithubRef
+        if (owner.isBlank() || repo.isBlank()) return null
+        return GithubModpackSync.GithubSource(owner, repo, ref)
     }
 
     private fun refreshGithubUpdateMarkers(packs: List<ModpackDto>) {
-        if (githubRemoteHashes.isNotEmpty()) githubRemoteHashes = emptyMap()
+        scope.launch(Dispatchers.IO) {
+            val next = linkedMapOf<String, String>()
+            for (pack in packs) {
+                val source = packGithubSource(pack) ?: continue
+                val slug = pack.slug?.trim()?.ifBlank { null }
+                    ?: pack.id?.trim()?.ifBlank { null }
+                    ?: continue
+                val safe = slug.replace(Regex("[^a-zA-Z0-9._-]"), "_")
+                runCatching { GithubModpackSync.fetchRemoteHash(source, safe) }
+                    .onSuccess { next[safe] = it }
+                    .onFailure {
+                        LauncherLog.warn("GitHub hash for $safe: ${it.message}")
+                    }
+            }
+            githubRemoteHashes = next
+            packUiRevision++
+        }
     }
 
     fun selectModpack(pack: ModpackDto, persistOnly: Boolean = false) {
@@ -666,54 +686,21 @@ class LauncherViewModel(
             val clearing = capePath.isNullOrBlank()
             runCatching {
                 withContext(Dispatchers.IO) {
-                    skinLibrary.setCape(
-                        skinId,
-                        capePath?.takeIf { it.isNotBlank() }?.let { Path.of(it) },
-                    )
-                }
-                // Refresh UI on caller context before any site sync.
-                refreshSkinLibraryState()
-                if (skinLibrary.activeId() == skinId) {
-                    withContext(Dispatchers.IO) {
-                        runCatching {
-                            syncActiveCapeToSite()
-                        }.onFailure { err ->
-                            LauncherLog.warn("Cape/site sync: ${err.message}")
-                            if (!clearing) {
-                                infoMessage =
-                                    "Плащ сохранён локально (сайт: ${err.message?.take(80) ?: "ошибка"})"
-                            }
+                    val source = capePath?.takeIf { it.isNotBlank() }?.let { Path.of(it) }
+                    if (!clearing) {
+                        if (source == null || !source.exists()) {
+                            error("Файл плаща не найден")
                         }
                     }
+                    skinLibrary.setCape(skinId, source)
+                    // Always activate this skin after cape change so preview / active_cape.png /
+                    // offline bridge / site sync all see the cape (or cleared cape).
+                    applyLibrarySkin(skinId, upload = isLoggedIn && userName.isNotBlank())
                 }
             }.onSuccess {
-                if (infoMessage.isNullOrBlank() ||
-                    infoMessage?.startsWith("Плащ сохранён локально") != true
-                ) {
-                    infoMessage = if (clearing) "Плащ убран" else "Плащ сохранён"
-                }
+                infoMessage = if (clearing) "Плащ убран" else "Плащ сохранён"
             }.onFailure { handleError(it) }
             skinBusy = false
-        }
-    }
-
-    /** Upload or clear only the active cape on the site (does not re-upload skin). */
-    private suspend fun syncActiveCapeToSite() {
-        if (!isLoggedIn || userName.isBlank()) return
-        val entry = skinLibrary.activeEntry() ?: return
-        val capeFile = skinLibrary.capePath(entry)
-        val capeResult = if (capeFile != null && capeFile.exists()) {
-            val capeBytes = SkinLibrary.normalizeCapePng(Files.readAllBytes(capeFile))
-            val b64 = java.util.Base64.getEncoder().encodeToString(capeBytes)
-            api.uploadCape("data:image/png;base64,$b64")
-        } else {
-            api.clearCape()
-        }
-        if (capeResult.cabinet != null) {
-            meData = meData?.copy(cabinet = capeResult.cabinet)
-        }
-        if (!capeResult.ok && !capeResult.error.isNullOrBlank()) {
-            error(capeResult.error ?: "Ошибка загрузки плаща")
         }
     }
 
@@ -932,8 +919,8 @@ class LauncherViewModel(
     }
 
     /**
-     * Prefer GitHub per-file manifest; fall back to Starlit API ZIP archive.
-     * Packs without files still succeed (bare Minecraft + configured loader).
+     * Always sync pack files from GitHub (`RasmusVraa/starlitmoon-modpacks`).
+     * Site ZIP is not used for player installs.
      */
     private fun syncModpackFiles(
         pack: ModpackDto,
@@ -949,50 +936,28 @@ class LauncherViewModel(
         val repo = pack.githubRepo?.trim()?.ifBlank { null } ?: configState.modpackGithubRepo
         val ref = pack.githubRef?.trim()?.ifBlank { null } ?: configState.modpackGithubRef
         val slug = pack.slug?.trim()?.ifBlank { null } ?: pack.id?.trim()?.ifBlank { null }
-        // Always download pack ZIP from the site — GitHub sync is retired.
-        val preferGh = false
-
-        if (preferGh) {
-            try {
-                return GithubModpackSync.sync(
-                    dataDir = configState.dataDir,
-                    pack = pack,
-                    source = GithubModpackSync.GithubSource(owner, repo, ref),
-                    force = force,
-                    control = downloadControl,
-                    onProgress = onProgress,
-                )
-            } catch (e: DownloadCancelledException) {
-                throw e
-            } catch (e: Exception) {
-                // Prefer GitHub when enabled — do not silently switch to the site ZIP.
-                LauncherLog.warn("GitHub sync failed for ${pack.slug ?: pack.id}: ${e.message}")
-                throw IllegalStateException(
-                    "Не удалось скачать сборку с GitHub (${owner}/${repo}/packs/${slug}): ${e.message}",
-                    e,
-                )
-            }
+        // Players always download from GitHub — never fall back to the site ZIP.
+        if (owner.isBlank() || repo.isBlank() || slug.isNullOrBlank()) {
+            error("Не задан GitHub-репозиторий сборки (owner/repo/slug)")
         }
-
-        if (!pack.hasArchive || pack.archive?.url.isNullOrBlank()) {
-            ModpackSync.packDir(configState.dataDir, pack).createDirectories()
-            onProgress(
-                ProgressEvent(
-                    "Сборка без модов — только Minecraft / лоадер",
-                    1f,
-                    kind = ProgressEvent.Kind.Download,
-                ),
+        try {
+            return GithubModpackSync.sync(
+                dataDir = configState.dataDir,
+                pack = pack,
+                source = GithubModpackSync.GithubSource(owner, repo, ref),
+                force = force,
+                control = downloadControl,
+                onProgress = onProgress,
             )
-            return GithubModpackSync.SyncResult(applied = true)
+        } catch (e: DownloadCancelledException) {
+            throw e
+        } catch (e: Exception) {
+            LauncherLog.warn("GitHub sync failed for ${pack.slug ?: pack.id}: ${e.message}")
+            throw IllegalStateException(
+                "Не удалось скачать сборку с GitHub (${owner}/${repo}/packs/${slug}): ${e.message}",
+                e,
+            )
         }
-        val ok = ModpackSync.syncArchive(
-            dataDir = configState.dataDir,
-            pack = pack,
-            force = force,
-            control = downloadControl,
-            onProgress = onProgress,
-        )
-        return GithubModpackSync.SyncResult(applied = ok)
     }
 
     private fun ModpackDto.withGithubMeta(meta: GithubModpackSync.SyncResult): ModpackDto {
@@ -1145,8 +1110,8 @@ class LauncherViewModel(
     }
 
     /**
-     * Admin helper (unused by UI): publish pack ZIP into local starlitmoon-modpacks clone.
-     * Players always download site ZIPs; keep for optional scripting only.
+     * Admin: publish pack ZIP into local starlitmoon-modpacks clone (manifest + git commit/push).
+     * Primary update channel — players always download from GitHub.
      */
     fun publishModpackToGithub(
         pack: ModpackDto,

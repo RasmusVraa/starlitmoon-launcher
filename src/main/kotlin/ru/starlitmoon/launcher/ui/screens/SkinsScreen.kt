@@ -21,6 +21,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -30,8 +35,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.delay
 import ru.starlitmoon.launcher.ui.components.LocalSkinFace
 import ru.starlitmoon.launcher.ui.components.SkinPreview3D
+import ru.starlitmoon.launcher.ui.components.StarlitConfirmDialog
 import ru.starlitmoon.launcher.ui.components.StarlitPrimaryButton
 import ru.starlitmoon.launcher.ui.components.StarlitSecondaryButton
 import ru.starlitmoon.launcher.NativeFilePicker
@@ -41,6 +48,20 @@ import ru.starlitmoon.launcher.viewmodel.LauncherViewModel
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SkinsScreen(vm: LauncherViewModel) {
+    // WinForms OpenFileDialog click-through: the mouse-up that closes the dialog can land on
+    // "Убрать плащ" (same slot as "Добавить плащ") and immediately clear a just-added cape.
+    var pickerCooldown by remember { mutableStateOf(false) }
+    var clearCapeTarget by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(pickerCooldown) {
+        if (pickerCooldown) {
+            delay(600)
+            pickerCooldown = false
+        }
+    }
+
+    val actionsEnabled = !vm.skinBusy && !pickerCooldown
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -97,12 +118,12 @@ fun SkinsScreen(vm: LauncherViewModel) {
                 StarlitPrimaryButton(
                     text = "Добавить скин",
                     onClick = {
-                        NativeFilePicker.pickOpenFile("Скин PNG", "PNG", "png")?.let {
-                            vm.addSkinToLibrary(it.absolutePath)
-                        }
+                        val file = NativeFilePicker.pickOpenFile("Скин PNG", "PNG", "png")
+                        pickerCooldown = true
+                        file?.let { vm.addSkinToLibrary(it.absolutePath) }
                     },
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = !vm.skinBusy,
+                    enabled = actionsEnabled,
                 )
             }
 
@@ -142,7 +163,7 @@ fun SkinsScreen(vm: LauncherViewModel) {
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clip(RoundedCornerShape(10.dp))
-                                    .clickable(enabled = !vm.skinBusy) {
+                                    .clickable(enabled = actionsEnabled) {
                                         vm.selectLibrarySkin(entry.id)
                                     }
                                     .padding(vertical = 4.dp),
@@ -166,25 +187,28 @@ fun SkinsScreen(vm: LauncherViewModel) {
                                 if (selected) {
                                     Text("Активный", color = StarlitColors.Gold, fontSize = 11.sp)
                                 }
+                                if (hasCape) {
+                                    Text("Есть плащ", color = StarlitColors.TextMuted, fontSize = 11.sp)
+                                }
                             }
                             StarlitSecondaryButton(
                                 text = if (hasCape) "Сменить плащ" else "Добавить плащ",
                                 onClick = {
-                                    NativeFilePicker.pickOpenFile("Плащ PNG", "PNG", "png")?.let {
-                                        vm.setLibraryCape(entry.id, it.absolutePath)
-                                    }
+                                    val file = NativeFilePicker.pickOpenFile("Плащ PNG", "PNG", "png")
+                                    pickerCooldown = true
+                                    file?.let { vm.setLibraryCape(entry.id, it.absolutePath) }
                                 },
                                 modifier = Modifier.fillMaxWidth(),
                                 compact = true,
-                                enabled = !vm.skinBusy,
+                                enabled = actionsEnabled,
                             )
                             if (hasCape) {
                                 StarlitSecondaryButton(
                                     text = "Убрать плащ",
-                                    onClick = { vm.setLibraryCape(entry.id, null) },
+                                    onClick = { clearCapeTarget = entry.id },
                                     modifier = Modifier.fillMaxWidth(),
                                     compact = true,
-                                    enabled = !vm.skinBusy,
+                                    enabled = actionsEnabled,
                                 )
                             }
                             StarlitPrimaryButton(
@@ -193,7 +217,7 @@ fun SkinsScreen(vm: LauncherViewModel) {
                                 modifier = Modifier.fillMaxWidth(),
                                 compact = true,
                                 danger = true,
-                                enabled = !vm.skinBusy,
+                                enabled = actionsEnabled,
                             )
                         }
                     }
@@ -201,5 +225,20 @@ fun SkinsScreen(vm: LauncherViewModel) {
                 Spacer(Modifier.height(8.dp))
             }
         }
+    }
+
+    clearCapeTarget?.let { skinId ->
+        StarlitConfirmDialog(
+            title = "Убрать плащ?",
+            message = "Плащ будет удалён у этого скина.",
+            confirmText = "Убрать",
+            cancelText = "Отмена",
+            danger = true,
+            onConfirm = {
+                vm.setLibraryCape(skinId, null)
+                clearCapeTarget = null
+            },
+            onDismiss = { clearCapeTarget = null },
+        )
     }
 }
