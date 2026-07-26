@@ -8,7 +8,7 @@ plugins {
 }
 
 group = "ru.starlitmoon"
-version = "1.7.17"
+version = "1.7.18"
 
 repositories {
     google()
@@ -52,7 +52,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Exe)
             packageName = "StarlitMoonLauncher"
-            packageVersion = "1.7.17"
+            packageVersion = "1.7.18"
             description = "StarlitMoon Minecraft Launcher"
             vendor = "StarlitMoon"
             copyright = "StarlitMoon"

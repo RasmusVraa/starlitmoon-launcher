@@ -50,6 +50,23 @@ object ModpackSync {
     private fun openZipStream(path: Path): ZipInputStream =
         ZipInputStream(Files.newInputStream(path), ZIP_CHARSET)
 
+    /**
+     * Resolve a ZIP entry under [root]. Rejects `..`, NUL, absolute/drive/UNC paths, and
+     * any path that normalizes outside [root] (ZIP slip).
+     */
+    private fun safeResolveUnder(root: Path, relative: String): Path? {
+        val name = relative.replace('\\', '/').trim()
+        if (name.isBlank() || name.contains("..") || name.contains('\u0000')) return null
+        // Absolute / drive-letter / UNC — Path.resolve would escape the pack dir on Windows.
+        if (name.startsWith("/") || name.startsWith("//") || name.matches(Regex("^[A-Za-z]:.*"))) {
+            return null
+        }
+        val rootNorm = root.toAbsolutePath().normalize()
+        val out = rootNorm.resolve(name).normalize()
+        if (!out.startsWith(rootNorm)) return null
+        return out
+    }
+
     private fun readTextLenient(path: Path): String {
         val bytes = Files.readAllBytes(path)
         val decoder = StandardCharsets.UTF_8.newDecoder()
@@ -483,7 +500,11 @@ object ModpackSync {
                     done++
                     continue
                 }
-                val out = dest.resolve(name)
+                val out = safeResolveUnder(dest, name)
+                if (out == null) {
+                    zis.closeEntry()
+                    continue
+                }
                 if (entry.isDirectory) {
                     out.createDirectories()
                 } else {
@@ -522,7 +543,7 @@ object ModpackSync {
         val total = entries.size
         var done = 0
         for ((rel, expectedCrc) in entries) {
-            val file = dest.resolve(rel)
+            val file = safeResolveUnder(dest, rel) ?: continue
             if (!file.exists()) {
                 error("После распаковки отсутствует файл: $rel")
             }
