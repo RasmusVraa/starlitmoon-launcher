@@ -223,42 +223,52 @@ internal object SkinModelRenderer {
     }
 
     private fun buildCape(cape: Atlas, out: MutableList<Quad>) {
-        // Match skinview3d CapeObject + PlayerObject:
-        // Box 10x16x1 with setCapeUVs(0,0,10,16,1); Euler XYZ Rx(10.8deg) then Ry(PI);
-        // group at (0, 8, -2) in skinview = our feet-at-0 coords (0, 24, -2);
-        // mesh local offset (0, -8, 0.5) -> bottom y=-16, cz=0.5.
-        // After Ry(PI), atlas front (1,1)-(11,17) faces world -Z (outside / visible art).
-        val local = ArrayList<Quad>(6)
-        box(
-            local, cape,
-            cx = 0f, yBottom = -16f, cz = 0.5f,
-            width = 10f, height = 16f, depth = 1f,
-            u = 0, v = 0, uvW = 10, uvH = 16, uvD = 1,
-            opaqueOnly = false,
-        )
-        if (local.isEmpty()) return
-
+        // Standard Minecraft cape (64x32): designed art at front (1,1)-(11,17).
+        // skinview3d applies setCapeUVs(0,0,10,16,1) then Ry(PI) so atlas *front*
+        // is outward. Emulate that with explicit faces - Ry(PI) on box quads made
+        // the inward (back UV) face the one visible from behind.
+        //
+        // Geometry: 10x16x1 behind torso, ~10.8deg hang, top at shoulders (y~24).
+        val w = 10f
+        val h = 16f
+        val d = 1f
         val tilt = Math.toRadians(10.8).toFloat()
-        val cosX = cos(tilt)
-        val sinX = sin(tilt)
+        val cosT = cos(tilt)
+        val sinT = sin(tilt)
+        val topY = 24f
+        val attachZ = -2f
 
-        fun xform(x: Float, y: Float, z: Float): FloatArray {
-            val y1 = y * cosX - z * sinX
-            val z1 = y * sinX + z * cosX
-            return floatArrayOf(-x, y1 + 24f, -z1 - 2f)
+        fun capePoint(lx: Float, lyFromTop: Float, lzOut: Float): FloatArray {
+            // lyFromTop: 0 = shoulders, h = bottom hem.
+            // lzOut: 0 = outside (-Z), d = inside (toward body / +Z).
+            val y = topY - lyFromTop * cosT - lzOut * sinT
+            // +lzOut moves toward body (+Z); outside stays at attachZ.
+            val z = attachZ - lyFromTop * sinT + lzOut * cosT
+            return floatArrayOf(lx, y, z)
         }
 
-        for (q in local) {
-            val p0 = xform(q.x0, q.y0, q.z0)
-            val p1 = xform(q.x1, q.y1, q.z1)
-            val p2 = xform(q.x2, q.y2, q.z2)
-            val p3 = xform(q.x3, q.y3, q.z3)
-            out += quad(
-                p0[0], p0[1], p0[2], p1[0], p1[1], p1[2], p2[0], p2[1], p2[2], p3[0], p3[1], p3[2],
-                q.u0, q.v0, q.u1, q.v1, q.u2, q.v2, q.u3, q.v3,
-                q.atlas, q.opaqueOnly, q.doubleSided,
-            )
-        }
+        val x0 = -w / 2f
+        val x1 = w / 2f
+        // Outside (-Z): front UV. Winding matches body back face.
+        val o00 = capePoint(x0, h, 0f)
+        val o10 = capePoint(x1, h, 0f)
+        val o11 = capePoint(x1, 0f, 0f)
+        val o01 = capePoint(x0, 0f, 0f)
+        out += quad(
+            o10[0], o10[1], o10[2], o00[0], o00[1], o00[2], o01[0], o01[1], o01[2], o11[0], o11[1], o11[2],
+            1f, 17f, 11f, 17f, 11f, 1f, 1f, 1f,
+            cape, opaqueOnly = false, doubleSided = false,
+        )
+        // Inside (+Z): back UV (12,1)-(22,17)
+        val i00 = capePoint(x0, h, d)
+        val i10 = capePoint(x1, h, d)
+        val i11 = capePoint(x1, 0f, d)
+        val i01 = capePoint(x0, 0f, d)
+        out += quad(
+            i00[0], i00[1], i00[2], i10[0], i10[1], i10[2], i11[0], i11[1], i11[2], i01[0], i01[1], i01[2],
+            12f, 17f, 22f, 17f, 22f, 1f, 12f, 1f,
+            cape, opaqueOnly = false, doubleSided = false,
+        )
     }
     /**
      * Minecraft-style box: origin is bottom-center of the box in XZ; y is bottom.
