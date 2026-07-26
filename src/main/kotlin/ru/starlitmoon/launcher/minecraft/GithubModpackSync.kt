@@ -40,8 +40,11 @@ object GithubModpackSync {
     private const val PARALLEL_MIN = 4
     /** Absolute floor only after repeated network errors. */
     private const val PARALLEL_ERROR_MIN = 2
+    /** Preferred ceiling for large jars / media. */
     private const val PARALLEL_MAX = 12
-    private const val PARALLEL_START = 6
+    /** Ceiling while downloading tiny configs/json — HTTP overhead dominates. */
+    private const val PARALLEL_SMALL_MAX = 32
+    private const val PARALLEL_START = 8
     private const val DOWNLOAD_RETRIES = 5
     private const val SMALL_FILE_BYTES = 512L * 1024L
     private val LFS_POINTER_PREFIX =
@@ -262,29 +265,35 @@ object GithubModpackSync {
 
         fun adjustParallelism(onNetworkError: Boolean = false, completedFileSize: Long? = null) {
             val cur = targetParallel.get()
-            val cap = PARALLEL_MAX.coerceAtMost(filesTotal.coerceAtLeast(1))
+            val absoluteCap = PARALLEL_SMALL_MAX.coerceAtMost(filesTotal.coerceAtLeast(1))
+            val largeCap = PARALLEL_MAX.coerceAtMost(absoluteCap)
             if (onNetworkError) {
-                targetParallel.set((cur - 1).coerceAtLeast(PARALLEL_ERROR_MIN).coerceAtMost(cap))
+                // Don't collapse below PARALLEL_MIN on a single blip during small-file storms.
+                targetParallel.set((cur - 1).coerceAtLeast(PARALLEL_ERROR_MIN).coerceAtMost(absoluteCap))
                 return
             }
             val size = completedFileSize ?: 0L
-            val smallFile = size in 1 until SMALL_FILE_BYTES
+            // Unknown/zero sizes are usually tiny configs — treat as small for ramp-up.
+            val smallFile = size < SMALL_FILE_BYTES
             val speed = speedTracker.current()
             val next = when {
-                // Small configs/json: throughput looks low because of HTTP overhead — open more sockets.
-                smallFile && cur < cap -> (cur + 2).coerceAtMost(cap)
-                speed >= 2_000_000L && cur < cap -> cur + 1
-                speed >= 700_000L && cur < cap -> cur + 1
-                // Only throttle down on large files with truly low bandwidth.
+                // Small configs/json: raise aggressively up to 32 — latency, not bandwidth, is the limit.
+                smallFile && cur < absoluteCap -> (cur + 4).coerceAtMost(absoluteCap)
+                // Large files: climb only toward the steady large-file ceiling.
+                !smallFile && speed >= 2_000_000L && cur < largeCap -> cur + 1
+                !smallFile && speed >= 700_000L && cur < largeCap -> cur + 1
+                // After a small-file burst above largeCap, ease down once jars show up (not on tiny files).
+                !smallFile && size >= SMALL_FILE_BYTES && cur > largeCap -> cur - 1
+                // Only throttle further on large files with truly low bandwidth.
                 !smallFile && size >= SMALL_FILE_BYTES &&
                     speed in 1L..150_000L && cur > PARALLEL_MIN -> cur - 1
                 else -> cur
-            }.coerceIn(PARALLEL_MIN.coerceAtMost(cap), cap)
+            }.coerceIn(PARALLEL_MIN.coerceAtMost(absoluteCap), absoluteCap)
             targetParallel.set(next)
         }
 
         val pending = ConcurrentLinkedQueue(files)
-        val pool = Executors.newFixedThreadPool(PARALLEL_MAX) {
+        val pool = Executors.newFixedThreadPool(PARALLEL_SMALL_MAX) {
             Thread(it, "gh-modpack-dl").apply { isDaemon = true }
         }
 
