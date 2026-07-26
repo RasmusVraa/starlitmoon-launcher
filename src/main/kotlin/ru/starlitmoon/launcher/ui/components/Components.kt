@@ -78,6 +78,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.jetbrains.skia.Font
 import org.jetbrains.skia.FontMgr
+import ru.starlitmoon.launcher.util.ImageDiskCache
 import org.jetbrains.skia.FontStyle
 import org.jetbrains.skia.Paint as SkiaPaint
 import ru.starlitmoon.launcher.ui.theme.PlayerRanks
@@ -1420,19 +1421,29 @@ fun NetworkAvatar(
     modifier: Modifier = Modifier,
     size: Dp = 96.dp,
 ) {
-    var bitmap by remember(url) { mutableStateOf<ImageBitmap?>(null) }
-    var loading by remember(url) { mutableStateOf(true) }
+    var bitmap by remember(url) {
+        mutableStateOf(
+            ImageDiskCache.peekBytes(url)?.let { bytes ->
+                runCatching { org.jetbrains.skia.Image.makeFromEncoded(bytes).toComposeImageBitmap() }.getOrNull()
+            },
+        )
+    }
+    var loading by remember(url) { mutableStateOf(bitmap == null && url.isNotBlank()) }
 
     LaunchedEffect(url) {
-        loading = true
-        bitmap = null
+        if (url.isBlank()) {
+            bitmap = null
+            loading = false
+            return@LaunchedEffect
+        }
+        if (bitmap == null) loading = true
         val loaded = withContext(Dispatchers.IO) {
             runCatching {
-                val bytes = java.net.URI(url).toURL().openStream().use { it.readBytes() }
+                val bytes = ImageDiskCache.loadOrFetch(url, ImageDiskCache.TTL_TEXTURE_MS) ?: return@runCatching null
                 org.jetbrains.skia.Image.makeFromEncoded(bytes).toComposeImageBitmap()
             }.getOrNull()
         }
-        bitmap = loaded
+        if (loaded != null) bitmap = loaded
         loading = false
     }
 

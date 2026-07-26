@@ -43,6 +43,9 @@ import ru.starlitmoon.launcher.api.MeResponse
 import ru.starlitmoon.launcher.api.ModpackDto
 import ru.starlitmoon.launcher.api.NotificationDto
 import ru.starlitmoon.launcher.api.PlayerBankDto
+import ru.starlitmoon.launcher.api.PlayersResponse
+import ru.starlitmoon.launcher.api.PublicProfileResponse
+import ru.starlitmoon.launcher.api.ProfileCommentsResponse
 import ru.starlitmoon.launcher.api.ServerStatus
 import ru.starlitmoon.launcher.api.StarlitApiClient
 import ru.starlitmoon.launcher.api.StarlitApiException
@@ -60,6 +63,7 @@ import ru.starlitmoon.launcher.update.LauncherSelfUpdater
 import ru.starlitmoon.launcher.update.UpdateChecker
 import ru.starlitmoon.launcher.update.UpdateInfo
 import ru.starlitmoon.launcher.update.UpdatePackageKind
+import ru.starlitmoon.launcher.util.JsonDiskCache
 import java.awt.Desktop
 import java.awt.Toolkit
 import java.awt.datatransfer.StringSelection
@@ -1762,65 +1766,144 @@ class LauncherViewModel(
         if (publicPlayers.isEmpty()) refreshPublicPlayers()
     }
 
-    fun refreshPublicPlayers() {
+    fun refreshPublicPlayers(force: Boolean = false) {
         scope.launch {
+            val cacheKey = "players:list"
+            if (!force && publicPlayers.isEmpty()) {
+                val cached = withContext(Dispatchers.IO) {
+                    JsonDiskCache.get(cacheKey, PlayersResponse.serializer())
+                }
+                if (cached != null) {
+                    applyPlayersResponse(cached.value)
+                    if (cached.fresh) {
+                        publicPlayersLoading = false
+                        return@launch
+                    }
+                }
+            }
             publicPlayersLoading = true
             publicPlayersError = null
             runCatching {
                 withContext(Dispatchers.IO) { api.fetchPlayersList() }
             }.onSuccess { data ->
-                publicPlayers = data.players
-                publicPlayersOnlineCount = data.onlineCount.takeIf { it > 0 }
-                    ?: data.players.count { it.online }
-                publicPlayersTotal = data.total.takeIf { it > 0 } ?: data.players.size
-                publicPlayersUpdatedAt = data.updatedAt
-                publicPlayersDemo = data.demo
-                onlinePlayers = when {
-                    data.online.isNotEmpty() -> data.online.map { it.name }
-                    else -> data.players.filter { it.online }.mapNotNull { it.name }
+                applyPlayersResponse(data)
+                withContext(Dispatchers.IO) {
+                    JsonDiskCache.put(cacheKey, data, PlayersResponse.serializer(), JsonDiskCache.TTL_PLAYERS_LIST_MS)
                 }
             }.onFailure {
-                publicPlayersError = it.message ?: "Не удалось загрузить список игроков"
+                if (publicPlayers.isEmpty()) {
+                    publicPlayersError = it.message ?: "Не удалось загрузить список игроков"
+                } else {
+                    infoMessage = it.message
+                }
             }
             publicPlayersLoading = false
         }
     }
 
-    fun loadPublicProfile(name: String = selectedPublicPlayer.orEmpty()) {
+    private fun applyPlayersResponse(data: PlayersResponse) {
+        publicPlayers = data.players
+        publicPlayersOnlineCount = data.onlineCount.takeIf { it > 0 }
+            ?: data.players.count { it.online }
+        publicPlayersTotal = data.total.takeIf { it > 0 } ?: data.players.size
+        publicPlayersUpdatedAt = data.updatedAt
+        publicPlayersDemo = data.demo
+        onlinePlayers = when {
+            data.online.isNotEmpty() -> data.online.map { it.name }
+            else -> data.players.filter { it.online }.mapNotNull { it.name }
+        }
+    }
+
+    fun loadPublicProfile(name: String = selectedPublicPlayer.orEmpty(), force: Boolean = false) {
         val key = name.trim()
         if (key.isBlank()) return
         selectedPublicPlayer = key
         scope.launch {
-            publicProfileLoading = true
+            val profileKey = "players:profile:${key.lowercase()}"
+            val commentsKey = "players:comments:${key.lowercase()}"
+            var hadCachedProfile = false
+            if (!force) {
+                val cachedProfile = withContext(Dispatchers.IO) {
+                    JsonDiskCache.get(profileKey, PublicProfileResponse.serializer())
+                }
+                if (cachedProfile != null) {
+                    hadCachedProfile = true
+                    publicProfile = cachedProfile.value.player
+                    publicProfileViewer = cachedProfile.value.viewer
+                    publicCommentsEnabled = cachedProfile.value.player?.commentsEnabled != false
+                    publicProfileError = null
+                    val cachedComments = withContext(Dispatchers.IO) {
+                        JsonDiskCache.get(commentsKey, ProfileCommentsResponse.serializer())
+                    }
+                    if (cachedComments != null) {
+                        publicCommentsEnabled = cachedComments.value.enabled
+                        publicComments = cachedComments.value.comments
+                        publicCommentsLoading = false
+                    }
+                    if (cachedProfile.fresh && cachedComments != null && cachedComments.fresh) {
+                        publicProfileLoading = false
+                        return@launch
+                    }
+                    if (cachedProfile.fresh && !publicCommentsEnabled) {
+                        publicComments = emptyList()
+                        publicProfileLoading = false
+                        publicCommentsLoading = false
+                        return@launch
+                    }
+                }
+            }
+            if (!hadCachedProfile) {
+                publicProfileLoading = true
+                publicCommentsLoading = true
+            }
             publicProfileError = null
-            publicCommentsLoading = true
             runCatching {
                 withContext(Dispatchers.IO) { api.fetchPlayerProfile(key) }
             }.onSuccess { data ->
                 publicProfile = data.player
                 publicProfileViewer = data.viewer
                 publicCommentsEnabled = data.player?.commentsEnabled != false
+                withContext(Dispatchers.IO) {
+                    JsonDiskCache.put(profileKey, data, PublicProfileResponse.serializer(), JsonDiskCache.TTL_PROFILE_MS)
+                }
                 val owner = data.player?.name ?: key
+                val ownerCommentsKey = "players:comments:${owner.lowercase()}"
                 if (publicCommentsEnabled) {
+                    if (!hadCachedProfile || publicComments.isEmpty()) publicCommentsLoading = true
                     runCatching {
                         withContext(Dispatchers.IO) { api.fetchPlayerComments(owner) }
                     }.onSuccess { comments ->
                         publicCommentsEnabled = comments.enabled
                         publicComments = comments.comments
+                        withContext(Dispatchers.IO) {
+                            JsonDiskCache.put(
+                                ownerCommentsKey,
+                                comments,
+                                ProfileCommentsResponse.serializer(),
+                                JsonDiskCache.TTL_COMMENTS_MS,
+                            )
+                        }
                     }.onFailure { err ->
-                        publicComments = emptyList()
-                        if (publicProfileError == null) {
-                            infoMessage = err.message
+                        if (publicComments.isEmpty()) {
+                            publicComments = emptyList()
+                            if (publicProfileError == null) {
+                                infoMessage = err.message
+                            }
                         }
                     }
                 } else {
                     publicComments = emptyList()
+                    withContext(Dispatchers.IO) { JsonDiskCache.invalidate(ownerCommentsKey) }
                 }
             }.onFailure {
-                publicProfile = null
-                publicProfileViewer = null
-                publicComments = emptyList()
-                publicProfileError = it.message ?: "Не удалось загрузить профиль"
+                if (!hadCachedProfile) {
+                    publicProfile = null
+                    publicProfileViewer = null
+                    publicComments = emptyList()
+                    publicProfileError = it.message ?: "Не удалось загрузить профиль"
+                } else {
+                    infoMessage = it.message
+                }
             }
             publicProfileLoading = false
             publicCommentsLoading = false
@@ -1837,7 +1920,11 @@ class LauncherViewModel(
                 withContext(Dispatchers.IO) { api.postPlayerComment(owner, text) }
             }.onSuccess {
                 commentDraft = ""
-                loadPublicProfile(owner)
+                withContext(Dispatchers.IO) {
+                    JsonDiskCache.invalidate("players:comments:${owner.lowercase()}")
+                    JsonDiskCache.invalidate("players:profile:${owner.lowercase()}")
+                }
+                loadPublicProfile(owner, force = true)
             }.onFailure { handleError(it) }
             commentBusy = false
         }
@@ -1853,6 +1940,9 @@ class LauncherViewModel(
                 withContext(Dispatchers.IO) { api.deletePlayerComment(owner, id) }
             }.onSuccess {
                 publicComments = publicComments.filter { it.id != id }
+                withContext(Dispatchers.IO) {
+                    JsonDiskCache.invalidate("players:comments:${owner.lowercase()}")
+                }
             }.onFailure { handleError(it) }
             commentBusy = false
         }

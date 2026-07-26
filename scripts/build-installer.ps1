@@ -1,6 +1,6 @@
 #Requires -Version 5
 param(
-  [string]$Version = "1.8.0",
+  [string]$Version = "1.8.1",
   [switch]$Sign
 )
 $ErrorActionPreference = "Stop"

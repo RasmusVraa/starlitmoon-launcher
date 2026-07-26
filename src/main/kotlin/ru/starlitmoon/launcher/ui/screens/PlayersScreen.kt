@@ -117,7 +117,7 @@ private fun PublicPlayersList(vm: LauncherViewModel) {
             }
             StarlitSecondaryButton(
                 text = "Обновить",
-                onClick = { vm.refreshPublicPlayers() },
+                onClick = { vm.refreshPublicPlayers(force = true) },
                 compact = true,
                 enabled = !vm.publicPlayersLoading,
                 modifier = Modifier.width(120.dp),
@@ -180,6 +180,7 @@ private fun PlayerCard(vm: LauncherViewModel, player: PublicPlayerDto) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .height(198.dp)
             .clip(RoundedCornerShape(StarlitDimens.Radius))
             .background(StarlitColors.Surface)
             .border(
@@ -192,9 +193,9 @@ private fun PlayerCard(vm: LauncherViewModel, player: PublicPlayerDto) {
                 RoundedCornerShape(StarlitDimens.Radius),
             )
             .clickable { vm.openPublicPlayer(name) }
-            .padding(14.dp),
+            .padding(horizontal = 12.dp, vertical = 12.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Box {
             NetworkAvatar(url = avatar, fallbackName = name, size = 72.dp)
@@ -209,26 +210,48 @@ private fun PlayerCard(vm: LauncherViewModel, player: PublicPlayerDto) {
                 )
             }
         }
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(22.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
+        ) {
             Text(
-                name.ifBlank { "-" },
+                name.ifBlank { "—" },
                 color = StarlitColors.Text,
                 fontWeight = FontWeight.SemiBold,
                 fontSize = 14.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
             )
             if (player.badgeVisible != false && player.activeBadge != null) {
-                Text(player.activeBadge.emoji.orEmpty(), fontSize = 13.sp)
+                Text(
+                    player.activeBadge.emoji.orEmpty(),
+                    fontSize = 13.sp,
+                    modifier = Modifier.padding(start = 6.dp),
+                )
             }
         }
-        if (ranks.isNotEmpty()) {
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                ranks.take(2).forEach { RankPill(it.labelRu, it) }
-            }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(24.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            ranks.take(2).forEach { RankPill(it.labelRu, it) }
         }
-        if (player.banned) {
-            Text("Забанен", color = StarlitColors.Offline, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(16.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (player.banned) {
+                Text("Забанен", color = StarlitColors.Offline, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+            }
         }
     }
 }
