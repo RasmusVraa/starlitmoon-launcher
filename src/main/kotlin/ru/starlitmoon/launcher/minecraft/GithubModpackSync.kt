@@ -3,6 +3,8 @@ package ru.starlitmoon.launcher.minecraft
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import ru.starlitmoon.launcher.api.ModpackDto
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
 import java.io.BufferedInputStream
 import java.net.HttpURLConnection
 import java.net.URI
@@ -75,14 +77,23 @@ object GithubModpackSync {
 
     /** Non-LFS files (configs, txt) live on raw; LFS jars need media. */
     fun fileUrlRaw(source: GithubSource, slug: String, relativePath: String): String {
-        val clean = relativePath.trim().trimStart('/')
-        return "https://raw.githubusercontent.com/${source.owner}/${source.repo}/${source.ref}/packs/$slug/$clean"
+        val encoded = encodeGithubPath(relativePath)
+        return "https://raw.githubusercontent.com/${source.owner}/${source.repo}/${source.ref}/packs/$slug/$encoded"
     }
 
     fun fileUrlLfs(source: GithubSource, slug: String, relativePath: String): String {
-        val clean = relativePath.trim().trimStart('/')
-        return "https://media.githubusercontent.com/media/${source.owner}/${source.repo}/${source.ref}/packs/$slug/$clean"
+        val encoded = encodeGithubPath(relativePath)
+        return "https://media.githubusercontent.com/media/${source.owner}/${source.repo}/${source.ref}/packs/$slug/$encoded"
     }
+
+    /** Encode each path segment (spaces, Cyrillic, % in names like dim%0). */
+    private fun encodeGithubPath(relativePath: String): String =
+        relativePath.trim().trimStart('/').split('/')
+            .filter { it.isNotEmpty() }
+            .joinToString("/") { segment ->
+                URLEncoder.encode(segment, StandardCharsets.UTF_8)
+                    .replace("+", "%20")
+            }
 
     @Deprecated("Use fileUrlRaw / fileUrlLfs", ReplaceWith("fileUrlLfs(source, slug, relativePath)"))
     fun fileUrl(source: GithubSource, slug: String, relativePath: String): String =
@@ -143,8 +154,10 @@ object GithubModpackSync {
             return meta
         }
 
-        val files = manifest.files.map { it.copy(path = it.path.trim().trimStart('/')) }
-            .filter { it.path.isNotBlank() && !it.path.contains("..") }
+        val files = manifest.files.map {
+            it.copy(path = it.path.trim().trimStart('/').trimEnd('"').trim())
+        }
+            .filter { it.path.isNotBlank() && !it.path.contains("..") && !it.path.contains('\u0000') }
         val totalBytes = files.sumOf { it.size?.coerceAtLeast(0) ?: 0L }.takeIf { it > 0 }
         var doneBytes = 0L
         var filesDone = 0
