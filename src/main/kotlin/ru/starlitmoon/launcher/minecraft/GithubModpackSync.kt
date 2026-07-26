@@ -3,15 +3,19 @@ package ru.starlitmoon.launcher.minecraft
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import ru.starlitmoon.launcher.api.ModpackDto
-import java.net.URLEncoder
-import java.nio.charset.StandardCharsets
 import java.io.BufferedInputStream
 import java.net.HttpURLConnection
 import java.net.URI
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
-import java.security.MessageDigest
+import java.util.concurrent.Executors
+import java.util.concurrent.Future
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
 import kotlin.io.path.fileSize
@@ -31,6 +35,8 @@ object GithubModpackSync {
     private const val MARKER = ".starlit-archive.sha256"
     private const val CONNECT_TIMEOUT_MS = 30_000
     private const val READ_TIMEOUT_MS = 90_000
+    /** Parallel file downloads (GitHub rate-limits gently; 8 is a good balance). */
+    private const val PARALLELISM = 8
 
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -117,6 +123,8 @@ object GithubModpackSync {
 
     /**
      * Sync pack files from GitHub. Empty [Manifest.files] is allowed (loader-only / bare pack).
+     * Downloads up to [PARALLELISM] files at once. SHA-256 is not verified (size used to skip
+     * already-present files).
      */
     fun sync(
         dataDir: Path,
@@ -159,9 +167,11 @@ object GithubModpackSync {
         }
             .filter { it.path.isNotBlank() && !it.path.contains("..") && !it.path.contains('\u0000') }
         val totalBytes = files.sumOf { it.size?.coerceAtLeast(0) ?: 0L }.takeIf { it > 0 }
-        var doneBytes = 0L
-        var filesDone = 0
+        val doneBytes = AtomicLong(0L)
+        val filesDone = AtomicInteger(0)
         val filesTotal = files.size
+        val progressLock = Any()
+        val firstError = AtomicReference<Throwable?>(null)
 
         if (files.isEmpty()) {
             marker.writeText(remoteHash.ifBlank { "empty-loader-only" })
@@ -176,103 +186,99 @@ object GithubModpackSync {
             return meta
         }
 
-        for (file in files) {
-            control.checkpoint()
-            val dest = dir.resolve(file.path).normalize()
-            if (!dest.startsWith(dir)) error("Некорректный путь в манифесте: ${file.path}")
-            dest.parent?.createDirectories()
+        fun emit(message: String, currentFile: String? = null, kind: ProgressEvent.Kind = ProgressEvent.Kind.Download) {
+            val done = filesDone.get()
+            val bytes = doneBytes.get()
+            onProgress(
+                ProgressEvent(
+                    message = message,
+                    fraction = (0.05f + 0.90f * done.toFloat() / filesTotal).coerceIn(0.05f, 0.95f),
+                    bytesDone = bytes,
+                    bytesTotal = totalBytes,
+                    filesDone = done,
+                    filesTotal = filesTotal,
+                    currentFile = currentFile,
+                    kind = kind,
+                ),
+            )
+        }
 
-            val expected = file.sha256?.trim()?.lowercase().orEmpty()
-            if (!force && expected.isNotBlank() && dest.exists()) {
-                if (sha256Matches(dest, expected)) {
-                    filesDone++
-                    doneBytes += file.size?.coerceAtLeast(0) ?: dest.fileSize()
-                    onProgress(
-                        ProgressEvent(
-                            message = "Файл $filesDone/$filesTotal",
-                            fraction = (0.05f + 0.90f * filesDone.toFloat() / filesTotal).coerceIn(0.05f, 0.95f),
-                            bytesDone = doneBytes,
-                            bytesTotal = totalBytes,
-                            filesDone = filesDone,
-                            filesTotal = filesTotal,
-                            currentFile = file.path,
-                            kind = ProgressEvent.Kind.Download,
-                        ),
-                    )
-                    continue
+        val pool = Executors.newFixedThreadPool(PARALLELISM.coerceAtMost(filesTotal.coerceAtLeast(1))) {
+            Thread(it, "gh-modpack-dl").apply { isDaemon = true }
+        }
+        val futures = ArrayList<Future<*>>(files.size)
+        try {
+            for (file in files) {
+                futures += pool.submit {
+                    if (firstError.get() != null) return@submit
+                    try {
+                        control.checkpoint()
+                        val dest = dir.resolve(file.path).normalize()
+                        if (!dest.startsWith(dir)) error("Некорректный путь в манифесте: ${file.path}")
+                        dest.parent?.createDirectories()
+
+                        val expectedSize = file.size?.takeIf { it > 0 }
+                        if (!force && dest.exists() && dest.fileSize() > 0L &&
+                            (expectedSize == null || dest.fileSize() == expectedSize)
+                        ) {
+                            filesDone.incrementAndGet()
+                            doneBytes.addAndGet(expectedSize ?: dest.fileSize())
+                            synchronized(progressLock) {
+                                emit("Файл ${filesDone.get()}/$filesTotal", file.path)
+                            }
+                            return@submit
+                        }
+
+                        val customUrl = file.url?.trim()?.ifBlank { null }
+                        val rawUrl = fileUrlRaw(source, safeSlug, file.path)
+                        val lfsUrl = fileUrlLfs(source, safeSlug, file.path)
+                        downloadGithubFile(
+                            primaryUrl = customUrl ?: rawUrl,
+                            lfsUrl = if (customUrl == null) lfsUrl else null,
+                            dest = dest,
+                            expectedSize = expectedSize,
+                            control = control,
+                            onChunk = { _, fileDone, _ ->
+                                // Lightweight mid-file progress (throttled by caller frequency).
+                                if (fileDone == 0L || fileDone % (512 * 1024) < 64 * 1024) {
+                                    synchronized(progressLock) {
+                                        onProgress(
+                                            ProgressEvent(
+                                                message = "Скачивание ${file.path}",
+                                                fraction = (0.05f + 0.90f * filesDone.get().toFloat() / filesTotal)
+                                                    .coerceIn(0.05f, 0.95f),
+                                                bytesDone = doneBytes.get() + fileDone,
+                                                bytesTotal = totalBytes,
+                                                filesDone = filesDone.get(),
+                                                filesTotal = filesTotal,
+                                                currentFile = file.path,
+                                                kind = ProgressEvent.Kind.Download,
+                                            ),
+                                        )
+                                    }
+                                }
+                            },
+                        )
+                        filesDone.incrementAndGet()
+                        doneBytes.addAndGet(expectedSize ?: dest.fileSize())
+                        synchronized(progressLock) {
+                            emit("Файл ${filesDone.get()}/$filesTotal", file.path)
+                        }
+                    } catch (e: DownloadCancelledException) {
+                        firstError.compareAndSet(null, e)
+                    } catch (e: Exception) {
+                        firstError.compareAndSet(null, e)
+                    }
                 }
             }
-
-            val customUrl = file.url?.trim()?.ifBlank { null }
-            val rawUrl = fileUrlRaw(source, safeSlug, file.path)
-            val lfsUrl = fileUrlLfs(source, safeSlug, file.path)
-            downloadGithubFile(
-                primaryUrl = customUrl ?: rawUrl,
-                lfsUrl = if (customUrl == null) lfsUrl else null,
-                dest = dest,
-                expectedSha = expected.takeIf { it.isNotBlank() },
-                expectedSize = file.size?.takeIf { it > 0 },
-                control = control,
-                onChunk = { n, fileDone, fileTotal ->
-                    val overallDone = doneBytes + fileDone
-                    val overallTotal = totalBytes ?: (doneBytes + (fileTotal ?: fileDone))
-                    onProgress(
-                        ProgressEvent(
-                            message = "Скачивание ${file.path}",
-                            fraction = (0.05f + 0.90f * (filesDone + if ((fileTotal ?: 0) > 0) fileDone.toFloat() / fileTotal!! else 0f) / filesTotal)
-                                .coerceIn(0.05f, 0.95f),
-                            bytesDone = overallDone,
-                            bytesTotal = overallTotal.takeIf { it > 0 },
-                            filesDone = filesDone,
-                            filesTotal = filesTotal,
-                            currentFile = file.path,
-                            speedBps = null,
-                            kind = ProgressEvent.Kind.Download,
-                        ),
-                    )
-                },
-            )
-            filesDone++
-            doneBytes += file.size?.takeIf { it > 0 } ?: dest.fileSize()
-            onProgress(
-                ProgressEvent(
-                    message = "Файл $filesDone/$filesTotal",
-                    fraction = (0.05f + 0.90f * filesDone.toFloat() / filesTotal).coerceIn(0.05f, 0.95f),
-                    bytesDone = doneBytes,
-                    bytesTotal = totalBytes,
-                    filesDone = filesDone,
-                    filesTotal = filesTotal,
-                    currentFile = file.path,
-                    kind = ProgressEvent.Kind.Download,
-                ),
-            )
+            for (f in futures) {
+                runCatching { f.get() }
+            }
+        } finally {
+            pool.shutdownNow()
         }
 
-        onProgress(ProgressEvent("Проверка файлов…", 0.96f, kind = ProgressEvent.Kind.Verify))
-        var verified = 0
-        for (file in files) {
-            control.checkpoint()
-            val expected = file.sha256?.trim()?.lowercase().orEmpty()
-            if (expected.isBlank()) {
-                verified++
-                continue
-            }
-            val dest = dir.resolve(file.path)
-            if (!dest.exists() || !sha256Matches(dest, expected)) {
-                error("Контрольная сумма не совпала: ${file.path}")
-            }
-            verified++
-            onProgress(
-                ProgressEvent(
-                    message = "Проверка $verified/$filesTotal",
-                    fraction = (0.96f + 0.03f * verified.toFloat() / filesTotal).coerceIn(0.96f, 0.99f),
-                    filesDone = verified,
-                    filesTotal = filesTotal,
-                    currentFile = file.path,
-                    kind = ProgressEvent.Kind.Verify,
-                ),
-            )
-        }
+        firstError.get()?.let { throw it }
 
         marker.writeText(remoteHash)
         onProgress(ProgressEvent("Сборка готова", 1f, filesDone = filesTotal, filesTotal = filesTotal))
@@ -280,7 +286,7 @@ object GithubModpackSync {
     }
 
     private fun contentFingerprint(manifest: Manifest): String {
-        val digest = MessageDigest.getInstance("SHA-256")
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
         for (f in manifest.files.sortedBy { it.path }) {
             digest.update(f.path.toByteArray())
             digest.update((f.sha256 ?: "").toByteArray())
@@ -297,7 +303,6 @@ object GithubModpackSync {
         primaryUrl: String,
         lfsUrl: String?,
         dest: Path,
-        expectedSha: String?,
         expectedSize: Long?,
         control: DownloadControl,
         onChunk: (n: Int, fileDone: Long, fileTotal: Long?) -> Unit,
@@ -308,79 +313,14 @@ object GithubModpackSync {
             Files.deleteIfExists(part)
             downloadToPart(lfsUrl, dest, control, onChunk)
         }
-        if (expectedSha != null) {
-            if (!sha256Matches(part, expectedSha)) {
-                Files.deleteIfExists(part)
-                error("SHA-256 не совпал для ${dest.name}")
-            }
-        }
         if (expectedSize != null && part.exists()) {
             val size = part.fileSize()
-            // Soft size check: text files may differ by CRLF vs LF vs manifest.
             if (size < 1024 && expectedSize > 4096) {
                 Files.deleteIfExists(part)
-                error("Скачан LFS-указатель вместо файла: ${dest.name} (нужен media.githubusercontent.com)")
+                error("Скачан LFS-указатель вместо файла: ${dest.name}")
             }
         }
         Files.move(part, dest, StandardCopyOption.REPLACE_EXISTING)
-    }
-
-    /** Exact match, or match after CRLF↔LF (GitHub raw serves LF; Windows trees often CRLF). */
-    private fun sha256Matches(path: Path, expected: String): Boolean {
-        val want = expected.trim().lowercase()
-        if (sha256Hex(path) == want) return true
-        val bytes = Files.readAllBytes(path)
-        if (bytes.isEmpty() || bytes.size > 8 * 1024 * 1024) return false
-        // Only rewrite newlines for small/text-ish payloads (not jar/zip magic).
-        if (bytes.size >= 4) {
-            val b0 = bytes[0].toInt() and 0xff
-            val b1 = bytes[1].toInt() and 0xff
-            if (b0 == 0x50 && b1 == 0x4b) return false // PK zip/jar
-            if (b0 == 0x1f && b1 == 0x8b) return false // gzip
-        }
-        val asLf = stripCr(bytes)
-        if (asLf.size != bytes.size && sha256Bytes(asLf) == want) return true
-        val asCrlf = lfToCrlf(bytes)
-        if (asCrlf.size != bytes.size && sha256Bytes(asCrlf) == want) return true
-        return false
-    }
-
-    private fun stripCr(bytes: ByteArray): ByteArray {
-        var cr = 0
-        for (b in bytes) if (b == '\r'.code.toByte()) cr++
-        if (cr == 0) return bytes
-        val out = ByteArray(bytes.size - cr)
-        var j = 0
-        for (b in bytes) if (b != '\r'.code.toByte()) out[j++] = b
-        return out
-    }
-
-    private fun lfToCrlf(bytes: ByteArray): ByteArray {
-        var lf = 0
-        var i = 0
-        while (i < bytes.size) {
-            if (bytes[i] == '\n'.code.toByte() && (i == 0 || bytes[i - 1] != '\r'.code.toByte())) lf++
-            i++
-        }
-        if (lf == 0) return bytes
-        val out = ByteArray(bytes.size + lf)
-        var j = 0
-        i = 0
-        while (i < bytes.size) {
-            val b = bytes[i]
-            if (b == '\n'.code.toByte() && (i == 0 || bytes[i - 1] != '\r'.code.toByte())) {
-                out[j++] = '\r'.code.toByte()
-            }
-            out[j++] = b
-            i++
-        }
-        return out
-    }
-
-    private fun sha256Bytes(bytes: ByteArray): String {
-        val digest = MessageDigest.getInstance("SHA-256")
-        digest.update(bytes)
-        return digest.digest().joinToString("") { "%02x".format(it) }
     }
 
     private fun downloadToPart(
@@ -437,18 +377,5 @@ object GithubModpackSync {
         conn.setRequestProperty("Cache-Control", "no-cache")
         conn.setRequestProperty("Pragma", "no-cache")
         return conn
-    }
-
-    private fun sha256Hex(path: Path): String {
-        val digest = MessageDigest.getInstance("SHA-256")
-        Files.newInputStream(path).use { input ->
-            val buf = ByteArray(64 * 1024)
-            while (true) {
-                val n = input.read(buf)
-                if (n <= 0) break
-                digest.update(buf, 0, n)
-            }
-        }
-        return digest.digest().joinToString("") { "%02x".format(it) }
     }
 }

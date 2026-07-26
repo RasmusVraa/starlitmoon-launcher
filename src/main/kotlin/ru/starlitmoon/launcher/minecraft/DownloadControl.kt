@@ -44,32 +44,36 @@ class DownloadControl {
         if (cancelled) throw DownloadCancelledException()
     }
 
-    /** Call after each successful read of [n] bytes to enforce speed limit. */
+    /** Call after each successful read of [n] bytes to enforce speed limit (thread-safe). */
     fun throttle(n: Int) {
         if (n <= 0) return
         checkpoint()
         val limit = speedLimitBps
         if (limit <= 0L) return
-        windowBytes += n
-        val elapsedNs = System.nanoTime() - windowStartNs
-        val elapsedSec = elapsedNs / 1_000_000_000.0
-        if (elapsedSec < 0.05) return
-        val allowed = limit * elapsedSec
-        if (windowBytes > allowed) {
-            val over = windowBytes - allowed
-            val sleepMs = ((over / limit.toDouble()) * 1000.0).toLong().coerceIn(1L, 2_000L)
-            var left = sleepMs
-            while (left > 0 && !cancelled) {
-                checkpoint()
-                val step = minOf(left, 50L)
-                Thread.sleep(step)
-                left -= step
+        var sleepMs = 0L
+        synchronized(this) {
+            windowBytes += n
+            val elapsedNs = System.nanoTime() - windowStartNs
+            val elapsedSec = elapsedNs / 1_000_000_000.0
+            if (elapsedSec < 0.05) return
+            val allowed = limit * elapsedSec
+            if (windowBytes > allowed) {
+                val over = windowBytes - allowed
+                sleepMs = ((over / limit.toDouble()) * 1000.0).toLong().coerceIn(1L, 2_000L)
+                windowStartNs = System.nanoTime()
+                windowBytes = 0L
+            } else if (elapsedSec >= 1.0) {
+                windowStartNs = System.nanoTime()
+                windowBytes = 0L
             }
-            windowStartNs = System.nanoTime()
-            windowBytes = 0L
-        } else if (elapsedSec >= 1.0) {
-            windowStartNs = System.nanoTime()
-            windowBytes = 0L
+        }
+        if (sleepMs <= 0L) return
+        var left = sleepMs
+        while (left > 0 && !cancelled) {
+            checkpoint()
+            val step = minOf(left, 50L)
+            Thread.sleep(step)
+            left -= step
         }
     }
 }
