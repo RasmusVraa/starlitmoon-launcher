@@ -70,6 +70,7 @@ import java.awt.datatransfer.StringSelection
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
 import kotlin.io.path.writeBytes
@@ -83,6 +84,7 @@ class LauncherViewModel(
 ) {
     var configState by mutableStateOf(initialConfig)
     private val updateChecker = UpdateChecker(configProvider = { configState })
+    private val silentUpdateRetryScheduled = AtomicBoolean(false)
     private val discordPresence = DiscordPresence(scope)
 
     private var mc: MinecraftLauncher = MinecraftLauncher(configState)
@@ -480,7 +482,20 @@ class LauncherViewModel(
                     }
                 }
                 .onFailure { err ->
-                    if (!silent) {
+                    LauncherLog.warn("Update check failed (silent=$silent): ${err.message}")
+                    val offlineOrTimeout = UpdateChecker.isTransientNetworkFailure(err)
+                    if (silent || offlineOrTimeout) {
+                        // Soft-fail: no red banner when offline/timeout (or background check).
+                        if (silent && silentUpdateRetryScheduled.compareAndSet(false, true)) {
+                            launch {
+                                delay(90_000)
+                                checkForUpdates(silent = true)
+                            }
+                        } else if (!silent && offlineOrTimeout) {
+                            infoMessage = err.message?.takeIf { it.isNotBlank() }
+                                ?: "Не удалось проверить обновления"
+                        }
+                    } else {
                         errorMessage = err.message?.takeIf { it.isNotBlank() }
                             ?: "Не удалось проверить обновления"
                     }

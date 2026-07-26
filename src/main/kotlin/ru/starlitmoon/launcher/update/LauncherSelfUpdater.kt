@@ -17,6 +17,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.nio.file.StandardOpenOption
+import java.util.concurrent.CancellationException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.zip.ZipFile
@@ -57,59 +58,76 @@ object LauncherSelfUpdater {
             }
         }
         try {
-            client.prepareGet(url) {
-                header("User-Agent", "StarlitMoon-Launcher/${LauncherVersion.CURRENT}")
-                header("Accept", "application/octet-stream")
-            }.execute { response ->
-                if (!response.status.isSuccess()) {
-                    error("Не удалось скачать обновление (${response.status.value})")
-                }
-                val total = response.headers["Content-Length"]?.toLongOrNull()?.takeIf { it > 0 }
-                target.parent?.createDirectories()
-                val tmp = target.resolveSibling("${target.fileName}.part")
-                tmp.deleteIfExists()
-                var written = 0L
-                var lastReport = 0L
-                Files.newOutputStream(
-                    tmp,
-                    StandardOpenOption.CREATE,
-                    StandardOpenOption.TRUNCATE_EXISTING,
-                    StandardOpenOption.WRITE,
-                ).use { out ->
-                    val channel: ByteReadChannel = response.bodyAsChannel()
-                    val buffer = ByteArray(256 * 1024)
-                    while (!channel.isClosedForRead) {
-                        val read = channel.readAvailable(buffer, 0, buffer.size)
-                        if (read < 0) break
-                        if (read == 0) {
-                            yield()
-                            continue
+            var lastError: Exception? = null
+            repeat(3) { attempt ->
+                try {
+                    client.prepareGet(url) {
+                        header("User-Agent", "StarlitMoon-Launcher/${LauncherVersion.CURRENT}")
+                        header("Accept", "application/octet-stream")
+                    }.execute { response ->
+                        if (!response.status.isSuccess()) {
+                            error("Не удалось скачать обновление (${response.status.value})")
                         }
-                        out.write(buffer, 0, read)
-                        written += read
-                        if (written - lastReport < 512 * 1024 && total != null && written < total) continue
-                        lastReport = written
-                        val frac = if (total != null) {
-                            (written.toFloat() / total.toFloat()).coerceIn(0f, 0.99f)
-                        } else {
-                            0.15f
+                        val total = response.headers["Content-Length"]?.toLongOrNull()?.takeIf { it > 0 }
+                        target.parent?.createDirectories()
+                        val tmp = target.resolveSibling("${target.fileName}.part")
+                        tmp.deleteIfExists()
+                        var written = 0L
+                        var lastReport = 0L
+                        Files.newOutputStream(
+                            tmp,
+                            StandardOpenOption.CREATE,
+                            StandardOpenOption.TRUNCATE_EXISTING,
+                            StandardOpenOption.WRITE,
+                        ).use { out ->
+                            val channel: ByteReadChannel = response.bodyAsChannel()
+                            val buffer = ByteArray(256 * 1024)
+                            while (!channel.isClosedForRead) {
+                                val read = channel.readAvailable(buffer, 0, buffer.size)
+                                if (read < 0) break
+                                if (read == 0) {
+                                    yield()
+                                    continue
+                                }
+                                out.write(buffer, 0, read)
+                                written += read
+                                if (written - lastReport < 512 * 1024 && total != null && written < total) continue
+                                lastReport = written
+                                val frac = if (total != null) {
+                                    (written.toFloat() / total.toFloat()).coerceIn(0f, 0.99f)
+                                } else {
+                                    0.15f
+                                }
+                                val mb = written / (1024.0 * 1024.0)
+                                val label = if (total != null) {
+                                    val totalMb = total / (1024.0 * 1024.0)
+                                    "Загрузка %.0f / %.0f МБ".format(mb, totalMb)
+                                } else {
+                                    "Загрузка %.0f МБ…".format(mb)
+                                }
+                                onProgress(frac, label)
+                            }
                         }
-                        val mb = written / (1024.0 * 1024.0)
-                        val label = if (total != null) {
-                            val totalMb = total / (1024.0 * 1024.0)
-                            "Загрузка %.0f / %.0f МБ".format(mb, totalMb)
-                        } else {
-                            "Загрузка %.0f МБ…".format(mb)
+                        if (written < 1_000_000L) {
+                            error("Файл обновления слишком маленький ($written байт)")
                         }
-                        onProgress(frac, label)
+                        Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING)
+                        onProgress(1f, "Загрузка завершена")
                     }
+                    return
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    lastError = e
+                    val transient = UpdateChecker.isTransientNetworkFailure(e)
+                    if (attempt >= 2 || !transient) throw e
+                    LauncherLog.warn(
+                        "Update download attempt ${attempt + 1}/3 failed (${e.message}); retrying…",
+                    )
+                    kotlinx.coroutines.delay(2_000L * (attempt + 1))
                 }
-                if (written < 1_000_000L) {
-                    error("Файл обновления слишком маленький ($written байт)")
-                }
-                Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING)
-                onProgress(1f, "Загрузка завершена")
             }
+            throw lastError ?: error("Не удалось скачать обновление")
         } finally {
             client.close()
         }
