@@ -2,7 +2,7 @@
 ; Default install: %AppData%\Roaming\StarlitMoonLauncher (user-selectable)
 
 #define AppName "StarlitMoon Launcher"
-#define AppVersion "1.8.2"
+#define AppVersion "1.8.3"
 #define AppPublisher "StarlitMoon"
 #define AppURL "https://starlit-moon.ru"
 #define AppExeName "StarlitMoonLauncher.exe"
@@ -24,8 +24,8 @@ DisableDirPage=no
 AlwaysShowDirOnReadyPage=yes
 UsePreviousAppDir=yes
 AllowNoIcons=yes
-OutputDir=..\dist\v1.8.2
-OutputBaseFilename=StarlitMoonLauncher-Setup-1.8.2
+OutputDir=..\dist\v1.8.3
+OutputBaseFilename=StarlitMoonLauncher-Setup-1.8.3
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=dark
@@ -48,9 +48,11 @@ VersionInfoProductName={#AppName}
 VersionInfoProductVersion={#AppVersion}
 
 ; Старые jar копятся при обновлении и могли подхватывать траву Minecraft (1.0.7/1.0.8).
+; Чистим главный jar + cfg до копирования, чтобы не остаться на stale classpath.
 [InstallDelete]
 Type: files; Name: "{app}\app\starlitmoon-launcher-*.jar"
 Type: files; Name: "{app}\app\StarlitMoonLauncher.cfg"
+Type: files; Name: "{app}\app\.jpackage.xml"
 Type: files; Name: "{app}\{#AppExeName}"
 Type: files; Name: "{userdesktop}\{#AppName}.lnk"
 Type: files; Name: "{group}\{#AppName}.lnk"

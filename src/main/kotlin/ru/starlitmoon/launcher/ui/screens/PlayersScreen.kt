@@ -245,6 +245,8 @@ private fun PlayerCard(vm: LauncherViewModel, player: PublicPlayerDto) {
         }
     }
 }
+
+@Composable
 private fun PublicProfileDetail(vm: LauncherViewModel) {
     val player = vm.publicProfile
     val viewer = vm.publicProfileViewer

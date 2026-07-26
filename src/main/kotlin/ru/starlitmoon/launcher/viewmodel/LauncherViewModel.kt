@@ -526,6 +526,11 @@ class LauncherViewModel(
                             updateProgress = label
                         }
                     }
+                    LauncherSelfUpdater.verifyPackageVersion(
+                        packagePath = target,
+                        expectedVersion = update.latestVersion,
+                        kind = kind,
+                    )
                 }
                 updateProgress = "Перезапуск…"
                 updateProgressFraction = 0.96f
@@ -540,6 +545,7 @@ class LauncherViewModel(
                                 installDir = paths.installDir,
                                 relaunchExe = paths.relaunchExe,
                                 launcherPid = ProcessHandle.current().pid(),
+                                expectedVersion = update.latestVersion,
                             )
                         }
                         UpdatePackageKind.SETUP -> {
@@ -548,6 +554,7 @@ class LauncherViewModel(
                                 installDir = paths.installDir,
                                 relaunchExe = paths.relaunchExe,
                                 launcherPid = ProcessHandle.current().pid(),
+                                expectedVersion = update.latestVersion,
                             )
                         }
                     }

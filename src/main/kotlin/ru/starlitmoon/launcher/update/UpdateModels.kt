@@ -20,9 +20,9 @@ data class GitHubAsset(
 )
 
 enum class UpdatePackageKind {
-    /** App folder ZIP — in-place file replace + restart (preferred). */
+    /** App folder ZIP — preferred; payload version is verified before apply. */
     ZIP,
-    /** Legacy Inno Setup silent install. */
+    /** Inno Setup silent install (fallback when ZIP is missing). */
     SETUP,
 }
 

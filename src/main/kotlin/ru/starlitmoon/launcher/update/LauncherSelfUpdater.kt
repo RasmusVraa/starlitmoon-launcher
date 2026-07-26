@@ -19,6 +19,7 @@ import java.nio.file.StandardCopyOption
 import java.nio.file.StandardOpenOption
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.zip.ZipFile
 import kotlin.io.path.createDirectories
 import kotlin.io.path.deleteIfExists
 import kotlin.io.path.exists
@@ -115,6 +116,54 @@ object LauncherSelfUpdater {
     }
 
     /**
+     * Ensures a downloaded ZIP actually contains the expected app version.
+     * Catches mislabeled releases (Setup/ZIP named X.Y.Z but packaging older binaries).
+     */
+    fun verifyPackageVersion(packagePath: Path, expectedVersion: String, kind: UpdatePackageKind) {
+        val expected = expectedVersion.trim().removePrefix("v").removePrefix("V")
+        require(expected.isNotBlank()) { "Пустая версия обновления" }
+        when (kind) {
+            UpdatePackageKind.ZIP -> {
+                require(packagePath.exists()) { "Архив обновления не найден" }
+                val cfg = readZipEntryText(packagePath) { name ->
+                    name.equals("app/StarlitMoonLauncher.cfg", ignoreCase = true) ||
+                        name.equals("StarlitMoonLauncher.cfg", ignoreCase = true) ||
+                        name.endsWith("/StarlitMoonLauncher.cfg", ignoreCase = true)
+                } ?: error("В архиве нет StarlitMoonLauncher.cfg — пакет повреждён")
+                val ok = cfg.contains("jpackage.app-version=$expected") ||
+                    cfg.contains("starlitmoon-launcher-$expected-")
+                if (!ok) {
+                    val found = Regex("""jpackage\.app-version=([^\s\r\n]+)""")
+                        .find(cfg)?.groupValues?.getOrNull(1)
+                        ?: Regex("""starlitmoon-launcher-(\d+(?:\.\d+)*)-""")
+                            .find(cfg)?.groupValues?.getOrNull(1)
+                        ?: "?"
+                    error(
+                        "Релиз v$expected содержит старую сборку ($found). " +
+                            "Скачайте установщик вручную с GitHub или подождите исправленный релиз.",
+                    )
+                }
+            }
+            UpdatePackageKind.SETUP -> {
+                require(packagePath.exists()) { "Установщик не найден" }
+                // Inno ProductVersion can match the tag while payload is stale — only size sanity here.
+                // Post-install check in the apply script catches content mismatch.
+                val size = Files.size(packagePath)
+                if (size < 1_000_000L) {
+                    error("Установщик слишком маленький ($size байт)")
+                }
+            }
+        }
+    }
+
+    private fun readZipEntryText(zipPath: Path, match: (String) -> Boolean): String? {
+        ZipFile(zipPath.toFile()).use { zip ->
+            val entry = zip.entries().asSequence().firstOrNull { !it.isDirectory && match(it.name) } ?: return null
+            return zip.getInputStream(entry).bufferedReader(StandardCharsets.UTF_8).use { it.readText() }
+        }
+    }
+
+    /**
      * Schedule ZIP apply entirely outside the JVM (extract + robocopy + relaunch).
      * Does **not** unpack in-process.
      */
@@ -124,6 +173,7 @@ object LauncherSelfUpdater {
         installDir: Path,
         relaunchExe: Path,
         launcherPid: Long,
+        expectedVersion: String? = null,
     ) {
         require(zipPath.exists()) { "Архив обновления не найден" }
         val updateDir = installDir.resolve("update").also { it.createDirectories() }
@@ -189,6 +239,16 @@ object LauncherSelfUpdater {
             appendLine("  exit /b 1")
             appendLine(")")
             appendLine("echo [%TIME%] SRC=!SRC!>>\"%LOG%\"")
+            if (!expectedVersion.isNullOrBlank()) {
+                val ver = expectedVersion.trim().removePrefix("v").removePrefix("V")
+                appendLine("set \"EXPECTVER=$ver\"")
+                appendLine("findstr /C:\"jpackage.app-version=!EXPECTVER!\" \"!SRC!\\app\\StarlitMoonLauncher.cfg\" >NUL 2>&1")
+                appendLine("if errorlevel 1 findstr /C:\"jpackage.app-version=!EXPECTVER!\" \"!SRC!\\StarlitMoonLauncher.cfg\" >NUL 2>&1")
+                appendLine("if errorlevel 1 (")
+                appendLine("  echo [%TIME%] zip version mismatch expect=!EXPECTVER!>>\"%LOG%\"")
+                appendLine("  exit /b 3")
+                appendLine(")")
+            }
             appendLine("set /a COPYTRY=0")
             appendLine(":copyloop")
             appendLine("set /a COPYTRY+=1")
@@ -230,6 +290,7 @@ object LauncherSelfUpdater {
         installDir: Path,
         relaunchExe: Path,
         launcherPid: Long,
+        expectedVersion: String? = null,
     ) {
         require(installer.exists()) { "Установщик не найден" }
         val updateDir = installDir.resolve("update").also { it.createDirectories() }
@@ -273,6 +334,17 @@ object LauncherSelfUpdater {
             appendLine("set \"RC=!ERRORLEVEL!\"")
             appendLine("echo [%TIME%] setup rc=!RC!>>\"%LOG%\"")
             appendLine("ping -n 2 127.0.0.1 >NUL")
+            if (!expectedVersion.isNullOrBlank()) {
+                val ver = expectedVersion.trim().removePrefix("v").removePrefix("V")
+                appendLine("set \"EXPECTVER=$ver\"")
+                appendLine("findstr /C:\"jpackage.app-version=!EXPECTVER!\" \"%DIR%\\app\\StarlitMoonLauncher.cfg\" >NUL 2>&1")
+                appendLine("if errorlevel 1 (")
+                appendLine("  echo [%TIME%] setup installed wrong version expect=!EXPECTVER!>>\"%LOG%\"")
+                appendLine("  if exist \"%DIR%\\app\\StarlitMoonLauncher.cfg\" type \"%DIR%\\app\\StarlitMoonLauncher.cfg\" | findstr /C:\"jpackage.app-version=\" >>\"%LOG%\"")
+                appendLine("  exit /b 3")
+                appendLine(")")
+                appendLine("echo [%TIME%] setup version ok=!EXPECTVER!>>\"%LOG%\"")
+            }
             appendLine("if exist \"%EXE%\" (start \"\" /D \"%DIR%\" \"%EXE%\") else if exist \"%ALTEXE%\" (start \"\" /D \"%DIR%\" \"%ALTEXE%\")")
             appendLine("del /f /q \"%FLAG%\" >NUL 2>&1")
             appendLine("del /f /q \"%SETUP%\" >NUL 2>&1")
