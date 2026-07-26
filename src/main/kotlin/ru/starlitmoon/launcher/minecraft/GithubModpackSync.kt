@@ -34,6 +34,8 @@ import kotlin.io.path.writeText
  */
 object GithubModpackSync {
     private const val MARKER = ".starlit-archive.sha256"
+    /** Local/remote marker when packs/{slug}/manifest.json is absent — loader-only install. */
+    private const val NO_MANIFEST_MARKER = "no-manifest-loader-only"
     private const val CONNECT_TIMEOUT_MS = 45_000
     private const val READ_TIMEOUT_MS = 120_000
     /** Floor for normal adaptation — small files need many connections. */
@@ -117,12 +119,17 @@ object GithubModpackSync {
     fun fileUrl(source: GithubSource, slug: String, relativePath: String): String =
         fileUrlLfs(source, slug, relativePath)
 
-    fun fetchManifest(source: GithubSource, slug: String, control: DownloadControl = DownloadControl()): Manifest {
+    /**
+     * Fetch packs/{slug}/manifest.json. Returns null when the file is missing (404/410)
+     * so callers can fall back to loader-only install from pack API metadata.
+     */
+    fun fetchManifest(source: GithubSource, slug: String, control: DownloadControl = DownloadControl()): Manifest? {
         control.checkpoint()
         val url = manifestUrlFresh(source, slug)
         val conn = openGet(url)
         try {
             val code = conn.responseCode
+            if (code == 404 || code == 410) return null
             if (code !in 200..299) {
                 error("Манифест GitHub недоступен (HTTP $code): $url")
             }
@@ -138,8 +145,14 @@ object GithubModpackSync {
         manifest.sha256?.trim()?.lowercase().orEmpty()
             .ifBlank { contentFingerprint(manifest) }
 
-    fun fetchRemoteHash(source: GithubSource, slug: String): String =
-        remoteContentHash(fetchManifest(source, slug))
+    /**
+     * Content hash for update checks. Missing manifest → stable [NO_MANIFEST_MARKER]
+     * (loader-only packs stay "up to date" after first install).
+     */
+    fun fetchRemoteHash(source: GithubSource, slug: String): String {
+        val manifest = fetchManifest(source, slug) ?: return NO_MANIFEST_MARKER
+        return remoteContentHash(manifest)
+    }
 
     /**
      * True when the pack is installed locally and the marker differs from [remoteHash].
@@ -165,9 +178,8 @@ object GithubModpackSync {
     }
 
     /**
-     * Sync pack files from GitHub. Empty [Manifest.files] is allowed (loader-only / bare pack).
-     * Downloads up to [PARALLELISM] files at once. SHA-256 is not verified (size used to skip
-     * already-present files).
+     * Sync pack files from GitHub. Missing `manifest.json` (404) or empty [Manifest.files]
+     * → loader-only (no mod/config download). Full file sync when the manifest lists files.
      */
     fun sync(
         dataDir: Path,
@@ -184,6 +196,36 @@ object GithubModpackSync {
 
         onProgress(ProgressEvent("Загрузка манифеста GitHub…", 0.02f, kind = ProgressEvent.Kind.Download))
         val manifest = fetchManifest(source, safeSlug, control)
+        val dir = ModpackSync.packDir(dataDir, pack)
+        dir.createDirectories()
+        val marker = dir.resolve(MARKER)
+
+        // No manifest.json → skip file sync; play/reinstall still installs Minecraft + loader
+        // from ModpackDto (site API) metadata.
+        if (manifest == null) {
+            val meta = SyncResult(
+                applied = true,
+                loader = pack.loader?.trim()?.ifBlank { null },
+                mcVersion = pack.mcVersion?.trim()?.ifBlank { null },
+                loaderVersion = pack.loaderVersion?.trim()?.ifBlank { null },
+                name = pack.name?.trim()?.ifBlank { null },
+            )
+            if (!force && isUpToDate(dataDir, pack, NO_MANIFEST_MARKER)) {
+                onProgress(ProgressEvent("Сборка уже актуальна (только лоадер)", 1f))
+                return meta
+            }
+            marker.writeText(NO_MANIFEST_MARKER)
+            onProgress(
+                ProgressEvent(
+                    "Манифест не найден — только Minecraft / лоадер",
+                    1f,
+                    filesDone = 0,
+                    filesTotal = 0,
+                ),
+            )
+            return meta
+        }
+
         val meta = SyncResult(
             applied = true,
             loader = manifest.loader?.trim()?.ifBlank { null },
@@ -192,10 +234,6 @@ object GithubModpackSync {
             name = manifest.name?.trim()?.ifBlank { null },
         )
         val remoteHash = remoteContentHash(manifest)
-
-        val dir = ModpackSync.packDir(dataDir, pack)
-        dir.createDirectories()
-        val marker = dir.resolve(MARKER)
 
         // Require an existing matching marker — !needsUpdate is true for missing installs too.
         if (!force && isUpToDate(dataDir, pack, remoteHash)) {
