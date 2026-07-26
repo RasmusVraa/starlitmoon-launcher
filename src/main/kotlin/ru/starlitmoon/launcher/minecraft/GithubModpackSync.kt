@@ -34,11 +34,12 @@ import kotlin.io.path.writeText
  */
 object GithubModpackSync {
     private const val MARKER = ".starlit-archive.sha256"
-    private const val CONNECT_TIMEOUT_MS = 30_000
-    private const val READ_TIMEOUT_MS = 90_000
-    private const val PARALLEL_MIN = 2
-    private const val PARALLEL_MAX = 16
-    private const val PARALLEL_START = 4
+    private const val CONNECT_TIMEOUT_MS = 45_000
+    private const val READ_TIMEOUT_MS = 120_000
+    private const val PARALLEL_MIN = 1
+    private const val PARALLEL_MAX = 10
+    private const val PARALLEL_START = 3
+    private const val DOWNLOAD_RETRIES = 5
     private val LFS_POINTER_PREFIX =
         "version https://git-lfs.github.com/spec/v1".toByteArray(StandardCharsets.US_ASCII)
 
@@ -225,15 +226,19 @@ object GithubModpackSync {
             )
         }
 
-        fun adjustParallelism() {
+        fun adjustParallelism(onNetworkError: Boolean = false) {
+            val cur = targetParallel.get()
+            if (onNetworkError) {
+                targetParallel.set((cur - 1).coerceAtLeast(PARALLEL_MIN))
+                return
+            }
             val speed = speedTracker.current()
             if (speed <= 0L) return
-            val cur = targetParallel.get()
             val next = when {
-                speed >= 2_500_000L && cur < PARALLEL_MAX -> cur + 2 // ≥ ~2.5 МБ/с
-                speed >= 800_000L && cur < PARALLEL_MAX -> cur + 1   // ≥ ~0.8 МБ/с
-                speed <= 80_000L && cur > PARALLEL_MIN -> cur - 1    // ≤ ~80 КБ/с
-                speed <= 200_000L && cur > PARALLEL_MIN + 1 -> cur - 1
+                speed >= 2_500_000L && cur < PARALLEL_MAX -> cur + 1
+                speed >= 1_000_000L && cur < PARALLEL_MAX -> cur + 1
+                speed <= 80_000L && cur > PARALLEL_MIN -> cur - 1
+                speed <= 250_000L && cur > PARALLEL_MIN + 1 -> cur - 1
                 else -> cur
             }.coerceIn(PARALLEL_MIN, PARALLEL_MAX.coerceAtMost(filesTotal.coerceAtLeast(1)))
             targetParallel.set(next)
@@ -279,44 +284,79 @@ object GithubModpackSync {
                         }
 
                         val customUrl = file.url?.trim()?.ifBlank { null }
-                        downloadGithubFile(
-                            primaryUrl = customUrl ?: fileUrlRaw(source, safeSlug, file.path),
-                            lfsUrl = if (customUrl == null) fileUrlLfs(source, safeSlug, file.path) else null,
-                            dest = dest,
-                            expectedSize = expectedSize,
-                            control = control,
-                            onChunk = { n, _, _ ->
-                                speedTracker.onBytes(n)
-                            },
-                            onProgressBytes = { delta ->
-                                if (delta != 0L) {
-                                    fileInFlight += delta
-                                    inFlightBytes.addAndGet(delta)
+                        var attempt = 0
+                        while (true) {
+                            try {
+                                // Clear any leftover in-flight from a failed attempt.
+                                if (fileInFlight != 0L) {
+                                    inFlightBytes.addAndGet(-fileInFlight)
+                                    fileInFlight = 0L
                                 }
-                                val speed = speedTracker.current()
-                                val now = System.nanoTime()
-                                val prev = lastProgressAtNs.get()
-                                if (now - prev >= 200_000_000L && lastProgressAtNs.compareAndSet(prev, now)) {
-                                    synchronized(progressLock) {
-                                        onProgress(
-                                            ProgressEvent(
-                                                message = "Скачивание ${file.path}",
-                                                fraction = (0.05f + 0.90f * filesDone.get().toFloat() / filesTotal)
-                                                    .coerceIn(0.05f, 0.95f),
-                                                bytesDone = displayedBytes(),
-                                                bytesTotal = totalBytes,
-                                                filesDone = filesDone.get(),
-                                                filesTotal = filesTotal,
-                                                currentFile = file.path,
-                                                speedBps = speed.takeIf { it > 0 },
-                                                threads = targetParallel.get(),
-                                                kind = ProgressEvent.Kind.Download,
-                                            ),
-                                        )
-                                    }
+                                downloadGithubFile(
+                                    primaryUrl = customUrl ?: fileUrlRaw(source, safeSlug, file.path),
+                                    lfsUrl = if (customUrl == null) fileUrlLfs(source, safeSlug, file.path) else null,
+                                    dest = dest,
+                                    expectedSize = expectedSize,
+                                    control = control,
+                                    onChunk = { n, _, _ ->
+                                        speedTracker.onBytes(n)
+                                    },
+                                    onProgressBytes = { delta ->
+                                        if (delta != 0L) {
+                                            fileInFlight += delta
+                                            inFlightBytes.addAndGet(delta)
+                                        }
+                                        val speed = speedTracker.current()
+                                        val now = System.nanoTime()
+                                        val prev = lastProgressAtNs.get()
+                                        if (now - prev >= 200_000_000L && lastProgressAtNs.compareAndSet(prev, now)) {
+                                            synchronized(progressLock) {
+                                                onProgress(
+                                                    ProgressEvent(
+                                                        message = "Скачивание ${file.path}",
+                                                        fraction = (0.05f + 0.90f * filesDone.get().toFloat() / filesTotal)
+                                                            .coerceIn(0.05f, 0.95f),
+                                                        bytesDone = displayedBytes(),
+                                                        bytesTotal = totalBytes,
+                                                        filesDone = filesDone.get(),
+                                                        filesTotal = filesTotal,
+                                                        currentFile = file.path,
+                                                        speedBps = speed.takeIf { it > 0 },
+                                                        threads = targetParallel.get(),
+                                                        kind = ProgressEvent.Kind.Download,
+                                                    ),
+                                                )
+                                            }
+                                        }
+                                    },
+                                )
+                                break
+                            } catch (e: DownloadCancelledException) {
+                                throw e
+                            } catch (e: Exception) {
+                                if (!isTransientNetworkError(e) || attempt >= DOWNLOAD_RETRIES - 1) throw e
+                                attempt++
+                                adjustParallelism(onNetworkError = true)
+                                synchronized(progressLock) {
+                                    onProgress(
+                                        ProgressEvent(
+                                            message = "Повтор $attempt/$DOWNLOAD_RETRIES: ${file.path}",
+                                            fraction = (0.05f + 0.90f * filesDone.get().toFloat() / filesTotal)
+                                                .coerceIn(0.05f, 0.95f),
+                                            bytesDone = displayedBytes(),
+                                            bytesTotal = totalBytes,
+                                            filesDone = filesDone.get(),
+                                            filesTotal = filesTotal,
+                                            currentFile = file.path,
+                                            threads = targetParallel.get(),
+                                            kind = ProgressEvent.Kind.Download,
+                                        ),
+                                    )
                                 }
-                            },
-                        )
+                                control.checkpoint()
+                                Thread.sleep((400L * attempt).coerceAtMost(3_000L))
+                            }
+                        }
                         // Commit: replace in-flight with manifest/actual size.
                         if (fileInFlight != 0L) {
                             inFlightBytes.addAndGet(-fileInFlight)
@@ -399,22 +439,20 @@ object GithubModpackSync {
         onProgressBytes: (delta: Long) -> Unit,
     ) {
         var counted = 0L
-        downloadToPart(primaryUrl, dest, control) { n, done, total ->
-            counted += n
-            onProgressBytes(n.toLong())
-            onChunk(n, done, total)
-        }
+        downloadToPart(primaryUrl, dest, control, onChunk, onProgressBytes = { d ->
+            counted += d
+            onProgressBytes(d)
+        })
         val part = dest.resolveSibling(dest.name + ".part")
         if (lfsUrl != null && isGitLfsPointer(part)) {
             // Discard pointer bytes from the size counter, then download the real blob.
             if (counted != 0L) onProgressBytes(-counted)
             counted = 0L
             Files.deleteIfExists(part)
-            downloadToPart(lfsUrl, dest, control) { n, done, total ->
-                counted += n
-                onProgressBytes(n.toLong())
-                onChunk(n, done, total)
-            }
+            downloadToPart(lfsUrl, dest, control, onChunk, onProgressBytes = { d ->
+                counted += d
+                onProgressBytes(d)
+            })
         }
         if (expectedSize != null && part.exists()) {
             val size = part.fileSize()
@@ -431,32 +469,89 @@ object GithubModpackSync {
         dest: Path,
         control: DownloadControl,
         onChunk: (n: Int, fileDone: Long, fileTotal: Long?) -> Unit,
+        onProgressBytes: (delta: Long) -> Unit = {},
     ) {
         val part = dest.resolveSibling(dest.name + ".part")
-        Files.deleteIfExists(part)
-        val conn = openGet(url)
-        try {
-            val code = conn.responseCode
-            if (code !in 200..299) error("Не удалось скачать $url (HTTP $code)")
-            val total = conn.contentLengthLong.takeIf { it > 0 }
-            var done = 0L
-            BufferedInputStream(conn.inputStream).use { input ->
-                Files.newOutputStream(part).use { output ->
-                    val buf = ByteArray(64 * 1024)
-                    while (true) {
-                        control.checkpoint()
-                        val n = input.read(buf)
-                        if (n <= 0) break
-                        output.write(buf, 0, n)
-                        done += n
-                        control.throttle(n)
-                        onChunk(n, done, total)
+        var lastError: Exception? = null
+        repeat(DOWNLOAD_RETRIES) { attempt ->
+            control.checkpoint()
+            Files.deleteIfExists(part)
+            var localCounted = 0L
+            val conn = openGet(url)
+            try {
+                val code = conn.responseCode
+                if (code == 429 || code == 502 || code == 503 || code == 504) {
+                    error("HTTP $code (временная ошибка)")
+                }
+                if (code !in 200..299) error("Не удалось скачать $url (HTTP $code)")
+                val total = conn.contentLengthLong.takeIf { it > 0 }
+                var done = 0L
+                BufferedInputStream(conn.inputStream).use { input ->
+                    Files.newOutputStream(part).use { output ->
+                        val buf = ByteArray(64 * 1024)
+                        while (true) {
+                            control.checkpoint()
+                            val n = input.read(buf)
+                            if (n <= 0) break
+                            output.write(buf, 0, n)
+                            done += n
+                            localCounted += n
+                            control.throttle(n)
+                            onProgressBytes(n.toLong())
+                            onChunk(n, done, total)
+                        }
                     }
                 }
+                return
+            } catch (e: DownloadCancelledException) {
+                if (localCounted != 0L) onProgressBytes(-localCounted)
+                Files.deleteIfExists(part)
+                throw e
+            } catch (e: Exception) {
+                if (localCounted != 0L) onProgressBytes(-localCounted)
+                Files.deleteIfExists(part)
+                lastError = e
+                if (!isTransientNetworkError(e) || attempt >= DOWNLOAD_RETRIES - 1) throw e
+                Thread.sleep((500L * (attempt + 1)).coerceAtMost(4_000L))
+            } finally {
+                conn.disconnect()
             }
-        } finally {
-            conn.disconnect()
         }
+        throw lastError ?: IllegalStateException("Не удалось скачать $url")
+    }
+
+    private fun isTransientNetworkError(e: Throwable): Boolean {
+        var t: Throwable? = e
+        while (t != null) {
+            when (t) {
+                is java.net.SocketTimeoutException,
+                is java.net.ConnectException,
+                is java.net.NoRouteToHostException,
+                is java.net.UnknownHostException,
+                is java.net.HttpRetryException,
+                is java.io.InterruptedIOException,
+                -> return true
+            }
+            val msg = (t.message ?: "").lowercase()
+            if (msg.contains("timed out") ||
+                msg.contains("timeout") ||
+                msg.contains("getsockopt") ||
+                msg.contains("connection reset") ||
+                msg.contains("connection refused") ||
+                msg.contains("broken pipe") ||
+                msg.contains("network is unreachable") ||
+                msg.contains("software caused connection abort") ||
+                msg.contains("http 429") ||
+                msg.contains("http 502") ||
+                msg.contains("http 503") ||
+                msg.contains("http 504") ||
+                msg.contains("временная ошибка")
+            ) {
+                return true
+            }
+            t = t.cause
+        }
+        return false
     }
 
     private fun isGitLfsPointer(path: Path): Boolean {
