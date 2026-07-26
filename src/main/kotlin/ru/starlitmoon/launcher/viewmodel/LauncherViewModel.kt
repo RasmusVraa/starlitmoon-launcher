@@ -140,6 +140,8 @@ class LauncherViewModel(
     /** Full update page shown; can be dismissed while download continues. */
     var clientUpdateVisible by mutableStateOf(false)
     private var updatePhase: ClientUpdatePhase = ClientUpdatePhase.Prep
+    /** Bumped on clear — drops stale Swing invokeLater progress from finished IO work. */
+    private var progressEpoch = 0
 
     /** Pause/Cancel only apply to pack file downloads, not NeoForge/client prep. */
     val updatePhaseIsDownload: Boolean
@@ -153,6 +155,13 @@ class LauncherViewModel(
 
     val isClientUpdateBusy: Boolean
         get() = clientUpdate != null
+
+    private fun phaseRank(phase: ClientUpdatePhase): Int = when (phase) {
+        ClientUpdatePhase.Prep -> 0
+        ClientUpdatePhase.Download -> 1
+        ClientUpdatePhase.Verify -> 2
+        ClientUpdatePhase.Client -> 3
+    }
 
     var sidebarExpanded by mutableStateOf(initialConfig.sidebarExpanded)
 
@@ -793,16 +802,22 @@ class LauncherViewModel(
                 }
                 val launchPack = detail.withGithubMeta(syncMeta)
                 // Loader (NeoForge/Fabric) — только после полной установки файлов сборки.
+                // yield: дать Swing обработать UI до тяжёлой установки (и отбросить поздний «Сборка готова»).
                 beginClientUpdate(ClientUpdatePhase.Client, "Установка NeoForge / лоадера…", 0.05f)
+                yield()
                 val loaderId = ensurePackLoader(launchPack) { msg, frac ->
                     reportLaunchProgress(msg, frac, phaseOverride = ClientUpdatePhase.Client)
                 }
-                if (!loaderId.isNullOrBlank()) {
-                    beginClientUpdate(ClientUpdatePhase.Client, "Подготовка клиента…", 0.40f)
-                    ensurePackClient(loaderId) { msg, frac ->
-                        reportLaunchProgress(msg, frac, phaseOverride = ClientUpdatePhase.Client)
-                    }
+                beginClientUpdate(ClientUpdatePhase.Client, "Подготовка клиента…", 0.40f)
+                yield()
+                ensurePackClient(loaderId) { msg, frac ->
+                    reportLaunchProgress(msg, frac, phaseOverride = ClientUpdatePhase.Client)
                 }
+                reportLaunchProgress(
+                    "Сборка и лоадер установлены",
+                    1f,
+                    phaseOverride = ClientUpdatePhase.Client,
+                )
                 launchPack
             }
             if (result.isSuccess) {
@@ -810,12 +825,15 @@ class LauncherViewModel(
                 infoMessage = "Сборка «${updated.name ?: updated.slug}» обновлена"
                 packUiRevision++
                 fetchModpacks(force = true)
+                delay(700)
             } else {
                 val err = result.exceptionOrNull()
                 errorMessage = when (err) {
                     is DownloadCancelledException -> "Скачивание отменено"
                     else -> err?.message ?: "Не удалось обновить сборку"
                 }
+                // Keep the page a moment so the error is readable before dismiss.
+                delay(1_200)
             }
             clearLaunchProgress()
             downloadPaused = false
@@ -900,15 +918,23 @@ class LauncherViewModel(
     private suspend fun ensurePackLoader(
         pack: ModpackDto,
         onProgress: (String, Float?) -> Unit,
-    ): String? {
+    ): String {
+        val loader = pack.loader?.lowercase()?.ifBlank { null } ?: "vanilla"
         val mcVersion = pack.mcVersion?.trim()?.ifBlank { null }
             ?: configState.minecraftVersionId.trim().ifBlank { null }
-            ?: return null
-        val loader = pack.loader?.lowercase()?.ifBlank { null } ?: "vanilla"
+            ?: configState.defaultMcVersion.trim().ifBlank { null }
+            ?: error("Не указана версия Minecraft для установки лоадера (${pack.slug ?: pack.name})")
         val loaderVersion = pack.loaderVersion?.trim()?.ifBlank { null }
-        val launcher = MinecraftLauncher(configState)
-        return launcher.resolveLaunchVersionId(mcVersion, loader, loaderVersion) { msg, frac ->
-            onProgress(msg, frac)
+        onProgress("Установка лоадера $loader ($mcVersion)…", 0.02f)
+        // Stay off the Swing thread for network / NeoForge installer process.
+        return withContext(Dispatchers.IO) {
+            MinecraftLauncher(configState).resolveLaunchVersionId(
+                mcVersion,
+                loader,
+                loaderVersion,
+            ) { msg, frac ->
+                onProgress(msg, frac)
+            }
         }
     }
 
@@ -917,9 +943,11 @@ class LauncherViewModel(
         versionId: String,
         onProgress: (String, Float?) -> Unit,
     ) {
-        MinecraftLauncher(configState).ensureVersion(versionId) { msg, frac ->
-            onProgress(msg, frac)
-        }.getOrElse { throw it }
+        withContext(Dispatchers.IO) {
+            MinecraftLauncher(configState).ensureVersion(versionId) { msg, frac ->
+                onProgress(msg, frac)
+            }.getOrElse { throw it }
+        }
     }
 
     fun deleteLocalModpack(pack: ModpackDto) {
@@ -995,6 +1023,7 @@ class LauncherViewModel(
     }
 
     private fun clearLaunchProgress() {
+        progressEpoch++
         launchProgress = null
         launchProgressFraction = null
         clientUpdate = null
@@ -1005,6 +1034,8 @@ class LauncherViewModel(
     }
 
     private fun beginClientUpdate(phase: ClientUpdatePhase, message: String, overall: Float = 0f) {
+        // Invalidate queued Download progress ("Сборка готова") so it cannot overwrite Client.
+        progressEpoch++
         updatePhase = phase
         speedSampleBytes = 0L
         speedSampleAtMs = 0L
@@ -1019,9 +1050,20 @@ class LauncherViewModel(
         event: ProgressEvent? = null,
         phaseOverride: ClientUpdatePhase? = null,
     ) {
-        val phase = phaseOverride ?: updatePhase
+        val epoch = progressEpoch
+        val requested = phaseOverride ?: updatePhase
+        // Never let a late Download callback rewind past Client / Verify.
+        val phase = if (
+            clientUpdate != null &&
+            phaseRank(requested) < phaseRank(updatePhase)
+        ) {
+            updatePhase
+        } else {
+            requested
+        }
         updatePhase = phase
         val apply = {
+            if (epoch == progressEpoch) {
             launchProgress = msg
             if (frac != null) launchProgressFraction = frac
 
@@ -1104,6 +1146,7 @@ class LauncherViewModel(
                         else -> 0
                     },
             )
+            }
         }
         if (SwingUtilities.isEventDispatchThread()) apply()
         else SwingUtilities.invokeLater(apply)
@@ -1192,13 +1235,14 @@ class LauncherViewModel(
                 }
                 if (loaderId.isFailure) {
                     errorMessage = loaderId.exceptionOrNull()?.message ?: "Не удалось установить лоадер"
+                    delay(1_200)
                     clearLaunchProgress()
                     downloadPaused = false
                     isLoading = false
                     return@launch
                 }
-                val installedLoaderId = loaderId.getOrNull()?.trim()?.ifBlank { null }
-                if (!installedLoaderId.isNullOrBlank()) {
+                val installedLoaderId = loaderId.getOrNull()?.trim().orEmpty()
+                if (installedLoaderId.isNotEmpty()) {
                     resolvedVersionId = installedLoaderId
                     // Avoid re-running NeoForge installer inside launch().
                     loader = "vanilla"

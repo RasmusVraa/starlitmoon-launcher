@@ -116,8 +116,16 @@ class ModLoaderInstaller(
         val id = "neoforge-$nfVer"
         val profileFile = config.versionsDir.resolve(id).resolve("$id.json")
         if (profileFile.exists()) {
-            onProgress("NeoForge уже установлен ($id)", 0.95f)
-            return id
+            val ok = runCatching {
+                val body = profileFile.toFile().readText()
+                body.contains("mainClass") && body.length > 200
+            }.getOrDefault(false)
+            if (ok) {
+                onProgress("NeoForge уже установлен ($id)", 0.95f)
+                return id
+            }
+            // Broken / incomplete profile from a previous failed install — reinstall.
+            runCatching { Files.deleteIfExists(profileFile) }
         }
 
         val cacheDir = config.dataDir.resolve("cache").apply { createDirectories() }
