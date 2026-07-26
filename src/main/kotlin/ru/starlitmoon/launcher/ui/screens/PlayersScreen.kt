@@ -41,6 +41,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -180,7 +181,6 @@ private fun PlayerCard(vm: LauncherViewModel, player: PublicPlayerDto) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .height(148.dp)
             .clip(RoundedCornerShape(StarlitDimens.Radius))
             .background(StarlitColors.Surface)
             .border(
@@ -195,15 +195,15 @@ private fun PlayerCard(vm: LauncherViewModel, player: PublicPlayerDto) {
             .clickable { vm.openPublicPlayer(name) }
             .padding(horizontal = 8.dp, vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Box {
-            NetworkAvatar(url = avatar, fallbackName = name, size = 56.dp)
+            NetworkAvatar(url = avatar, fallbackName = name, size = 52.dp)
             if (online) {
                 Box(
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
-                        .size(12.dp)
+                        .size(11.dp)
                         .clip(CircleShape)
                         .background(StarlitColors.Online)
                         .border(2.dp, StarlitColors.Surface, CircleShape),
@@ -211,9 +211,7 @@ private fun PlayerCard(vm: LauncherViewModel, player: PublicPlayerDto) {
             }
         }
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(18.dp),
+            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center,
         ) {
@@ -221,27 +219,29 @@ private fun PlayerCard(vm: LauncherViewModel, player: PublicPlayerDto) {
                 name.ifBlank { "-" },
                 color = StarlitColors.Text,
                 fontWeight = FontWeight.SemiBold,
-                fontSize = 13.sp,
-                maxLines = 1,
+                fontSize = 12.sp,
+                lineHeight = 14.sp,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center,
                 modifier = Modifier.weight(1f, fill = false),
             )
             if (player.badgeVisible != false && player.activeBadge != null) {
                 Text(
                     player.activeBadge.emoji.orEmpty(),
-                    fontSize = 12.sp,
-                    modifier = Modifier.padding(start = 4.dp),
+                    fontSize = 11.sp,
+                    modifier = Modifier.padding(start = 3.dp),
                 )
             }
         }
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(22.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            ranks.take(2).forEach { RankPill(it.labelRu, it) }
+        if (ranks.isNotEmpty()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                ranks.take(2).forEach { RankPill(it.labelRu, it, compact = true) }
+            }
         }
     }
 }
@@ -590,17 +590,20 @@ private fun CommentCard(vm: LauncherViewModel, comment: ProfileCommentDto, viewe
 }
 
 @Composable
-private fun RankPill(label: String, style: PlayerRanks.Style) {
+private fun RankPill(label: String, style: PlayerRanks.Style, compact: Boolean = false) {
+    val h = if (compact) 18.dp else 22.dp
+    val padH = if (compact) 8.dp else 10.dp
+    val fs = if (compact) 10.sp else 11.sp
     Box(
         modifier = Modifier
-            .height(22.dp)
+            .height(h)
             .clip(RoundedCornerShape(999.dp))
             .background(style.background)
             .border(1.dp, style.border, RoundedCornerShape(999.dp))
-            .padding(horizontal = 10.dp),
+            .padding(horizontal = padH),
         contentAlignment = Alignment.Center,
     ) {
-        Text(label, color = style.foreground, fontSize = 11.sp, lineHeight = 11.sp, fontWeight = FontWeight.SemiBold)
+        Text(label, color = style.foreground, fontSize = fs, lineHeight = fs, fontWeight = FontWeight.SemiBold)
     }
 }
 
