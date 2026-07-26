@@ -154,11 +154,11 @@ private fun PublicPlayersList(vm: LauncherViewModel) {
             }
             else -> {
                 LazyVerticalGrid(
-                    columns = GridCells.Adaptive(minSize = 168.dp),
+                    columns = GridCells.Adaptive(minSize = 140.dp),
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(bottom = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     items(filtered, key = { it.uuid ?: it.name.orEmpty() }) { player ->
                         PlayerCard(vm, player)
@@ -173,14 +173,14 @@ private fun PublicPlayersList(vm: LauncherViewModel) {
 @Composable
 private fun PlayerCard(vm: LauncherViewModel, player: PublicPlayerDto) {
     val name = player.name.orEmpty()
-    val avatar = vm.playerAvatarUrl(name, player.uuid, player.skinTextureHash, player.skinUrl, 80)
+    val avatar = vm.playerAvatarUrl(name, player.uuid, player.skinTextureHash, player.skinUrl, 64)
     val ranks = PlayerRanks.normalize(player.ranks)
     val online = player.online && !player.banned
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .height(198.dp)
+            .height(148.dp)
             .clip(RoundedCornerShape(StarlitDimens.Radius))
             .background(StarlitColors.Surface)
             .border(
@@ -193,17 +193,17 @@ private fun PlayerCard(vm: LauncherViewModel, player: PublicPlayerDto) {
                 RoundedCornerShape(StarlitDimens.Radius),
             )
             .clickable { vm.openPublicPlayer(name) }
-            .padding(horizontal = 12.dp, vertical = 12.dp),
+            .padding(horizontal = 8.dp, vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Box {
-            NetworkAvatar(url = avatar, fallbackName = name, size = 72.dp)
+            NetworkAvatar(url = avatar, fallbackName = name, size = 56.dp)
             if (online) {
                 Box(
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
-                        .size(14.dp)
+                        .size(12.dp)
                         .clip(CircleShape)
                         .background(StarlitColors.Online)
                         .border(2.dp, StarlitColors.Surface, CircleShape),
@@ -213,15 +213,15 @@ private fun PlayerCard(vm: LauncherViewModel, player: PublicPlayerDto) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(22.dp),
+                .height(18.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center,
         ) {
             Text(
-                name.ifBlank { "—" },
+                name.ifBlank { "-" },
                 color = StarlitColors.Text,
                 fontWeight = FontWeight.SemiBold,
-                fontSize = 14.sp,
+                fontSize = 13.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f, fill = false),
@@ -229,35 +229,22 @@ private fun PlayerCard(vm: LauncherViewModel, player: PublicPlayerDto) {
             if (player.badgeVisible != false && player.activeBadge != null) {
                 Text(
                     player.activeBadge.emoji.orEmpty(),
-                    fontSize = 13.sp,
-                    modifier = Modifier.padding(start = 6.dp),
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(start = 4.dp),
                 )
             }
         }
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(24.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+                .height(22.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             ranks.take(2).forEach { RankPill(it.labelRu, it) }
         }
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(16.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            if (player.banned) {
-                Text("Забанен", color = StarlitColors.Offline, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-            }
-        }
     }
 }
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
 private fun PublicProfileDetail(vm: LauncherViewModel) {
     val player = vm.publicProfile
     val viewer = vm.publicProfileViewer
