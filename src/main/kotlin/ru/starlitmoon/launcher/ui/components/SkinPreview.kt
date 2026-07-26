@@ -3,7 +3,8 @@ package ru.starlitmoon.launcher.ui.components
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -27,30 +28,42 @@ import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.withContext
+import org.jetbrains.skia.Bitmap as SkiaBitmap
+import org.jetbrains.skia.ColorAlphaType
+import org.jetbrains.skia.ColorType
 import org.jetbrains.skia.Image as SkiaImage
+import org.jetbrains.skia.ImageInfo
 import ru.starlitmoon.launcher.ui.theme.StarlitColors
 import java.awt.AlphaComposite
 import java.awt.RenderingHints
 import java.awt.image.BufferedImage
-import java.io.ByteArrayOutputStream
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.nio.file.Files
 import java.nio.file.Path
 import javax.imageio.ImageIO
 import kotlin.io.path.exists
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**
  * Interactive 3D skin preview: full player body from PNG (classic + slim), optional cape,
  * drag to rotate. Software-rasterized — no WebGL / native deps.
+ *
+ * Yaw updates on the UI thread immediately; rasterization runs on Default with conflated
+ * frames so drag stays smooth without blocking scroll when the gesture is vertical.
  */
 @Composable
 fun SkinPreview3D(
@@ -66,9 +79,11 @@ fun SkinPreview3D(
     showHint: Boolean = true,
 ) {
     var yaw by remember { mutableFloatStateOf(28f) }
-    var pitch by remember { mutableFloatStateOf(-6f) }
+    var pitch by remember { mutableFloatStateOf(-8f) }
     var frame by remember { mutableStateOf<ImageBitmap?>(null) }
     var loaded by remember { mutableStateOf<LoadedSkin?>(null) }
+    val density = LocalDensity.current
+    val touchSlop = with(density) { 8.dp.toPx() }
 
     LaunchedEffect(skinPath, capePath, slim, revision) {
         val skin = skinPath
@@ -87,7 +102,8 @@ fun SkinPreview3D(
                     }.getOrNull()
                 }
                 val isSlim = slim ?: SkinModelRenderer.detectSlim(skinAtlas)
-                LoadedSkin(skinAtlas, capeAtlas, isSlim)
+                val mesh = SkinModelRenderer.buildMesh(skinAtlas, capeAtlas, isSlim)
+                LoadedSkin(mesh, isSlim)
             }.getOrNull()
         }
         if (loaded == null) frame = null
@@ -98,26 +114,30 @@ fun SkinPreview3D(
             frame = null
             return@LaunchedEffect
         }
-        val px = (previewSize.value * 1.15f).roundToInt().coerceIn(160, 420)
-        val outW = px
-        val outH = (px * 1.25f).roundToInt()
+        // Sensible software-raster res: sharp enough, cheap enough for ~30–60fps drag.
+        val outW = (previewSize.value * 0.85f).roundToInt().coerceIn(140, 280)
+        val outH = (outW * 1.22f).roundToInt()
+        val buffers = SkinModelRenderer.Buffers(outW, outH)
+        val bgra = ByteArray(outW * outH * 4)
+
         snapshotFlow { yaw to pitch }
             .distinctUntilChanged()
-            .collectLatest { (y, p) ->
-                frame = withContext(Dispatchers.Default) {
+            .conflate()
+            .collect { (y, p) ->
+                val bmp = withContext(Dispatchers.Default) {
                     runCatching {
-                        val buf = SkinModelRenderer.render(
-                            skin = data.skin,
-                            cape = data.cape,
-                            slim = data.slim,
+                        val pixels = SkinModelRenderer.render(
+                            mesh = data.mesh,
                             yawDeg = y,
                             pitchDeg = p,
                             outW = outW,
                             outH = outH,
+                            buffers = buffers,
                         )
-                        toBitmap(SkinModelRenderer.pixelsToImage(buf, outW, outH))
+                        argbPixelsToBitmap(pixels, outW, outH, bgra)
                     }.getOrNull()
                 }
+                if (bmp != null) frame = bmp
             }
     }
 
@@ -134,16 +154,42 @@ fun SkinPreview3D(
                 ),
             )
             .border(1.dp, Color(0x33788CDC), RoundedCornerShape(16.dp))
-            .pointerInput(Unit) {
-                detectDragGestures { change, drag ->
-                    change.consume()
-                    yaw += drag.x * 0.45f
-                    pitch = (pitch - drag.y * 0.32f).coerceIn(-32f, 32f)
+            .pointerInput(touchSlop) {
+                // Horizontal-dominant drag rotates; vertical-dominant gestures pass through to page scroll.
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false)
+                    var totalX = 0f
+                    var totalY = 0f
+                    var rotating = false
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull() ?: break
+                        if (!change.pressed) break
+                        val delta = change.positionChange()
+                        if (!rotating) {
+                            totalX += delta.x
+                            totalY += delta.y
+                            if (abs(totalX) > touchSlop || abs(totalY) > touchSlop) {
+                                if (abs(totalX) >= abs(totalY) * 1.15f) {
+                                    rotating = true
+                                    change.consume()
+                                    yaw += totalX * 0.55f
+                                    pitch = (pitch - totalY * 0.28f).coerceIn(-35f, 35f)
+                                } else {
+                                    // Vertical scroll wins — stop claiming this gesture.
+                                    break
+                                }
+                            }
+                        } else {
+                            change.consume()
+                            yaw += delta.x * 0.55f
+                            pitch = (pitch - delta.y * 0.28f).coerceIn(-35f, 35f)
+                        }
+                    }
                 }
             },
         contentAlignment = Alignment.Center,
     ) {
-        // Soft stage glow (matches website skin stage atmosphere).
         Box(
             Modifier
                 .fillMaxSize()
@@ -162,7 +208,7 @@ fun SkinPreview3D(
             Image(
                 bitmap = bmp,
                 contentDescription = null,
-                modifier = Modifier.fillMaxSize().padding(8.dp),
+                modifier = Modifier.fillMaxSize().padding(6.dp),
                 filterQuality = FilterQuality.None,
                 contentScale = ContentScale.Fit,
             )
@@ -184,8 +230,7 @@ fun SkinPreview3D(
 }
 
 private data class LoadedSkin(
-    val skin: SkinModelRenderer.Atlas,
-    val cape: SkinModelRenderer.Atlas?,
+    val mesh: SkinModelRenderer.Mesh,
     val slim: Boolean,
 )
 
@@ -212,7 +257,7 @@ fun LocalSkinFace(
                 g.drawImage(faceImg, 0, 0, null)
                 if (hat != null && hasVisiblePixels(hat)) g.drawImage(hat, 0, 0, null)
                 g.dispose()
-                toBitmap(out)
+                bufferedToBitmap(out)
             }.getOrNull()
         }
     }
@@ -285,8 +330,31 @@ private fun hasVisiblePixels(img: BufferedImage): Boolean {
     return false
 }
 
-private fun toBitmap(img: BufferedImage): ImageBitmap {
-    val baos = ByteArrayOutputStream()
-    ImageIO.write(img, "PNG", baos)
-    return SkiaImage.makeFromEncoded(baos.toByteArray()).toComposeImageBitmap()
+/** Fast ARGB int[] → Compose ImageBitmap via Skia (no PNG encode/decode). */
+private fun argbPixelsToBitmap(pixels: IntArray, w: Int, h: Int, bgraScratch: ByteArray): ImageBitmap {
+    require(bgraScratch.size >= w * h * 4)
+    val buf = ByteBuffer.wrap(bgraScratch).order(ByteOrder.LITTLE_ENDIAN)
+    buf.clear()
+    val n = w * h
+    for (i in 0 until n) {
+        val p = pixels[i]
+        // BGRA_8888 little-endian
+        buf.put((p and 0xFF).toByte())
+        buf.put(((p ushr 8) and 0xFF).toByte())
+        buf.put(((p ushr 16) and 0xFF).toByte())
+        buf.put(((p ushr 24) and 0xFF).toByte())
+    }
+    val info = ImageInfo(w, h, ColorType.BGRA_8888, ColorAlphaType.UNPREMUL)
+    val skBitmap = SkiaBitmap()
+    skBitmap.allocPixels(info)
+    skBitmap.installPixels(info, bgraScratch, w * 4)
+    return SkiaImage.makeFromBitmap(skBitmap).toComposeImageBitmap()
+}
+
+private fun bufferedToBitmap(img: BufferedImage): ImageBitmap {
+    val w = img.width
+    val h = img.height
+    val pixels = IntArray(w * h)
+    img.getRGB(0, 0, w, h, pixels, 0, w)
+    return argbPixelsToBitmap(pixels, w, h, ByteArray(w * h * 4))
 }
