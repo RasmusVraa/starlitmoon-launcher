@@ -691,14 +691,37 @@ class LauncherViewModel(
                         if (source == null || !source.exists()) {
                             error("Файл плаща не найден")
                         }
+                        LauncherLog.info("setLibraryCape: skin=$skinId file=${source!!.toAbsolutePath()}")
                     }
+                    // Persist locally first — never gate UI success on site upload.
                     skinLibrary.setCape(skinId, source)
-                    // Always activate this skin after cape change so preview / active_cape.png /
-                    // offline bridge / site sync all see the cape (or cleared cape).
-                    applyLibrarySkin(skinId, upload = isLoggedIn && userName.isNotBlank())
+                    // Activate so preview / active_cape.png / offline bridge see the cape.
+                    skinLibrary.select(skinId)
+                }
+                refreshSkinLibraryState()
+                val shouldUpload = isLoggedIn && userName.isNotBlank()
+                if (shouldUpload) {
+                    withContext(Dispatchers.IO) {
+                        runCatching {
+                            applyLibrarySkin(skinId, upload = true)
+                        }.onFailure { err ->
+                            LauncherLog.warn("setLibraryCape site sync: ${err.message}")
+                            if (!clearing) {
+                                infoMessage =
+                                    "Плащ сохранён локально (сайт: ${err.message?.take(80) ?: "ошибка"})"
+                            }
+                        }
+                    }
                 }
             }.onSuccess {
-                infoMessage = if (clearing) "Плащ убран" else "Плащ сохранён"
+                if (infoMessage.isNullOrBlank() ||
+                    infoMessage?.startsWith("Плащ сохранён локально") != true
+                ) {
+                    infoMessage = if (clearing) "Плащ убран" else "Плащ сохранён"
+                }
+                LauncherLog.info(
+                    "setLibraryCape ok: skin=$skinId clearing=$clearing activeCape=${activeCapePath != null}",
+                )
             }.onFailure { handleError(it) }
             skinBusy = false
         }
