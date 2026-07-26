@@ -19,6 +19,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -60,7 +61,7 @@ import kotlin.math.roundToInt
 
 /**
  * Interactive 3D skin preview: full player body from PNG (classic + slim), optional cape,
- * drag to rotate. Software-rasterized — no WebGL / native deps.
+ * idle walk (skinview3d WalkingAnimation), drag to rotate. Software-rasterized.
  *
  * Yaw updates on the UI thread immediately; rasterization runs on Default with conflated
  * frames so drag stays smooth without blocking scroll when the gesture is vertical.
@@ -72,7 +73,7 @@ fun SkinPreview3D(
     slim: Boolean? = null,
     modifier: Modifier = Modifier,
     previewSize: Dp = 220.dp,
-    @Suppress("UNUSED_PARAMETER") animated: Boolean = false,
+    animated: Boolean = true,
     @Suppress("UNUSED_PARAMETER") skinUrl: String? = null,
     @Suppress("UNUSED_PARAMETER") username: String = "Steve",
     revision: Int = 0,
@@ -80,6 +81,7 @@ fun SkinPreview3D(
 ) {
     var yaw by remember { mutableFloatStateOf(28f) }
     var pitch by remember { mutableFloatStateOf(-8f) }
+    var animProgress by remember { mutableFloatStateOf(0f) }
     var frame by remember { mutableStateOf<ImageBitmap?>(null) }
     var loaded by remember { mutableStateOf<LoadedSkin?>(null) }
     val density = LocalDensity.current
@@ -109,36 +111,75 @@ fun SkinPreview3D(
         if (loaded == null) frame = null
     }
 
-    LaunchedEffect(loaded, previewSize) {
+    // skinview3d WalkingAnimation clock — speed 1.15 like the website.
+    LaunchedEffect(animated, loaded) {
+        if (!animated || loaded == null) return@LaunchedEffect
+        var last = 0L
+        while (true) {
+            withFrameNanos { now ->
+                if (last != 0L) {
+                    val dt = ((now - last).coerceAtMost(50_000_000L)) / 1_000_000_000f
+                    animProgress += dt * 1.15f
+                }
+                last = now
+            }
+        }
+    }
+
+    LaunchedEffect(loaded, previewSize, animated) {
         val data = loaded ?: run {
             frame = null
             return@LaunchedEffect
         }
-        // Sensible software-raster res: sharp enough, cheap enough for ~30–60fps drag.
+        // Sensible software-raster res: sharp enough, cheap enough for ~30fps walk + drag.
         val outW = (previewSize.value * 0.85f).roundToInt().coerceIn(140, 280)
         val outH = (outW * 1.22f).roundToInt()
         val buffers = SkinModelRenderer.Buffers(outW, outH)
         val bgra = ByteArray(outW * outH * 4)
 
-        snapshotFlow { yaw to pitch }
-            .distinctUntilChanged()
-            .conflate()
-            .collect { (y, p) ->
-                val bmp = withContext(Dispatchers.Default) {
-                    runCatching {
-                        val pixels = SkinModelRenderer.render(
-                            mesh = data.mesh,
-                            yawDeg = y,
-                            pitchDeg = p,
-                            outW = outW,
-                            outH = outH,
-                            buffers = buffers,
-                        )
-                        argbPixelsToBitmap(pixels, outW, outH, bgra)
-                    }.getOrNull()
+        if (animated) {
+            snapshotFlow { Triple(yaw, pitch, animProgress) }
+                .conflate()
+                .collect { (y, p, progress) ->
+                    val bmp = withContext(Dispatchers.Default) {
+                        runCatching {
+                            val pose = SkinModelRenderer.WalkPose.fromProgress(progress)
+                            val pixels = SkinModelRenderer.render(
+                                mesh = data.mesh,
+                                yawDeg = y,
+                                pitchDeg = p,
+                                outW = outW,
+                                outH = outH,
+                                buffers = buffers,
+                                pose = pose,
+                            )
+                            argbPixelsToBitmap(pixels, outW, outH, bgra)
+                        }.getOrNull()
+                    }
+                    if (bmp != null) frame = bmp
                 }
-                if (bmp != null) frame = bmp
-            }
+        } else {
+            snapshotFlow { yaw to pitch }
+                .distinctUntilChanged()
+                .conflate()
+                .collect { (y, p) ->
+                    val bmp = withContext(Dispatchers.Default) {
+                        runCatching {
+                            val pixels = SkinModelRenderer.render(
+                                mesh = data.mesh,
+                                yawDeg = y,
+                                pitchDeg = p,
+                                outW = outW,
+                                outH = outH,
+                                buffers = buffers,
+                                pose = SkinModelRenderer.WalkPose(),
+                            )
+                            argbPixelsToBitmap(pixels, outW, outH, bgra)
+                        }.getOrNull()
+                    }
+                    if (bmp != null) frame = bmp
+                }
+        }
     }
 
     Box(
