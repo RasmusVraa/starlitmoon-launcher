@@ -769,6 +769,11 @@ fun SettingsScreen(vm: LauncherViewModel) {
     var vsync by remember(base) { mutableStateOf(base.vsync) }
     var discordRpcEnabled by remember(base) { mutableStateOf(base.discordRpcEnabled) }
     var animationsEnabled by remember(base) { mutableStateOf(base.animationsEnabled) }
+    var speedLimitText by remember(base.downloadSpeedLimitKBps) {
+        mutableStateOf(
+            if (base.downloadSpeedLimitKBps <= 0) "" else base.downloadSpeedLimitKBps.toString(),
+        )
+    }
     var saveHint by remember { mutableStateOf(false) }
 
     fun memoryLabel(): String = when {
@@ -922,25 +927,22 @@ fun SettingsScreen(vm: LauncherViewModel) {
 
                 SettingsRow(
                     title = "Лимит скачивания",
-                    subtitle = if (vm.downloadSpeedLimitKBps <= 0) {
-                        "Без ограничения"
-                    } else {
-                        "${vm.downloadSpeedLimitKBps} КБ/с"
+                    subtitle = when (val n = speedLimitText.trim().toIntOrNull()) {
+                        null, 0 -> "0 = без ограничения"
+                        else -> "$n КБ/с"
                     },
                     icon = { Icon(Icons.Default.Speed, null, tint = StarlitColors.Gold) },
                 ) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        listOf(0, 512, 1024, 2048, 5120).forEach { kb ->
-                            val active = vm.downloadSpeedLimitKBps == kb || (kb == 0 && vm.downloadSpeedLimitKBps <= 0)
-                            StarlitSecondaryButton(
-                                text = if (kb == 0) "∞" else "${kb / 1024}М",
-                                onClick = { vm.updateDownloadSpeedLimitKBps(kb) },
-                                compact = true,
-                                modifier = Modifier.width(48.dp),
-                                enabled = !active,
-                            )
-                        }
-                    }
+                    StarlitTextField(
+                        value = speedLimitText,
+                        onValueChange = { raw ->
+                            val digits = raw.filter { it.isDigit() }.take(6)
+                            speedLimitText = digits
+                            vm.updateDownloadSpeedLimitKBps(digits.toIntOrNull() ?: 0)
+                        },
+                        label = "КБ/с",
+                        modifier = Modifier.width(110.dp),
+                    )
                 }
 
                 HorizontalDivider(color = StarlitColors.Border)

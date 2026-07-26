@@ -415,7 +415,7 @@ fun StarlitTextField(
     value: String,
     onValueChange: (String) -> Unit,
     label: String,
-    modifier: Modifier = Modifier,
+    modifier: Modifier = Modifier.fillMaxWidth(),
     isPassword: Boolean = false,
     readOnly: Boolean = false,
 ) {
@@ -423,7 +423,7 @@ fun StarlitTextField(
         value = value,
         onValueChange = onValueChange,
         label = { Text(label) },
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier,
         singleLine = true,
         readOnly = readOnly,
         visualTransformation = if (isPassword) {

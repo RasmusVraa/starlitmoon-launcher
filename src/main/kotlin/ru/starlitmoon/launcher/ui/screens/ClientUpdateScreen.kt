@@ -1,7 +1,6 @@
 package ru.starlitmoon.launcher.ui.screens
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -48,10 +47,8 @@ private val PanelBg = Color(0xFF101218)
 fun ClientUpdateScreen(
     progress: ClientUpdateProgress,
     paused: Boolean = false,
-    speedLimitKBps: Int = 0,
     onPauseToggle: (() -> Unit)? = null,
     onCancel: (() -> Unit)? = null,
-    onSpeedLimitChange: ((Int) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -98,7 +95,7 @@ fun ClientUpdateScreen(
 
         Spacer(Modifier.height(20.dp))
 
-        if (onPauseToggle != null || onCancel != null || onSpeedLimitChange != null) {
+        if (onPauseToggle != null || onCancel != null) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -118,30 +115,6 @@ fun ClientUpdateScreen(
                         compact = true,
                         danger = true,
                     )
-                }
-                if (onSpeedLimitChange != null) {
-                    Spacer(Modifier.weight(1f))
-                    Text("Лимит", color = StarlitColors.TextMuted, fontSize = 12.sp)
-                    listOf(0, 512, 1024, 2048, 5120).forEach { kb ->
-                        val label = when (kb) {
-                            0 -> "∞"
-                            512 -> "0.5"
-                            1024 -> "1"
-                            2048 -> "2"
-                            else -> "5"
-                        }
-                        val active = speedLimitKBps == kb || (kb == 0 && speedLimitKBps <= 0)
-                        Text(
-                            if (kb == 0) label else "$label МБ/с",
-                            color = if (active) StarlitColors.Gold else StarlitColors.TextMuted,
-                            fontSize = 12.sp,
-                            fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .clickable { onSpeedLimitChange(kb) }
-                                .padding(horizontal = 8.dp, vertical = 6.dp),
-                        )
-                    }
                 }
             }
             Spacer(Modifier.height(18.dp))
