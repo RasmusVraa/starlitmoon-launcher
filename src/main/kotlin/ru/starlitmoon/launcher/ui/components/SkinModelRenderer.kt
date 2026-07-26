@@ -9,7 +9,7 @@ import kotlin.math.sin
 /**
  * Software Minecraft player model renderer (classic + slim + cape).
  * Geometry / UVs follow skinview3d / Java Edition conventions.
- * Pure JVM — no OpenGL / native deps. Used by [SkinPreview3D].
+ * Pure JVM - no OpenGL / native deps. Used by [SkinPreview3D].
  */
 internal object SkinModelRenderer {
 
@@ -36,7 +36,7 @@ internal object SkinModelRenderer {
         CAPE,
     }
 
-    /** Prebuilt mesh — build once per skin, reuse across frames. */
+    /** Prebuilt mesh - build once per skin, reuse across frames. */
     class Mesh internal constructor(
         internal val quads: Array<Quad>,
     )
@@ -58,7 +58,7 @@ internal object SkinModelRenderer {
     }
 
     /**
-     * Limb / cape joint angles in radians — matches skinview3d WalkingAnimation
+     * Limb / cape joint angles in radians - matches skinview3d WalkingAnimation
      * (progress advances by deltaSeconds * speed; site uses speed 1.15).
      */
     data class WalkPose(
@@ -169,7 +169,7 @@ internal object SkinModelRenderer {
 
         fun transformInto(x: Float, y: Float, z: Float, out: FloatArray) {
             val lyLocal = y - pivotY
-            // Yaw around Y, then pitch around X — orbit about torso.
+            // Yaw around Y, then pitch around X - orbit about torso.
             val x1 = x * cy + z * sy
             val z1 = -x * sy + z * cy
             out[0] = x1
@@ -190,7 +190,7 @@ internal object SkinModelRenderer {
             val e2x = t2[0] - t0[0]
             val e2y = t2[1] - t0[1]
             val e2z = t2[2] - t0[2]
-            // Camera looks toward +Z (depth = camDist − z). Outward CCW → nz faces camera.
+            // Camera looks toward +Z (depth = camDist - z). Outward CCW → nz faces camera.
             val nx = e1y * e2z - e1z * e2y
             val ny = e1z * e2x - e1x * e2z
             val nz = e1x * e2y - e1y * e2x
@@ -244,19 +244,23 @@ internal object SkinModelRenderer {
      * Apply joint transform into [ox]/[oy]/[oz] (4 verts).
      *
      * Limbs/head: rest-pose world space, rotated around shoulder/hip/neck pivots.
-     * Cape: local rest box + Rx(capeRx)*Ry(PI) around shoulders (skinview3d).
+     * Cape: world-space hang (v1.9.3/1.9.5). Do NOT apply Ry(PI) here - that
+     * flipped winding so only the 1px edge UV showed as a strip through the body.
      */
     private fun applyPartTransform(q: Quad, pose: WalkPose, ox: FloatArray, oy: FloatArray, oz: FloatArray) {
         when (q.part) {
             Part.CAPE -> {
-                // skinview3d CapeObject/PlayerObject: group at shoulders (0,24,-2),
-                // rotation.x = capeRx, rotation.y = PI. Proper Euler keeps winding;
-                // do not flip global backface culling.
-                rotatePivot(
-                    q, 0f, 24f, -2f,
-                    pose.capeRx, Math.PI.toFloat(), 0f,
-                    ox, oy, oz,
-                )
+                // Hang is baked in buildCape. Subtle walk sway around shoulders only.
+                val baseHang = (Math.PI * 0.06).toFloat()
+                val sway = pose.capeRx - baseHang
+                if (kotlin.math.abs(sway) < 1e-5f) {
+                    ox[0] = q.x0; oy[0] = q.y0; oz[0] = q.z0
+                    ox[1] = q.x1; oy[1] = q.y1; oz[1] = q.z1
+                    ox[2] = q.x2; oy[2] = q.y2; oz[2] = q.z2
+                    ox[3] = q.x3; oy[3] = q.y3; oz[3] = q.z3
+                } else {
+                    rotatePivot(q, 0f, 24f, -2f, sway, 0f, 0f, ox, oy, oz)
+                }
             }
             Part.HEAD -> rotatePivot(q, 0f, 24f, 0f, pose.headRx, pose.headRy, 0f, ox, oy, oz)
             Part.RIGHT_ARM -> rotatePivot(q, -5f, 22f, 0f, pose.rightArmRx, 0f, pose.rightArmRz, ox, oy, oz)
@@ -272,7 +276,7 @@ internal object SkinModelRenderer {
         }
     }
 
-    /** Euler XYZ (Three.js default): R = Rz * Ry * Rx on (p − pivot), then + pivot. */
+    /** Euler XYZ (Three.js default): R = Rz * Ry * Rx on (p - pivot), then + pivot. */
     private fun rotatePivot(
         q: Quad,
         px: Float, py: Float, pz: Float,
@@ -323,7 +327,7 @@ internal object SkinModelRenderer {
         box(out, skin, 0f, 12f, 0f, 8f, 12f, 4f, 16, 16, uvW = 8, uvH = 12, uvD = 4, opaqueOnly = true, part = Part.BODY)
         box(out, skin, 0f, 12f - 0.25f, 0f, 8.5f, 12.5f, 4.5f, 16, 32, uvW = 8, uvH = 12, uvD = 4, opaqueOnly = false, part = Part.BODY)
 
-        // Right arm (player's right = −X). Center at −(4 + armW/2) so inner edge meets body at x=−4.
+        // Right arm (player's right = -X). Center at -(4 + armW/2) so inner edge meets body at x=-4.
         val rArmX = -(4f + armW / 2f)
         box(out, skin, rArmX, 12f, 0f, armW, 12f, 4f, 40, 16, uvW = armW.toInt(), uvH = 12, uvD = 4, opaqueOnly = true, part = Part.RIGHT_ARM)
         box(
@@ -339,7 +343,7 @@ internal object SkinModelRenderer {
             uvW = armW.toInt(), uvH = 12, uvD = 4, opaqueOnly = false, part = Part.LEFT_ARM,
         )
 
-        // Right / left legs — slight inset like skinview3d (±1.9)
+        // Right / left legs - slight inset like skinview3d (±1.9)
         box(out, skin, -1.9f, 0f, 0f, 4f, 12f, 4f, 0, 16, uvW = 4, uvH = 12, uvD = 4, opaqueOnly = true, part = Part.RIGHT_LEG)
         box(out, skin, -1.9f, -0.25f, 0f, 4.5f, 12.5f, 4.5f, 0, 32, uvW = 4, uvH = 12, uvD = 4, opaqueOnly = false, part = Part.RIGHT_LEG)
 
@@ -348,29 +352,82 @@ internal object SkinModelRenderer {
     }
 
     /**
-     * Solid 10x16x1 cape matching skinview3d CapeObject:
-     * BoxGeometry(10,16,1) + setCapeUVs(0,0,10,16,1), mesh at (0,-8,0.5)
-     * relative to group origin at shoulders. Hang / flip applied in
-     * [applyPartTransform] via Rx(capeRx)*Ry(PI) - preserves face winding.
+     * Standard Minecraft cape in world space (v1.9.3 / v1.9.5).
+     *
+     * skinview3d: BoxGeometry(10,16,1) + setCapeUVs(0,0,10,16,1) then group
+     * Ry(PI) so atlas *front* (1,1)-(11,17) faces outward (-Z). Emulate that
+     * with explicit faces - applying Ry(PI) to box() quads flipped winding and
+     * left only the 1px edge UV visible (pink strip through the torso).
+     *
+     * Geometry: 10x16x1 sheet behind the back, ~10.8° hang, top at shoulders.
      */
     private fun buildCape(cape: Atlas, out: MutableList<Quad>) {
-        // Rest pose (identity group rotation): top at y=24, depth centered on z=-1.5
-        // so mesh.z=0.5 relative to attach z=-2 (same as CapeObject).
-        box(
-            out, cape,
-            cx = 0f,
-            yBottom = 8f,
-            cz = -1.5f,
-            width = 10f,
-            height = 16f,
-            depth = 1f,
-            u = 0,
-            v = 0,
-            uvW = 10,
-            uvH = 16,
-            uvD = 1,
-            opaqueOnly = false,
-            part = Part.CAPE,
+        val w = 10f
+        val h = 16f
+        val d = 1f
+        val tilt = Math.toRadians(10.8).toFloat()
+        val cosT = cos(tilt)
+        val sinT = sin(tilt)
+        val topY = 24f
+        val attachZ = -2f
+        // Inset UVs slightly so nearest sampling skips magenta gutters.
+        val e = 0.001f
+
+        fun capePoint(lx: Float, lyFromTop: Float, lzOut: Float): FloatArray {
+            // lyFromTop: 0 = shoulders, h = bottom hem.
+            // lzOut: 0 = outside (-Z), d = inside (toward body / +Z).
+            val y = topY - lyFromTop * cosT - lzOut * sinT
+            val z = attachZ - lyFromTop * sinT + lzOut * cosT
+            return floatArrayOf(lx, y, z)
+        }
+
+        val x0 = -w / 2f
+        val x1 = w / 2f
+        val o00 = capePoint(x0, h, 0f)
+        val o10 = capePoint(x1, h, 0f)
+        val o11 = capePoint(x1, 0f, 0f)
+        val o01 = capePoint(x0, 0f, 0f)
+        val i00 = capePoint(x0, h, d)
+        val i10 = capePoint(x1, h, d)
+        val i11 = capePoint(x1, 0f, d)
+        val i01 = capePoint(x0, 0f, d)
+
+        // Outside (-Z): front UV (1,1)-(11,17). Winding matches body back face.
+        out += quad(
+            o10[0], o10[1], o10[2], o00[0], o00[1], o00[2], o01[0], o01[1], o01[2], o11[0], o11[1], o11[2],
+            1f + e, 17f - e, 11f - e, 17f - e, 11f - e, 1f + e, 1f + e, 1f + e,
+            cape, opaqueOnly = false, doubleSided = false, part = Part.CAPE,
+        )
+        // Inside (+Z): back UV (12,1)-(22,17)
+        out += quad(
+            i00[0], i00[1], i00[2], i10[0], i10[1], i10[2], i11[0], i11[1], i11[2], i01[0], i01[1], i01[2],
+            12f + e, 17f - e, 22f - e, 17f - e, 22f - e, 1f + e, 12f + e, 1f + e,
+            cape, opaqueOnly = false, doubleSided = false, part = Part.CAPE,
+        )
+        // Thin edges (setCapeUVs left/right/top/bottom) - solid sheet from the side.
+        // Player's right (-X): atlas (0,1)-(1,17)
+        out += quad(
+            o00[0], o00[1], o00[2], i00[0], i00[1], i00[2], i01[0], i01[1], i01[2], o01[0], o01[1], o01[2],
+            0f + e, 17f - e, 1f - e, 17f - e, 1f - e, 1f + e, 0f + e, 1f + e,
+            cape, opaqueOnly = false, doubleSided = false, part = Part.CAPE,
+        )
+        // Player's left (+X): atlas (11,1)-(12,17)
+        out += quad(
+            i10[0], i10[1], i10[2], o10[0], o10[1], o10[2], o11[0], o11[1], o11[2], i11[0], i11[1], i11[2],
+            11f + e, 17f - e, 12f - e, 17f - e, 12f - e, 1f + e, 11f + e, 1f + e,
+            cape, opaqueOnly = false, doubleSided = false, part = Part.CAPE,
+        )
+        // Top (shoulders): atlas (1,0)-(11,1)
+        out += quad(
+            o01[0], o01[1], o01[2], i01[0], i01[1], i01[2], i11[0], i11[1], i11[2], o11[0], o11[1], o11[2],
+            1f + e, 1f - e, 11f - e, 1f - e, 11f - e, 0f + e, 1f + e, 0f + e,
+            cape, opaqueOnly = false, doubleSided = false, part = Part.CAPE,
+        )
+        // Bottom hem: atlas (11,0)-(21,1) - Minecraft flips bottom U
+        out += quad(
+            o00[0], o00[1], o00[2], o10[0], o10[1], o10[2], i10[0], i10[1], i10[2], i00[0], i00[1], i00[2],
+            21f - e, 0f + e, 11f + e, 0f + e, 11f + e, 1f - e, 21f - e, 1f - e,
+            cape, opaqueOnly = false, doubleSided = false, part = Part.CAPE,
         )
     }
 
@@ -412,8 +469,8 @@ internal object SkinModelRenderer {
 
         // skinview3d layout:
         //   top    (u+d, v) → (u+d+w, v+d)
-        //   bottom (u+d+w, v) → (u+2w+d, v+d)   — UVs flipped on bottom
-        //   right  (u, v+d) → …                  / player's right = our −X
+        //   bottom (u+d+w, v) → (u+2w+d, v+d)   - UVs flipped on bottom
+        //   right  (u, v+d) → …                  / player's right = our -X
         //   front  (u+d, v+d) → …
         //   left   (u+d+w, v+d) → …
         //   back   (u+d+w+d, v+d) → …
@@ -468,14 +525,14 @@ internal object SkinModelRenderer {
             frontU + frontW - e, frontV, frontU, frontV,
             atlas, opaqueOnly, doubleSided, part,
         )
-        // Back (−Z)
+        // Back (-Z)
         out += quad(
             x1, y0, z0, x0, y0, z0, x0, y1, z0, x1, y1, z0,
             backU, backV + backH - e, backU + backW - e, backV + backH - e,
             backU + backW - e, backV, backU, backV,
             atlas, opaqueOnly, doubleSided, part,
         )
-        // Right (−X) — player's right
+        // Right (-X) - player's right
         out += quad(
             x0, y0, z0, x0, y0, z1, x0, y1, z1, x0, y1, z0,
             rightU, rightV + rightH - e, rightU + rightW - e, rightV + rightH - e,
@@ -496,7 +553,7 @@ internal object SkinModelRenderer {
             topU + topW - e, topV, topU, topV,
             atlas, opaqueOnly, doubleSided, part,
         )
-        // Bottom (−Y) — Minecraft flips bottom UVs (skinview3d)
+        // Bottom (-Y) - Minecraft flips bottom UVs (skinview3d)
         out += quad(
             x0, y0, z0, x1, y0, z0, x1, y0, z1, x0, y0, z1,
             bottomU + bottomW - e, bottomV, bottomU, bottomV,
@@ -550,7 +607,7 @@ internal object SkinModelRenderer {
         val s0 = focal / d0
         val s1 = focal / d1
         val s2 = focal / d2
-        // lookY is mid-body in model space; after pivot, mid is ≈0 so offset is lookY−16 (=0).
+        // lookY is mid-body in model space; after pivot, mid is ≈0 so offset is lookY-16 (=0).
         val yOff = lookY - 16f
         val ax = outW * 0.5f + a[0] * s0
         val ay = outH * 0.52f - (a[1] - yOff) * s0

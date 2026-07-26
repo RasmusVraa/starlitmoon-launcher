@@ -8,7 +8,7 @@ plugins {
 }
 
 group = "ru.starlitmoon"
-version = "1.9.6"
+version = "1.9.7"
 
 repositories {
     google()
@@ -41,6 +41,14 @@ kotlin {
     jvmToolchain(17)
 }
 
+tasks.register<JavaExec>("verifyCape") {
+    group = "verification"
+    description = "Offline cape UV/geometry checks with a synthetic atlas"
+    dependsOn("classes")
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("ru.starlitmoon.launcher.ui.components.CapeGeometryVerify")
+}
+
 compose.desktop {
     application {
         mainClass = "ru.starlitmoon.launcher.MainKt"
@@ -52,7 +60,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Exe)
             packageName = "StarlitMoonLauncher"
-            packageVersion = "1.9.6"
+            packageVersion = "1.9.7"
             description = "StarlitMoon Minecraft Launcher"
             vendor = "StarlitMoon"
             copyright = "StarlitMoon"
